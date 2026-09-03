@@ -962,10 +962,19 @@ rm -f "$REVIEW_DIR/codex-verdict" "$REVIEW_DIR/codex-class" "$REVIEW_DIR/decisio
       "$REVIEW_DIR/reservation.json" "$REVIEW_DIR/workflow-args.json" \
       "$REVIEW_DIR/backlog.json" "$REVIEW_DIR/started-at" \
       "$REVIEW_DIR/l3-run-nonce" "$REVIEW_DIR/l3-deadline" "$REVIEW_DIR/l3-pid" \
-      "$REVIEW_DIR/l3-findings.json"
+      "$REVIEW_DIR/l3-findings.json" "$REVIEW_DIR/plan-path"
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/plan-review/cli.js" mode > "$REVIEW_DIR/mode.json"
 REVIEW_MODE=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).mode)}catch{process.stdout.write("codex")}' "$REVIEW_DIR/mode.json")
 echo "[mccp:plan-review] mode=$REVIEW_MODE" 1>&2
+# review-record-linkage M3 — record the plan path ONCE, here, as the single source
+# every later call site reads (5.6b's `--plan` included). It is in the purge list
+# above, so a previous run's value can never answer for this one.
+#
+# This is a consistency device, not a provenance one: the path still comes from the
+# author's own transcription of `$ARGUMENTS` (R15). What it removes is the SECOND
+# transcription — re-typing a literal at each call site lets one run seal two
+# different plan identities, and the M3 anchor compares exactly those strings.
+printf '%s' "<plan path>" > "$REVIEW_DIR/plan-path"
 ```
 
 | `$REVIEW_MODE` | Branch |
@@ -2833,12 +2842,55 @@ fi
 # Schema mutex: silent_skip + force_override cannot coexist, so we suppress
 # silent_skip forward when IMPECCABLE_FORCE_OVERRIDE_REASON is set. Bash array
 # form avoids eval and keeps quoting around reasons safe.
+# review-record-linkage M3 — the plan path is read from the ONE artifact 5.2 wrote,
+# never re-typed. Shell state does not cross a fenced block, and a literal retyped
+# per call site drifts within a single run (§5.2 invariant (i)). This value is one
+# end of the M3 path anchor: `/mccp:pr` matches its ship plan path against the
+# `meta.plan_path` this write derives from it, so a second transcription here would
+# be a second identity. This does NOT mechanize where the path came from — the
+# author still typed it once, at 5.2 (R15) — it makes one run self-consistent.
+PLAN_PATH_FILE="$REVIEW_DIR/plan-path"
+PLAN_PATH=$(cat "$PLAN_PATH_FILE" 2>/dev/null || printf '')
+if [ -z "$PLAN_PATH" ]; then
+  echo "[MCCP-GATE-STOP] $PLAN_PATH_FILE is missing or empty — 5.2 did not record the plan path, so this receipt cannot seal a plan identity. Re-run Phase 5.2."
+  exit 12
+fi
+# Emptiness is not the failure that actually happens here. 5.2 writes the literal
+# `<plan path>` when the substitution is skipped, and that value is NON-empty — it
+# sails past the check above and dies later inside `write.js` as an opaque ENOENT
+# from `planAwareMarkdownHash`, with the recovery text above never printed. So test
+# for the file, exactly as `pr.md` 2.5.7 does for `SHIP_PLAN_PATH`; the two gates
+# now fail the same way on the same class of mistake.
+if [ ! -f "$PLAN_PATH" ]; then
+  echo "[MCCP-GATE-STOP] the recorded plan path does not resolve: $PLAN_PATH"
+  echo "  5.2 records this value verbatim, so an unsubstituted \`<plan path>\` placeholder lands here intact."
+  echo "  The receipt write hashes this file, so a missing path is an ENOENT throw."
+  echo "  Recovery: re-run Phase 5.2 with the real repo-relative plan path."
+  exit 12
+fi
+
 WRITE_FLAGS=(
   write
   --gate mccp-plan-codex
   --decision "$DECISION_SLUG"
-  --plan "<plan path>"
+  --plan "$PLAN_PATH"
 )
+# M3 — carry the panel record's path onto the receipt (receipt -> review). The path
+# is NOT reassembled as a shell string: `record.js#reviewRecordPath` owns that
+# filename because `sanitizeSlug` (record.js:69-77) may rewrite the slug, and a
+# hand-interpolated `.claude/reviews/plan-review-$DECISION_SLUG.md` would then seal
+# a path pointing at a DIFFERENT file than the one on disk — a dangling link that
+# still passes the shape check and gets counted as "linked". Carry, do not derive.
+# mode=codex already exited above, so this branch is panel-only by construction.
+REVIEW_RECORD_PATH=$(node -e '
+  const r = require(process.argv[1] + "/scripts/lib/plan-review/record");
+  process.stdout.write(r.reviewRecordPath(process.argv[2]));
+' "${CLAUDE_PLUGIN_ROOT}" "$DECISION_SLUG" 2>/dev/null || printf '')
+if [ -n "$REVIEW_RECORD_PATH" ] && [ -f "$REVIEW_RECORD_PATH" ]; then
+  WRITE_FLAGS+=(--review-record-path "$REVIEW_RECORD_PATH")
+else
+  echo "[mccp:linkage] no review record at ${REVIEW_RECORD_PATH:-<unresolved>} — sealing NO link. The audit reports this ship as unlinked rather than pointing at a file that is not there." 1>&2
+fi
 if [ -n "$IMPECCABLE_SKIPPED_REASON" ]; then
   WRITE_FLAGS+=(--impeccable-skipped --impeccable-skip-reason "$IMPECCABLE_SKIPPED_REASON")
 elif [ "$SILENT_SKIP" = "1" ] && [ -z "${IMPECCABLE_FORCE_OVERRIDE_REASON:-}" ]; then

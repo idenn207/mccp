@@ -112,3 +112,44 @@ test('the frozen block omits the mutable partition', function () {
   assert.equal('state' in frozen, false, 'the corpus-global state is mutable; baseline.state is the frozen one');
   assert.ok(frozen.baseline && typeof frozen.baseline.state === 'string');
 });
+
+// ── review-record-linkage M3 — determinism + EOL (fan-out absorption) ────────
+
+test('M3 — two consecutive --frozen-only runs are byte-identical', function () {
+  // The frozen block's whole claim is that a regeneration reproduces it. A byte
+  // test against the committed doc proves the value TODAY; it does not prove the
+  // producer is deterministic, and a producer that quietly varies would flip the
+  // committed test red at some later, unrelated commit.
+  const once = execFileSync(process.execPath, [AUDIT, '--frozen-only'], {
+    cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const twice = execFileSync(process.execPath, [AUDIT, '--frozen-only'], {
+    cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  assert.equal(twice, once, '--frozen-only must be deterministic run to run');
+});
+
+test('M3 — the committed block matches after EOL normalization too', function () {
+  // This repository runs on Windows and `core.autocrlf` can hand the doc back with
+  // CRLF. The primary byte assertion above would then fail for a reason that has
+  // nothing to do with the corpus, and its failure message would send the reader to
+  // "check the boundary partition first" — the wrong place entirely. Normalizing
+  // both sides isolates a REAL divergence from a checkout artifact.
+  const live = execFileSync(process.execPath, [AUDIT, '--frozen-only'], {
+    cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  }).replace(/\r\n/g, '\n').replace(/\n$/, '');
+  const committed = extractFrozenBlock(fs.readFileSync(DOC, 'utf8')).replace(/\r\n/g, '\n');
+  assert.equal(committed, live,
+    'the committed block and the live output must agree once EOL is normalized — a ' +
+    'difference that survives this is a real corpus/tool divergence, not a checkout artifact');
+});
+
+test('M3 — the frozen block reports the explicit-field join and no live-only keys', function () {
+  const frozen = JSON.parse(extractFrozenBlock(fs.readFileSync(DOC, 'utf8')));
+  assert.equal(frozen.pre_baseline.linkage.join, 'explicit_field',
+    'M3 switched the join off the filename convention');
+  assert.equal('dangling_record_path' in frozen.pre_baseline.linkage, false,
+    'the live-only diagnostics must not leak into the frozen block — frozenOnly is a ' +
+    'top-level whitelist and cannot guard this depth on its own');
+  assert.equal('stale_receipt_hash' in frozen.pre_baseline.linkage, false);
+});

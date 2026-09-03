@@ -346,16 +346,23 @@ test('unreadable_at_baseline names what the boundary tree holds but the tool cou
   assert.equal(r.code, 1);
 });
 
-test('D3 surfaces the join it actually uses, and its ceiling', function () {
-  // review->receipt 은 ship slug <-> plan-review-<slug>.md 로 조인하므로 그 방향의
-  // 구조적 천장은 filename_convention.match 다. 그 사실이 출력에 없으면 M3 이후
-  // 소비자가 "링크율 100%" 가 왜 달성 불가인지 알 방법이 없다.
+test('D3 surfaces the join it actually uses', function () {
+  // M1 조인은 ship slug <-> plan-review-<slug>.md 였고, 그래서 그 방향의 구조적
+  // 천장이 `filename_convention.match`(27/75)였다. **M3 가 그 천장을 없앴다** —
+  // 조인은 이제 receipt 가 봉인한 `meta.review_record_path` 다.
+  //
+  // 그러므로 이 test 의 상한 단언도 함께 은퇴한다. 계약이 바뀌었는데 옛 단언이
+  // 남아 있으면 그것은 회귀 가드가 아니라 새 동작을 금지하는 화석이 된다. 대신
+  // 고정하는 것은 **출력이 자기가 쓰는 조인을 스스로 말한다**는 성질이고, 그것이
+  // 애초에 이 test 의 목적이었다 — 소비자가 수치의 성격을 알 수 있어야 한다.
   const { root, baseline } = mkRepo();
   const r = runJson(root, ['--frozen-only', '--baseline-ref', baseline]);
-  assert.equal(r.json.pre_baseline.linkage.join, 'filename_convention');
-  assert.ok(String(r.json.pre_baseline.linkage.join_note).length > 0);
-  assert.ok(r.json.pre_baseline.linkage.review_to_receipt <= r.json.pre_baseline.filename_convention.match,
-    'the join makes filename_convention.match an upper bound on review->receipt');
+  assert.equal(r.json.pre_baseline.linkage.join, 'explicit_field');
+  assert.ok(String(r.json.pre_baseline.linkage.join_note).indexOf('review_record_path') !== -1,
+    'the note must name the field the join actually reads');
+  // 라벨은 남는다 — 세되 판정에 쓰지 않는다.
+  assert.equal(typeof r.json.pre_baseline.filename_convention.match, 'number');
+  assert.ok(String(r.json.pre_baseline.filename_convention.note).indexOf('label only') !== -1);
 });
 
 // ── PR-Codex R1 흡수 ────────────────────────────────────────────────────────
@@ -512,4 +519,181 @@ test('R1 MEDIUM — when the boundary tree cannot be listed, no partition is emi
   assert.equal('pre_baseline' in frozen, false, 'scope unknown must not publish a corpus of zeros');
   assert.equal('unreadable_at_baseline' in frozen, false,
     'nor an empty gap list, which would certify full coverage over a corpus never read');
+});
+
+// ── M3 — the live partition (Task 8 axis 1) ──────────────────────────────────
+//
+// M1's `post_baseline` was a working-tree COUNT and this file's own header calls it
+// diagnostic-only. M3 puts metric 2 on top of it, which forces two things the M1
+// shape could not carry: the read source must be the HEAD TREE (a working-tree read
+// would let `MCCP_PR_SKIP_LINK_EVIDENCE` or a failed evidence commit still score a
+// perfect link), and it needs the same blind/degraded ladder the frozen partition
+// already earned.
+
+function liveReceipt(extraMeta, rHash) {
+  return JSON.stringify({
+    schema_version: 1,
+    gate_id: 'mccp-pr-codex',
+    decision_id: 'live',
+    plan_hash: 'sha256:deadbeef',
+    round: 1,
+    resolution: { converged: true, rounds: 1 },
+    receipt_hash: rHash || null,
+    meta: Object.assign({ created_at: '2024-01-01T00:00:00.000Z', command: '/mccp-pr-codex' }, extraMeta || {}),
+  }, null, 2);
+}
+
+test('M3 — the live partition exists, reads HEAD, and keeps the working-tree count separate', function () {
+  const { root, baseline } = mkRepo();
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const p = r.json.post_baseline;
+  assert.equal(p.ref, 'HEAD');
+  assert.equal(p.state, 'ok');
+  assert.ok(p.linkage, 'the live partition must carry a linkage block');
+  assert.equal(p.linkage.join, 'explicit_field');
+  // The M1 keys keep their M1 meaning — this is additive, not a reinterpretation.
+  assert.equal(typeof p.ships, 'number');
+  assert.equal(typeof p.records, 'number');
+  assert.ok(typeof p.head_ships === 'number' && typeof p.head_records === 'number',
+    'HEAD counts must be reported ALONGSIDE the working-tree counts, not instead of them');
+});
+
+test('M3 — a committed link is counted; the same link uncommitted is NOT', function () {
+  // The bypass-degradation check. If this partition read the working tree, an
+  // evidence commit that never happened would still score a perfect link.
+  const { root, baseline } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  const rv = path.join(root, '.claude', 'reviews');
+
+  const HASH = 'sha256:' + 'e'.repeat(64);
+  fs.writeFileSync(path.join(rc, 'live.json'), liveReceipt({
+    plan_review_expected: true,
+    review_record_path: '.claude/reviews/plan-review-live.md',
+  }, HASH));
+  fs.writeFileSync(path.join(rv, 'plan-review-live.md'),
+    panelRecord('live', { verdict: 'converged', receipt_hash: HASH }));
+
+  // Working tree only — must NOT count.
+  const uncommitted = runJson(root, ['--json', '--baseline-ref', baseline]);
+  assert.equal(uncommitted.json.post_baseline.linkage.bidirectional, 0,
+    'an uncommitted link must not be counted — otherwise a skipped evidence commit ' +
+    'is indistinguishable from a successful one');
+
+  // Now commit it — must count.
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'land a real link');
+  const committed = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const link = committed.json.post_baseline.linkage;
+  assert.equal(link.bidirectional, 1, 'a committed link must be counted');
+  assert.equal(link.receipt_to_review, 1);
+  assert.equal(link.review_to_receipt, 1);
+  assert.equal(link.denominator, 1, 'the eligible ship is the denominator');
+});
+
+test('M3 axis 3 — a STALE receipt_hash does not count as bidirectional', function () {
+  // The over-permissive direction. `linkage-defs.js:186` only asks whether
+  // review_to_receipt is a non-empty string, and back-patch failure is warn-and-
+  // proceed, so a record left carrying a PREVIOUS ship's hash pairs with the new
+  // receipt and scores. Without this test, deleting the hash comparison entirely
+  // leaves the suite green.
+  const { root, baseline } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  const rv = path.join(root, '.claude', 'reviews');
+
+  const REAL = 'sha256:' + 'e'.repeat(64);
+  const STALE = 'sha256:' + 'f'.repeat(64);
+  fs.writeFileSync(path.join(rc, 'live.json'), liveReceipt({
+    plan_review_expected: true,
+    review_record_path: '.claude/reviews/plan-review-live.md',
+  }, REAL));
+  fs.writeFileSync(path.join(rv, 'plan-review-live.md'),
+    panelRecord('live', { verdict: 'converged', receipt_hash: STALE }));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'land a STALE link');
+
+  const stale = runJson(root, ['--json', '--baseline-ref', baseline]).json.post_baseline.linkage;
+  assert.equal(stale.review_to_receipt, 1, 'the record does carry a hash — that is the trap');
+  assert.equal(stale.bidirectional, 0, 'but a WRONG hash is not a link');
+  assert.equal(stale.stale_receipt_hash, 1, 'and the audit says so out loud');
+
+  // Positive control: fix ONLY the hash and it counts. Without this the axis could
+  // be over-blocking and still look correct.
+  fs.writeFileSync(path.join(rv, 'plan-review-live.md'),
+    panelRecord('live', { verdict: 'converged', receipt_hash: REAL }));
+  commitAt(root, '2024-07-01T00:00:00+00:00', 'correct the hash');
+  const fixed = runJson(root, ['--json', '--baseline-ref', baseline]).json.post_baseline.linkage;
+  assert.equal(fixed.bidirectional, 1);
+  assert.equal(fixed.stale_receipt_hash, 0);
+});
+
+test('M3 axis 2 — a sealed path pointing at no record is dangling, not a link', function () {
+  const { root, baseline } = mkRepo();
+  fs.writeFileSync(path.join(root, '.claude', 'receipts', 'mccp-pr-codex', 'live.json'),
+    liveReceipt({
+      plan_review_expected: true,
+      review_record_path: '.claude/reviews/plan-review-nowhere.md',
+    }, 'sha256:' + 'e'.repeat(64)));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'seal a dangling path');
+  const link = runJson(root, ['--json', '--baseline-ref', baseline]).json.post_baseline.linkage;
+  assert.equal(link.receipt_to_review, 1, 'the receipt does declare a path');
+  assert.equal(link.bidirectional, 0);
+  assert.equal(link.dangling_record_path, 1,
+    'a sealed path that resolves to nothing must be reported, not silently counted');
+});
+
+test('M3 — an ineligible ship is out of the denominator, and 0 eligible means null', function () {
+  const { root, baseline } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  // D2 says an unexplained `false` is not a decision, so give the exclusion a reason.
+  fs.writeFileSync(path.join(rc, 'nope.json'), liveReceipt({
+    plan_review_expected: false,
+    no_plan_review_reason: 'plan gate ran in codex mode; the record is the plan body Codex section',
+  }, 'sha256:' + 'a'.repeat(64)));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'land an ineligible ship');
+  const p = runJson(root, ['--json', '--baseline-ref', baseline]).json.post_baseline;
+  assert.equal(p.ship_eligibility.counts.not_eligible, 1);
+  assert.equal(p.linkage.denominator, null,
+    'no eligible ship means the RATE is not computable — null, never 0');
+  assert.equal(p.linkage.coverage.rate_computable, false);
+});
+
+test('M3 — an unreadable HEAD tree is degraded + scope_unknown, and emits NO linkage', function () {
+  // R4 invariant HIGH: without this ladder a total read failure is indistinguishable
+  // from "honestly zero links", and every acceptance item above would still be true.
+  const { root, baseline } = mkRepo();
+  const lib = require('../linkage-audit');
+  const agg = lib.aggregate({
+    repoRoot: root,
+    baselineRef: baseline,
+    ships: { receipts: [], read_error: false, parse_failures: 0, parse_errors: [], unreadable: [] },
+    reviews: { records: [], read_error: false, sources: [], unreadable: [] },
+    baseline: { ms: Date.parse('2021-06-01T00:00:00Z'), iso: '2021-06-01T00:00:00Z', reason: null },
+    baselineTree: new Set(['MARKER']),
+    liveNotInTree: { ships: 0, records: 0 },
+    live: { tree: null, ships: null, reviews: null },
+  });
+  assert.equal(agg.post_baseline.state, 'degraded');
+  assert.equal(agg.post_baseline.scope_unknown, true);
+  assert.ok(typeof agg.post_baseline.reason === 'string' && agg.post_baseline.reason.length > 0,
+    'a degraded partition must say why — a state with no reason is a gap the reader cannot act on');
+  assert.equal('linkage' in agg.post_baseline, false,
+    'scope unknown must NOT publish a linkage block: absence is not a finding of zero');
+});
+
+test('M3 — the live partition never leaks into the frozen bytes', function () {
+  // DD7, restated for the new fields. The frozen block is a BASELINE; a new key
+  // inside pre_baseline.linkage would move committed bytes, and frozenOnly's
+  // whitelist only guards the top level.
+  const { root, baseline } = mkRepo();
+  const before = run(root, ['--frozen-only', '--baseline-ref', baseline]).stdout;
+  fs.writeFileSync(path.join(root, '.claude', 'receipts', 'mccp-pr-codex', 'live.json'),
+    liveReceipt({ plan_review_expected: true }, 'sha256:' + 'e'.repeat(64)));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'land a live ship');
+  const after = run(root, ['--frozen-only', '--baseline-ref', baseline]);
+  assert.equal(after.stdout, before, 'a live landing must not move the frozen bytes');
+
+  const frozen = JSON.parse(before);
+  assert.equal('dangling_record_path' in frozen.pre_baseline.linkage, false,
+    'the live-only diagnostics must stay out of the frozen block');
+  assert.equal('stale_receipt_hash' in frozen.pre_baseline.linkage, false);
+  assert.equal(frozen.pre_baseline.linkage.join, 'explicit_field',
+    'the join label DOES change — that is the one intended frozen-byte movement');
 });

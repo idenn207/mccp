@@ -447,3 +447,59 @@ test('R6: an absent quorum block never manufactures a clean pass', () => {
   assert.ok(!/all .*reviewers? .*passed/i.test(built.markdown),
     'without quorum data the record cannot claim the panel was complete');
 });
+
+// ── review-record-linkage M3 — the record's half of the link ────────────────
+
+const { toRepoRelativePosix } = require('../repo-path');
+
+test('M3 — measurement carries receipt_hash, and it is NEVER filled here', function () {
+  // `null` means "not yet sealed"; an ABSENT key means "this build has no linkage
+  // axis". An audit has to be able to tell a pre-M3 record from an unlinked one, so
+  // the key must exist and the value must not.
+  const built = buildReviewRecord({
+    slug: 'x', planPath: '.claude/plans/x.plan.md', repoRoot: '/repo',
+    mode: 'multi-agent', nowMs: 0,
+  });
+  assert.equal('receipt_hash' in built.measurement, true, 'the key must be present');
+  assert.equal(built.measurement.receipt_hash, null,
+    'the record is written BEFORE the ship receipt exists — there is no hash to record yet');
+});
+
+test('M3 — measurement.plan_path is folded by the SAME rule the receipt uses', function () {
+  // The back-patch binding compares these two sealed strings and is FAIL-CLOSED, so
+  // a notation difference does not show up as a missing stamp — it shows up as a
+  // rejected ship. Behavioural, not a "calls the same helper" static claim: calling
+  // a helper does not prove its return value reached the field.
+  const B = String.fromCharCode(92);
+  const variants = [
+    '.claude/plans/x.plan.md',
+    './.claude/plans/x.plan.md',
+    '.claude//plans/./x.plan.md',
+    '.claude' + B + 'plans' + B + 'x.plan.md',
+  ];
+  variants.forEach(function (v) {
+    const built = buildReviewRecord({ slug: 'x', planPath: v, repoRoot: '/repo', nowMs: 0 });
+    assert.equal(built.measurement.plan_path, '.claude/plans/x.plan.md',
+      JSON.stringify(v) + ' must fold to the one canonical identity');
+    assert.equal(built.measurement.plan_path, toRepoRelativePosix(v, '/repo'),
+      'and it must agree with the shared helper exactly');
+  });
+});
+
+test('M3 — an unfoldable plan path is recorded as null, never half-normalized', function () {
+  ['../outside.md', '', null, 42].forEach(function (v) {
+    const built = buildReviewRecord({ slug: 'x', planPath: v, repoRoot: '/repo', nowMs: 0 });
+    assert.equal(built.measurement.plan_path, null,
+      JSON.stringify(v) + ' must fold to null — a partly-normalized string would be a ' +
+      'plan identity nobody can match');
+  });
+});
+
+test('M3 — buildReviewRecord still never throws on the new axis', function () {
+  // The module's standing contract: measuring must not become a new way for the
+  // gate to die. The new fold runs on caller-supplied input, so it is re-checked.
+  assert.doesNotThrow(function () {
+    buildReviewRecord({ slug: 'x', planPath: {}, repoRoot: {}, nowMs: 0 });
+  });
+  assert.doesNotThrow(function () { buildReviewRecord({}); });
+});

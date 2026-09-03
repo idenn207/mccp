@@ -224,7 +224,7 @@
 5. **비용 정책** — Workflow `budget`을 cost-tier($50/$80/$100)와 어떻게 매핑? 게이트별 상한?
 6. **병렬 파일 쓰기 안전** — 공식 문서 침묵 영역. worktree 격리 + envelope merge invariant로 충분한가, 추가 락 필요한가?
 7. **결정론/재개** — 마크다운 slash-command body → JS workflow 스크립트 이전 시, 기존 STATE.md handoff/resume와 `resumeFromRunId`를 어떻게 통합?
-8. **plugin.json 버전** — 이 정도 변경은 PRD 전체 완료 시 minor bump(§3.7). milestone별 patch 누적.
+8. **plugin.json 버전** — ~~이 정도 변경은 PRD 전체 완료 시 minor bump(§3.7). milestone별 patch 누적.~~ **무효(2026-09-03)**: 우산 결정 1 이후 자식 브랜치는 번호를 선언하지 않는다. 이 항목의 판정 자체가 브랜치가 내릴 판정이 아니다 — 릴리스 컷이 소유한다(§3.7 현행).
 
 ---
 

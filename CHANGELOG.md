@@ -4,6 +4,12 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+> **번호의 소유자는 릴리스 컷이다 (우산 결정 1).** 자식 브랜치는 `plugin.json`
+> version 을 선언하지 않으므로, 착지한 작업은 번호가 붙은 헤딩이 아니라
+> **`## [Unreleased]`** 아래에 쌓인다. 릴리스 컷이 그 블록에 번호를 부여하며
+> 다음 컷의 번호는 `2.0.0`이다(release-channel-separation.prd.md 결정 3).
+> 강제는 `node scripts/version-declaration-guard.js` 가 한다.
+
 ## [Unreleased]
 
 > 아래 항목들은 main 에 누적된 것이고 아직 어느 릴리스에도 실리지 않았다.
@@ -44,6 +50,19 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
     계측 필드가 ship 차단 조건을 넓혀서는 안 된다(R14). 대신 **stamp를 좁힌다**: repo 하위
     실재 파일일 때만 봉인한다.
 
+- `docs/dogfood-install.md` — M2의 본 산출물. worktree 본문을 로컬에서 여는 절차와
+  그 한계, 캐시 직접 복사 금지의 사유, 채널 선택 규칙(PRD Open Question 4의 답)이
+  여기 상주한다. 담긴 값은 전부 문서를 쓰기 **전에** 끝낸 실측이다.
+- `.claude/PRPs/reports/release-channel-separation-m2-report.md` — Task 3~5 실측의
+  원문 증거. 채택한 기제와 **탈락한 기제의 탈락 사유**를 함께 적는다.
+- `scripts/version-declaration-guard.js` + `scripts/tests/…` + CI
+  `version-declaration-gate.yml` — **우산 결정 1의 기계 강제.** 자식 브랜치가
+  version 을 선언하면 붉어진다. 세 축을 함께 잰다(manifest 선언 · 4면 중 반쪽만
+  움직인 반쪽 선언 · CHANGELOG 번호 선점) — 셋은 같은 행위의 다른 표면이라 한
+  가드가 소유한다. 유일한 합법 경로는 릴리스 컷이고 `MCCP_RELEASE_CUT` 에 사유를
+  담아 켠다(값이 곧 사유). 배포 경계 밖(repo-root `scripts/`)에 두어 이 저장소의
+  릴리스 정책이 사용자 저장소로 실려 가지 않게 한다.
+
 ### Changed
 
 - **`linkage-audit.js`의 join이 `filename_convention` → `explicit_field`**. M1의 조인은
@@ -65,6 +84,27 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   "still a placeholder by design"이라 선언했지만 그 값이 앵커의 대조 대상이 되는 순간
   **앵커를 통과할 plan을 고르는 것만으로** 다른 마일스톤의 리뷰를 자기 승인 증거로 봉인할
   수 있다. 2.5.8·2.5.9가 이미 쓰던 `${PR_PLAN_PATH:-…}` 파생을 마지막 callsite에 적용했다.
+
+- **`CLAUDE.md` §3.7의 부호가 뒤집혔다 — bump 지시 → 선언 금지.** 우산 PRD
+  [harness-wiring-integrity](.claude/prds/harness-wiring-integrity.prd.md) 결정 1
+  ("자식 브랜치는 `plugin.json` version 을 선언하지 않는다. 번호는 릴리스 컷이
+  결정한다", **귀속 C0**)이 채택된 뒤에도 §3.7과 M2 plan 검사 6이 계속 bump 를
+  *요구*했고, 그 결과 결정을 소유한 C0 자신이 PR #176에서 `1.34.4 → 1.34.5`를
+  선언했다. 같은 시점 실측에서 in-flight 자식 다섯이 `1.34.5`를 셋·`1.35.0`을 둘
+  동시 주장하는 상태가 확인됐다 — 결정 1이 근거로 든 "병렬 브랜치 version 충돌
+  9회 재발"이 결정 채택 **후에** 그대로 재현된 것이다. 이 사이클에서 선언을
+  되돌리고(4면 전부 `1.34.4`), 검사 6을 반대 부호로 바꾸고, 관례를 기계로
+  대체했다. 낡은 §3.7 본문은 지우지 않고 은퇴 표시와 함께 같은 자리에 남긴다.
+- `CLAUDE.md` §3.7 — "cache 직접 copy 같은 bootstrap workaround가 매 cycle 반복됨"이
+  **은퇴**했다. 낡은 불릿을 지우지 않고 v1.33.7 정정과 같은 형식으로 병기한다:
+  그 workaround는 이제 **금지**이고, 사유는 편의가 아니라 정합이다 — 캐시 디렉토리는
+  version으로 키가 잡히므로 내용만 바꾸면 `installed_plugins.json`의
+  `version`·`gitCommitSha`가 디스크 내용과 어긋난 거짓이 된다.
+- `README.md` — 설치 절에 dogfood 경로 포인터 한 문단. 절차 본문은 복제하지 않고
+  사용자 설치 명령 3줄은 무변경이다.
+- `.claude/prds/release-channel-separation.prd.md` — Open Question 4("다른 프로젝트에서
+  운영자가 어느 채널에 있어야 하는가")에 답을 기입하고 체크했다. 답은
+  `docs/dogfood-install.md`의 채널 선택 규칙과 같은 내용이다.
 
 ### Added (신설 라이브 파티션)
 
@@ -117,6 +157,21 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   2.5.7인 것이 계약의 일부다** — receipt는 2.5.7에서 봉인되므로 3.0에서의 편집은 §3.12
   no-rehash 위반이거나, 재해시 없이 쓰면 `evidence-stage-guard.js:75-77`에 걸려 **모든
   ship이 HALT**한다. env-contract registry·색인·상세 문서에 등재됐고 lint L1~L12 green.
+
+### Measured
+
+- **`--plugin-dir`가 1순위 기제로 확정됐다.** worktree 사본에만 심은 판별 marker가
+  그 실행에서 관측되고 플래그 없는 실행에서는 관측되지 않았다(쌍). `CLAUDE_PLUGIN_ROOT`는
+  캐시가 아니라 worktree를 가리켰고, 명령 22 · 에이전트 58 · skill 47 · hook 29가 전부
+  worktree 경로에서 로드됐다.
+- **충돌은 없다 — CLI가 스스로 해소한다.** 디버그 로그가
+  `Plugin "mccp" from --plugin-dir overrides installed version`을 남기고 hook을 한 번만
+  등록한다(`Registered 32 hooks from 2 plugins` = worktree mccp 29 + codex 3). 따라서
+  채널을 재우는 선행 단계가 절차에 없다. Task 5의 후퇴선(dev marketplace manifest)은
+  **타지 않았다**.
+- **설치 상태 무개입.** 실행 전후 `installed_plugins.json`의 sha256이 동일했고 캐시에
+  새 디렉토리가 0개 생겼다. 이것이 캐시 복사 은퇴의 기계적 근거다.
+
 
 ## [1.34.4] — 2026-09-02
 

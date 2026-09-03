@@ -297,7 +297,74 @@ mccp는 state lock 3종을 운용한다 — `pr-phase.lock`(`ownership_token_has
 
 ---
 
+### 3.7 Plugin version — 브랜치는 번호를 선언하지 않는다 (우산 결정 1)
+
+> **이 절은 v1.33.7·v1.34.5 정정을 거쳐 v1.34.6에서 부호가 뒤집혔다. 아래 규칙이
+> 현행이고, 그 뒤의 낡은 본문은 왜 달라졌는지를 남기기 위해 보존한다.**
+
+**자식 브랜치는 `plugins/mccp/.claude-plugin/plugin.json`의 `version`을 선언하지
+않는다. 번호는 릴리스 컷이 결정한다.** 우산 PRD
+[harness-wiring-integrity](../.claude/prds/harness-wiring-integrity.prd.md) 의 못박은
+결정 1이고 귀속은 C0(release-channel-separation)다. 근거는 실측이다 — 병렬 브랜치
+version 충돌이 **9회 재발**했고, 원인은 브랜치가 미리 번호를 잡는 것이다. main이
+릴리스가 아니게 된 이상(M1이 `marketplace.json`을 `ref: release`로 못박았다) 그 원인은
+소멸했다. 별도 재번호 기계를 만들 필요가 없다 — **선언을 멈추면 된다.**
+
+따라서 milestone PR에서 해야 할 일은 bump가 아니라 **아무것도 안 하는 것**이다.
+착지한 작업은 `CHANGELOG.md`의 **`## [Unreleased]`** 아래에 쌓이고, 릴리스 컷이 그
+블록에 번호를 부여한다. 다음 컷의 번호는 `2.0.0`이다
+([release-channel-separation.prd.md](../.claude/prds/release-channel-separation.prd.md) 결정 3).
+
+**강제는 기계가 한다:**
+
+```bash
+node scripts/version-declaration-guard.js [--base origin/main] [--json]
+```
+
+세 축을 함께 잰다 — `plugin.json`이 base와 다른가(선언) · 4면 중 하나만 어긋났는가
+(반쪽 선언) · `CHANGELOG`에 base에 없던 `## [X.Y.Z]` 헤딩이 생겼는가(번호 선점).
+셋은 같은 행위의 다른 표면이라 한 가드가 소유한다. CI
+(`.github/workflows/version-declaration-gate.yml`)가 모든 PR에서 돌린다.
+릴리스 컷만이 유일한 합법 경로이고, 그때는 `MCCP_RELEASE_CUT`에 **사유**를 담아
+켠다(값이 곧 사유 — §3.15와 같은 형태).
+
+**언제 확인하는가가 무엇을 확인하는가만큼 중요하다.** CI 게이트는 구조적으로
+**ship receipt 봉인 이후**다 — `/mccp:pr`이 finalize(2.5.7)하고 push(3.2)한 **뒤에야**
+CI가 돈다. 그래서 CI가 위반을 잡으면 그것을 고치는 커밋이 그 브랜치의 ship receipt를
+`ship-gate-stale-head`로 만들고, receipt는 git-tracked라 재봉인이 금지다(§3.12
+`TRACKED_RECEIPT_OVERWRITE`). 실측(2026-09-03): 이 사이클의 선언 철회가 자식 **네
+브랜치를 전부** 그 상태로 만들었다.
+
+따라서 확인 지점은 셋이고 **앞의 둘이 진짜 방어선**이다:
+
+1. **구현 중** — `node --test scripts/tests/version-declaration-guard.test.js`의
+   self-check이 저장소 자신을 본다. plan의 `## Validation`이 test를 돌리는 흐름이면
+   여기서 잡히고, 이 시점은 `/mccp:pr`보다 앞이라 receipt가 아직 없다. **비용 0**.
+2. **`/mccp:pr` 진입 직전** — `node scripts/version-declaration-guard.js`를 손으로 한 번.
+3. **CI** — 최후 그물. 여기서 잡히면 이미 비용이 발생한 뒤다.
+
+**사후에 발견됐다면 — 되돌리되 재봉인하지 마라.** 선언 철회 커밋을 올리고,
+`ship-gate-stale-head`를 **PR 본문에 이탈로 기록**한다(`## Gate Deviation`). receipt가
+덮지 못하는 델타가 무엇인지 명시하면 그 기록은 정직하다. 하지 말아야 할 것 둘:
+tracked receipt 덮어쓰기(가드가 fail-closed로 막는다)와 위반을 그냥 두는 것. 델타가
+게이트 재실행을 요구할 만큼 실질적이면 그때는 **새 decision slug로 재-ship**한다(§3.12).
+
+> **이 절이 스스로를 어긴 이력 (2026-09-03).** 결정 1은 채택된 날부터 **관례로만**
+> 존재했다(C0 PRD L87: "옮기지 않으면 결정 1은 관례로만 남는다"). 그 사이 §3.7은
+> 계속 bump를 지시했고, M2 plan의 `## Validation` 검사 6은 **bump하지 않으면
+> HALT**했다. 결과: 결정을 소유한 C0 자신이 PR #176에서 `1.34.4 → 1.34.5`를
+> 선언했고, in-flight 자식 다섯이 `1.34.5`를 셋·`1.35.0`을 둘 동시 주장하는
+> 상태가 실측됐다. 산문이 기계에게 진 사례이므로, 같은 자리에 반대 부호의 기계를
+> 두는 것으로 닫았다.
+
+---
+
 ### 3.7 Plugin version bump (`plugin.json`) — 빈번한 누락 axis
+
+> **이 제목은 v1.34.6에서 은퇴했고, 블록은 독자가 찾아올 자리에 포인터로 남긴다.**
+> 아래는 그 이전의 규칙이며 **더는 따르지 마라** — 현행은 바로 위 절이다. 판정
+> 기준표(major/minor/patch)는 릴리스 컷이 번호를 정할 때 여전히 참고 자료로 쓰이지만,
+> **브랜치가 그것을 적용해 `plugin.json`을 고치는 행위**는 금지다.
 
 `plugins/mccp/.claude-plugin/plugin.json`의 `version` 필드는 **수동 bump**입니다. code 변경이나 commit chain만으로 자동 증가하지 않으므로, milestone PR을 작성할 때 의무 체크리스트의 일부로 처리해야 합니다.
 
@@ -321,6 +388,19 @@ plugin `source`가 `git-subdir` + `ref: release`라서 사용자가 읽는 `plug
 정확히 기술한다. 다만 닫히는 표면은 **plugin 본문**뿐이다: `known_marketplaces.json`의
 mccp 항목에는 `ref`가 없어 marketplace clone은 계속 main을 추종하므로
 `marketplace.json` 자체의 편집은 머지 즉시 도달한다(M3 소유).
+
+**v1.34.5 정정 — 위 세 번째 불릿의 workaround는 은퇴했다.** "cache 직접 copy 같은
+bootstrap workaround가 매 cycle 반복됨"은 M2 이전의 관측이고, 그때는 대체 경로가
+없었으므로 병리의 서술이자 사실상의 처방이었다. 지금은 **금지**다. 대체 경로는
+[docs/dogfood-install.md](docs/dogfood-install.md)가 소유한다 — 실측된 절차는
+`claude --plugin-dir <worktree>/plugins/mccp`이고, CLI가 plugin 이름 수준에서 그 사본을
+설치된 릴리스 사본보다 우선하므로 채널을 재우는 선행 단계가 없다. 그 실행은 설치 상태를
+바꾸지 않는다(실측: `installed_plugins.json` sha256 무변화 · 신규 캐시 디렉토리 0개).
+금지의 사유는 편의가 아니라 정합이다: 캐시 디렉토리는 **version으로 키가 잡히므로**
+내용만 바꾸면 `installed_plugins.json`의 `version`·`gitCommitSha`가 디스크 내용과
+어긋난 거짓이 되고, 그 상태에서 `claude plugin update`는 무엇을 고쳐야 할지 모른다.
+낡은 불릿을 지우지 않는 이유는 바로 위 v1.33.7 정정과 같다 — 그 문장은 M2 이전의
+운영을 여전히 정확히 기술하고, 무엇이 왜 달라졌는지가 함께 남아야 한다.
 
 cache 디렉토리 ls 결과로 누락 cycle을 진단 가능: 예를 들어 `0.2.8/ 0.3.0/ 0.3.1/ 0.3.2/ 0.3.4/ 0.3.6/ 0.4.0/ 1.1.0/`처럼 띄엄띄엄이면 그 사이 cycle들이 version bump을 빠뜨렸다는 의미.
 

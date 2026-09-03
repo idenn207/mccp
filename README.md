@@ -43,6 +43,11 @@ Claude Code의 `/mccp:*` namespace에 게이트 시스템을 제공한다:
 
 설치 명령 자체는 바뀌지 않는다 — 위 3줄 그대로다.
 
+`main` 본문을 실제로 써 보려면 별도 경로가 있다. worktree를 가리키는 세션 단위 설치이며
+전역 설치 상태를 바꾸지 않는다 — 절차와 한계는 [docs/dogfood-install.md](docs/dogfood-install.md)가
+소유한다. 기본은 모든 프로젝트에서 `release`에 머무는 것이고, main을 시험하려는 프로젝트만
+그 절차로 opt-in한다.
+
 `/mccp:setup`은 idempotent — codex plugin이 없거나 impeccable **skill이 해소되지 않을 때** 사용자 동의 후 설치, 인증 미완료 시 `!codex login` 또는 `MCCP_CODEX_DISABLED=1` 옵션 제공. 이미 모든 게 갖춰진 상태면 zero-install로 통과한다. impeccable 판정 기준은 PATH의 바이너리가 아니라 mccp 명령 본문이 부르는 이름이 실제로 열리는지다 — 어느 공식 채널로 설치했든 해소되면 다시 묻지 않는다.
 
 새 Claude Code 세션을 시작하면 `/mccp:*` 명령이 활성화된다.

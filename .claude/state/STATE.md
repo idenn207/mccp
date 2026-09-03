@@ -1,6 +1,6 @@
 ---
 state_version: 1
-task_fingerprint: leadtime-observability-m2
+task_fingerprint: orchestrator-step-wiring-m1
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-09-03T05:44:14.940Z
 last_event: precompact
@@ -35,7 +35,7 @@ leadtime-observability M3 — one-line-consumption. 구현 + 검증 + 문서 동
 - 문서 — `one-line-consumption.md` 신규(한계 절이 동결 블록 위, 블록은 `<details>`) + `dashboard-surface.md` §2/§5 등재 + PRD milestone 3 complete
 
 ## In Progress
-
+없음 — PR #174 리뷰 대기. push까지 완료된 상태.
 
 ## Next Step
 /mccp:prp-commit → /mccp:pr. PR 진입 직전 §3.7 forward-only 재계산(main 1.34.4, 33 behind) + base 병합 후 문서 동결 2면 재생성.

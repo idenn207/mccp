@@ -83,6 +83,12 @@ const ALLOWED_FIELDS = new Set([
   // finding_id로 세므로 `with_remediation_pr`이 구조적으로 0에 머문다. writer는
   // 쓰는데 reader가 읽을 수 없는 상태가 정확히 이 milestone이 갚는 부채다.
   'finding_id',        // 해소된 finding의 registry id (C2/C3 조인 키)
+  // orchestrator-step-wiring M1 (DD3) — A1 분모의 granularity 축.
+  //
+  // 값은 `prd` 또는 `milestone`. producer가 emit 시점에 인자에서 판정하고 reader가
+  // `prd`를 분모에서 뺀다. **필드 부재는 `milestone`이 아니라 unknown이다** —
+  // 슬러그 이름으로 추론하면 조용한 오분류가 된다(DD3).
+  'work_unit_kind',
 ]);
 
 class MswEventsError extends Error {
@@ -233,13 +239,200 @@ function discoverRepoRoot(startDir) {
   return null;
 }
 
-function resolveEventsDir(opts) {
+// orchestrator-step-wiring M1 — 집계 경계를 git common dir로 올린다 (DD1 · DD7 · DD8).
+//
+// 왜 순회가 아닌가: A1이 "어디서 돌려도 같은 값"이 되려면 producer가 worktree마다
+// 다른 디렉토리에 쓰는 것을 멈춰야 한다. reader가 worktree를 순회하는 대안은
+// `derive/sources/worktrees.js` 헤더가 `derive()`를 spawn-free로 못박고 git spawn을
+// opt-in gate 뒤에 두므로 **기본 derive에서 꺼진 채**로 남는다.
+//
+// 공유되는 것은 **A1 축 세 kind뿐**이다(DD8). 나머지를 함께 올리면
+// `session-activity.js:154`의 세션 맵이 kind 가드 없이 채워져 타 worktree 세션이
+// 섞이고, B2의 worktree 격리(`msw-events-path.test.js:54`)와 A2의 "분모 = 관측된
+// 세션 수" 계약이 동시에 깨진다.
+const SHARED_SUBPATH = path.join('mccp', 'msw-events');
+const A1_AXIS_KINDS = new Set(['task_started', 'task_completed', 'task_ship_sealed']);
+const SHARED_EVENTS_TOGGLE = 'MCCP_MSW_EVENTS_SHARED';
+
+// 프로세스당 1회 경고. append마다 내면 hook 출력이 노이즈가 되어, UI6가 요구한
+// "조용하지 않다"가 역설적으로 "읽히지 않는다"가 된다.
+const warnedOnce = new Set();
+function warnOnce(key, line) {
+  if (warnedOnce.has(key)) return;
+  warnedOnce.add(key);
+  process.stderr.write('[mccp:msw-events] ' + line + '\n');
+}
+
+// 토글 판정. **열거 밖 값은 off로 접는다.**
+//
+// 공유 파서(`env-contract/value.js`)의 기본 fold는 레지스트리 default(여기서는 on)
+// 인데, 그 방향은 오타가 신규 producer 경로를 켠 채 남긴다. 이 저장소의 선례
+// (§3.15 `MCCP_REVIEW_SINGLE_PASS`)는 반대 방향이므로 열거 검사를 앞에 둔다.
+// **별칭 집합은 그 모듈에서 가져온다** — 리터럴을 여기서 다시 적으면 파싱 규약이
+// 두 벌이 되고, 그것이 env-contract L9가 막는 것이다.
+function sharedEventsEnabled(env) {
+  const src = env || process.env;
+  let value;
+  try {
+    value = require('../lib/env-contract/value');
+  } catch (_e) {
+    // 파서를 못 읽으면 오늘의 동작(worktree-local)으로 접는다. 관대한 방향으로
+    // 실패하면 깨진 require가 조용한 경로 변경이 된다.
+    warnOnce('toggle-load', 'env-contract/value unreadable — ' + SHARED_EVENTS_TOGGLE
+      + ' folds OFF (worktree-local) for this process.');
+    return false;
+  }
+  const raw = Object.prototype.hasOwnProperty.call(src, SHARED_EVENTS_TOGGLE)
+    ? src[SHARED_EVENTS_TOGGLE]
+    : undefined;
+  if (raw !== undefined && raw !== null && String(raw) !== '') {
+    const v = String(raw).trim().toLowerCase();
+    const known = value.TRUE_ALIASES.indexOf(v) !== -1 || value.FALSE_ALIASES.indexOf(v) !== -1;
+    if (!known) {
+      warnOnce('toggle-enum', SHARED_EVENTS_TOGGLE + ' is set to a value outside the'
+        + ' enumeration — folding OFF (fail-closed). A typo must not leave the new'
+        + ' producer path on.');
+      return false;
+    }
+  }
+  try {
+    return value.parseBool(src, SHARED_EVENTS_TOGGLE);
+  } catch (err) {
+    warnOnce('toggle-parse', SHARED_EVENTS_TOGGLE + ' could not be parsed ('
+      + ((err && err.message) || String(err)) + ') — folding OFF (worktree-local).');
+    return false;
+  }
+}
+
+// DD3 — 착수 이벤트의 granularity 판정. **인자 축**이지 명령 축이 아니다.
+//
+// 여기 사는 이유: `work_unit_kind`의 allowlist가 이 파일에 있고, 그 값의 정의역을
+// 다른 파일이 소유하면 둘이 어긋날 수 있다. producer(`receipt-prompt.js`)는 hook
+// 스크립트라 `module.exports`가 없어 test가 require할 수 없다 — 술어를 그쪽에 두면
+// **반증 가능한 곳이 어디에도 없어진다**(L2 R1 test HIGH가 지적한 그 상태다).
+//
+// 규칙은 고정이다(L2 R1 security MEDIUM — 술어 미정의 흡수): 공백으로 나눈 토큰 중
+// 하나라도 `.claude/prds/` 아래이거나 `.prd.md`로 끝나면 `prd`, 아니면 `milestone`.
+// 슬러그 **이름**으로는 절대 추론하지 않는다 — milestone suffix 패턴은 휴리스틱이고
+// PRD 파일명 대조는 이 milestone이 없애려는 worktree 경계 문제를 판정 기준에 다시
+// 들인다(DD3).
+//
+// **인자 자체가 없으면 판정하지 않고 `null`을 낸다** (local review M1). 이 파일
+// `:88`과 reader(`session-activity.js`)는 "열거 밖 값과 필드 부재는 같은 통
+// (`unknown`)"을 규칙으로 세웠는데, 여기서 비문자열을 `milestone`으로 접으면
+// producer가 **모르는 상태를 표현할 수단을 갖지 못한다** — hook payload에서
+// `command_args`가 사라지는 날 전 착수가 근거 없이 `milestone`으로 봉인되고,
+// 그것이 DD3가 금지한 조용한 오분류와 같은 형태다. `null`은 allowlist를 통과해
+// 필드로 실리고 reader가 `unknown`으로 센다.
+//
+// 빈 문자열은 다르다: "인자가 있었고 그 안에 PRD 경로가 없었다"는 관측이므로
+// `milestone`이 맞다.
+const PRD_ARG_RE = /(^|[\\/])\.claude[\\/]prds[\\/]|\.prd\.md$/i;
+function classifyWorkUnitKind(commandArgs) {
+  if (typeof commandArgs !== 'string') return null;
+  const tokens = commandArgs.split(/\s+/).filter(Boolean);
+  for (const t of tokens) {
+    if (PRD_ARG_RE.test(t)) return 'prd';
+  }
+  return 'milestone';
+}
+
+// 해소된 후보가 **git dir의 형태**인가 (security review S1 흡수).
+//
+// 리뷰어는 `path-containment.assertContained(root, common)`을 처방했으나 그 규칙은
+// 이 축에서 **항상 거짓**이다: worktree의 common dir(`<repo>/.git`)은 worktree
+// root(`<repo>/.worktrees/<name>`)의 하위가 아니다. 그것을 쓰면 공유 위치가 어떤
+// worktree에서도 성립하지 않아 이 milestone이 통째로 무력화된다. 실제로 성립하는
+// 불변식은 구조 검증이다 — `commondir`의 `../` 누적이 임의 디렉토리를 가리키면
+// 그곳은 git dir의 형태를 갖지 않으므로 여기서 걸린다.
+function looksLikeGitDir(dir) {
+  try {
+    if (!fs.statSync(path.join(dir, 'HEAD')).isFile()) return false;
+  } catch (_e) {
+    return false;
+  }
+  for (const marker of ['objects', 'refs']) {
+    try {
+      if (fs.statSync(path.join(dir, marker)).isDirectory()) return true;
+    } catch (_e) { /* 다음 marker */ }
+  }
+  return false;
+}
+
+// `root/.git` **하나만** 본다. 부모로 올라가지 않는다.
+//
+// walk-up이 L2 R0의 security HIGH(조상 저장소의 git dir로 해소)와 test HIGH(repo
+// 내부 fixture가 실 corpus를 끌어옴)의 공통 원인이었다. `.git`이 없으면 `null`이고
+// 호출자는 worktree-local로 남는다 — 안전한 방향의 실패다.
+//
+// spawn 금지: `discoverRepoRoot`의 주석대로 `git rev-parse` spawn은 append마다
+// ~44ms라 hot path에 부적합하다. 여기는 전부 `fs` 연산이다.
+function commonDirOf(root) {
+  if (!root) return null;
+  const dotGit = path.join(root, '.git');
+  let st;
+  try {
+    st = fs.statSync(dotGit);
+  } catch (_e) {
+    return null;
+  }
+
+  let candidate = null;
+  if (st.isDirectory()) {
+    candidate = dotGit;
+  } else if (st.isFile()) {
+    // security review S4 — 실 worktree의 `.git`은 `gitdir: <path>` + LF이고
+    // `commondir`은 `../..` + LF이다. trim하지 않으면 개행이 경로 세그먼트가 되어
+    // Windows가 거절하고, "판독 불가면 null"이라는 계약 대신 throw가 된다.
+    let text;
+    try {
+      text = fs.readFileSync(dotGit, 'utf8');
+    } catch (_e) {
+      return null;
+    }
+    const m = /^\s*gitdir:\s*(.+)$/m.exec(text);
+    if (!m) return null;
+    const gitdir = path.resolve(root, m[1].trim());
+    let commonText;
+    try {
+      commonText = fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8');
+    } catch (_e) {
+      commonText = null;
+    }
+    candidate = commonText === null ? gitdir : path.resolve(gitdir, commonText.trim());
+  } else {
+    return null;
+  }
+
+  return looksLikeGitDir(candidate) ? candidate : null;
+}
+
+// 해소 결과 + 그것이 공유 위치인지. `appendEvent`의 evict 분기가 두 번째 값을 쓴다 —
+// 경로 문자열을 다시 파싱해 추측하면 같은 판정이 두 벌이 된다.
+function resolveEventsDirInfo(opts) {
   opts = opts || {};
-  if (opts.dir) return opts.dir;
-  if (opts.repoRoot) return path.join(opts.repoRoot, EVENTS_DIRNAME);
-  const discovered = discoverRepoRoot(opts.cwd);
-  if (discovered) return path.join(discovered, EVENTS_DIRNAME);
-  return EVENTS_DIRNAME;   // 레거시 fallback (repo 밖에서 실행된 경우)
+  if (opts.dir) return { dir: opts.dir, shared: false };
+  const root = opts.repoRoot || discoverRepoRoot(opts.cwd);
+  if (!root) return { dir: EVENTS_DIRNAME, shared: false };   // 레거시 fallback (repo 밖)
+
+  const local = path.join(root, EVENTS_DIRNAME);
+  if (!A1_AXIS_KINDS.has(opts.kind)) return { dir: local, shared: false };
+  if (!sharedEventsEnabled(opts.env)) return { dir: local, shared: false };
+
+  const common = commonDirOf(root);
+  if (common) return { dir: path.join(common, SHARED_SUBPATH), shared: true };
+
+  // UI6 — 강등은 조용하지 않다. 이것은 이 milestone이 없애려는 상태로의 복귀다.
+  // 절대경로를 흘리지 않도록 repo-relative로만 말한다(F9).
+  warnOnce('shared-degraded', SHARED_EVENTS_TOGGLE + ' is on but this root has no'
+    + ' resolvable git common dir (checked <root>/.git) — A1 events fall back to <root>/'
+    + EVENTS_DIRNAME.split(path.sep).join('/')
+    + '. Aggregation is worktree-local for this process.');
+  return { dir: local, shared: false };
+}
+
+function resolveEventsDir(opts) {
+  return resolveEventsDirInfo(opts).dir;
 }
 
 // 핵심: append 이벤트
@@ -265,7 +458,10 @@ function appendEvent(sessionId, event, opts) {
     event.event_id = crypto.randomUUID();
   }
 
-  const eventsDir = resolveEventsDir(opts);
+  // DD8 — kind가 공유 여부를 정한다. 호출자에게 묻지 않고 이벤트에서 읽는 이유는
+  // 경계가 이벤트의 성질이지 호출자의 선택이 아니기 때문이다.
+  const eventsInfo = resolveEventsDirInfo(Object.assign({}, opts, { kind: event.kind }));
+  const eventsDir = eventsInfo.dir;
 
   // 디렉토리 생성
   if (!fs.existsSync(eventsDir)) {
@@ -296,7 +492,25 @@ function appendEvent(sessionId, event, opts) {
     fs.appendFileSync(filePath, line, { encoding: 'utf8', flag: 'a' });
 
     // global cap 체크 + evict
-    evictLRU(eventsDir);
+    //
+    // **공유 위치에서는 evict하지 않는다** (L2 R1 architect·security·invariant HIGH).
+    // `evictLRU`는 cap 초과 시 오래된 `.jsonl` 20%를 unlink하고 실패도 삼킨다. 공유
+    // 위치는 전 worktree의 A1 corpus가 모이는 곳이라 그 삭제가 곧 **A1 baseline의
+    // 소급 파괴**다. cap 초과는 시끄럽게 알리고 삭제 판단은 사람에게 맡긴다.
+    // worktree-local 경로의 기존 evict 동작은 무변경이다.
+    //
+    // 이미 경고했으면 크기를 다시 재지 않는다 (local review L2). `computeDirSizeBytes`는
+    // 디렉토리 전수 stat이고 공유 위치는 파일 수가 단조 증가하는 쪽인데, 두 번째
+    // 계산이 낳는 것은 억제될 경고뿐이다.
+    if (eventsInfo.shared) {
+      if (!warnedOnce.has('shared-cap') && computeDirSizeBytes(eventsDir) > GLOBAL_MAX_BYTES) {
+        warnOnce('shared-cap', 'shared A1 event corpus exceeds GLOBAL_MAX_BYTES ('
+          + GLOBAL_MAX_BYTES + ' bytes). Nothing was deleted — retention here is a human'
+          + ' decision because eviction would retroactively shrink the A1 baseline.');
+      }
+    } else {
+      evictLRU(eventsDir);
+    }
 
     return { ok: true };
   } catch (err) {
@@ -308,7 +522,11 @@ function appendEvent(sessionId, event, opts) {
 module.exports = {
   appendEvent,
   resolveEventsDir,
+  resolveEventsDirInfo,
   discoverRepoRoot,
+  commonDirOf,
+  sharedEventsEnabled,
+  classifyWorkUnitKind,
   eventToJsonLine,
   sanitizeField,
   MswEventsError,
@@ -319,4 +537,7 @@ module.exports = {
   PER_FILE_MAX_BYTES,
   GLOBAL_MAX_BYTES,
   EVENTS_DIRNAME,
+  SHARED_SUBPATH,
+  A1_AXIS_KINDS,
+  SHARED_EVENTS_TOGGLE,
 };

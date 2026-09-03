@@ -4,7 +4,6 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.35.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-
 ## [1.35.0] — 2026-09-03
 
 > **§3.7**: `1.34.3 → 1.35.0` (**minor** — leadtime-observability PRD **전체 완료**.
@@ -64,6 +63,133 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 - 투영의 zero-join 계열이 `{n:0, p50:null}`이 아니라 `null`이다 — 빈 분포를 실으면
   "관측했더니 0"과 "관측이 없음"이 구분되지 않는다(부재 규칙 (a)의 투영 층 대우).
+
+## [1.34.4] — 2026-09-02
+
+> **§3.7**: `1.34.3 → 1.34.4` (**patch** — orchestrator-step-wiring PRD의 단일
+> milestone M1이고 PRD 종료 축이 아니다). **이 번호는 세 번 재상향됐다** — §3.7이
+> target을 미리 정해 두지 말라고 적은 이유가 이 브랜치 하나에서 세 번 실측됐다.
+> 초판 plan은 `1.33.8`을 잠정 target으로 적었으나 브랜치가 사는 동안 main이 `1.34.1`까지
+> 발행해 `1.34.2`로 밀었고, sibling `c1-review-record-linkage`와의 충돌을 피해 `1.34.3`으로
+> 한 칸 더 올렸으며(그 `1.34.2`는 `a9fa92f`로 실제 발행돼 예측이 실측이 됐다), **PR이 열려
+> 있는 동안** main이 `#173`(leadtime-observability M1+M2)으로 `1.34.3`을 발행해 다시 밀렸다.
+> 세 번째 상향은 머지와 PR 사이에도 충돌 창이 열려 있음을 보여준다 — 값이 같아 git이
+> 충돌로 보고하지 않는 **조용한 충돌**이었고, `plugin.json`을 직접 대조해야 드러났다.
+
+### Added
+
+- `plugins/mccp/scripts/migrations/msw-events-common-dir.js` — 기존 worktree-local A1
+  이벤트를 git common dir로 1회 수집(idempotent · dry-run · marker). 컨테인먼트 기준은
+  repo-root가 아니라 **common dir**이고, 판정은 손수 파싱이 아니라
+  `git rev-parse --git-common-dir`에 묻는다.
+- `plugins/mccp/scripts/lib/msw-metrics/cli.js` — `a1` 서브커맨드(경량 A1 산출,
+  `--repo-root`, 어떤 실패에도 exit 0 + 빈 stdout). 상한은 자체 `setTimeout`이 아니라
+  호출자의 `execFileSync(..., { timeout })`가 건다 — 동기 스캔 위에서 in-process
+  타임아웃은 발화할 수 없다.
+- `MCCP_MSW_EVENTS_SHARED` (bool · default `on`) — 공유 위치 producer 경로의 되돌림
+  수단. 열거 밖 값은 **off로 접고 loud warn**한다.
+- `plugins/mccp/scripts/lib/tests/msw-a1-boundary.test.js` — 위치 독립성 · KIND 경계 ·
+  조상 격리 · 경로 불변 · legacy dedupe · granularity · A1 상한 · A2 분모 오염 ·
+  세 번째 producer root 일치 · m8-gate acceptance(토글 양방향) · 마이그레이션 리더의
+  청크 경계 디코딩 회귀 가드 19건.
+
+### Changed
+
+- `resolveEventsDir`가 DD7 파생 구조를 갖는다 — 공유 위치는 `repoRoot`의 **파생물**이고
+  `root/.git` 하나만 본다(walk-up 없음). 이동하는 것은 `task_started` ·
+  `task_completed` · `task_ship_sealed` **세 kind뿐**이라 B2 동시성 · 증거 taxonomy ·
+  findings 축은 무변경이다.
+- `session-activity.js` — 공유 위치를 후보 `di>0`에 추가(cross-location dedupe 유지),
+  `work_unit_kind=prd` 단위를 분모에서 제외하고 **분자에도 같은 필터**를 적용해
+  `num <= den`을 reader에서 구조 보장. 진단 3종(`prd_granularity_excluded_count` ·
+  `work_unit_kind_unknown_count` · `completion_without_startup`) 병기.
+- `computeA2`의 분모가 `sessions.length`가 아니라 `sessions_local.length`다 — 공유
+  위치의 외래 A1 세션이 A2 sample coverage를 희석하는 경로를 닫는다.
+- `m8-coverage-gate.evaluateAcceptance`가 경로를 조립하지 않고 reader와 **같은
+  방식**(`commonDirOf`)으로 해소한다 — 안 고치면 신규 worktree에서 `ok:false`가
+  영구화되고, `resolveEventsDir`로 물으면 토글 off에서 살아 있는 producer를
+  "제거됨"으로 보고한다(아래 로컬 리뷰 H1).
+- A1 라벨을 계산 단위와 맞춘다 — `세션 착수 안정성` → `작업 단위 완주율`.
+- 공유 위치에서는 `appendEvent`가 `evictLRU`를 호출하지 않는다. cap 초과는 loud
+  stderr만 — 조용한 삭제가 A1 baseline을 소급 파괴하는 경로를 닫는다.
+
+### Fixed
+
+커밋 전 로컬 리뷰(`/mccp:code-review`)가 낸 지적을 흡수했다. 두 건은 회귀 test로
+반증 가능함을 확인했다 — 수정을 되돌리면 붉어진다.
+
+- **H1** `m8-coverage-gate`가 `resolveEventsDir`를 통해 토글에 종속돼, `off`에서
+  공유 위치를 후보에서 빼고 살아 있는 producer를 "제거됨"으로 보고했다(실측:
+  `post_missing:["task_completed","task_ship_sealed"]`). 그 함수 자신의 주석이 막겠다고
+  선언한 실패 양상이다. 이제 reader와 같이 `commonDirOf`로 해소하며 **읽는 쪽은 토글을
+  읽지 않는다** — 쓰는 쪽만 보면 충분하다. plan 리뷰가 id=1a4104dd로 이미 예고했던 축이다.
+- **M1** `classifyWorkUnitKind`가 비문자열 인자를 `milestone`으로 단언해, producer가
+  "모른다"를 표현할 수단이 없었다. reader의 `unknown` 통이 구 이벤트 전용이 되어
+  hook payload에서 `command_args`가 사라지는 날 전 착수가 조용히 오분류된다. 이제
+  `null`을 내고 reader가 `unknown`으로 센다. 빈 문자열은 여전히 `milestone`이다 —
+  그것은 관측이지 부재가 아니다.
+- **M2** 마이그레이션의 청크 리더가 `buf.toString('utf8', …)`로 디코딩해 청크 경계의
+  multi-byte 문자를 손상시켰다. 손상된 라인은 `JSON.parse`에 걸려 `report.invalid`로
+  조용히 빠진다. `StringDecoder`로 교체.
+- **M3** 배너가 타임아웃에 조용히 사라졌다. `spawnSync`로 종료 사유를 읽어
+  `A1 배너 생략: <사유>` 한 줄을 남긴다 — 공유 corpus는 evict되지 않으므로 그 침묵은
+  언젠가 온다.
+- **L1** `task_ship_sealed` emit이 `repoRoot`만 넘겨, 둘 다 null일 때 walk-up
+  출발점이 `process.cwd()`가 됐다. `cwd`를 함께 넘긴다.
+- **L2** 공유 위치의 cap 경고 뒤에도 매 append마다 디렉토리를 전수 stat했다. 이미
+  경고했으면 재계산하지 않는다.
+
+PR-Codex R1이 낸 HIGH 2건도 흡수했다. 둘 다 마이그레이션 도구 한 파일에 국한되고,
+셋 다 되돌리면 붉어지는 것을 확인했다(가드 무력화 주입 → 해당 test만 red → 원복).
+
+- **F1** `forEachLine`은 open/read 실패에 `false`를 내는데 호출부 두 곳이 그 값을
+  버렸다. 읽지 못한 파일이 0건을 기여하고도 `report`에 남지 않고 marker는 `complete`가
+  됐다 — 그 worktree의 이벤트는 공유 집계에서 영구 누락되는데 운영자는 성공으로 읽는다.
+  plan **UI6**(기록 실패를 조용히 삼키지 않는다)가 금지하는 형태다. 두 단계의 처방은
+  다르다: 공유 corpus 읽기 실패는 `seen`을 불완전하게 만들어 **중복**을 낳으므로
+  `abort`(`state=failed` · append 0건)이고, 소스 읽기 실패는 **누락**이므로 `partial`
+  + `report.unreadable` + `pending` 유지다(재실행이 idempotent하므로 다음 실행이 재시도).
+- **F2** 수집은 read-then-append 트랜잭션인데 락이 없었다. 두 worktree가 동시에 돌리면
+  둘 다 같은 `seen`을 스냅샷하고 같은 줄을 각자 append한다. `event_id`가 있는 이벤트는
+  reader가 걸러내지만 `event_id` 없는 legacy 이벤트는 `session-activity.js`가 **첫
+  디렉토리**(= 공유 위치)에서 dedupe하지 않아 중복이 남고, Task 1이 공유 위치의 evict를
+  껐으므로 그 부풀림은 **영구**다. §3.6 `quarantine.lock`과 동형인 락을 도입했다 —
+  body에 raw token 평문 + `0o600` + orphan 판정 `(PID dead) OR (mtime > 60s lease)` +
+  append 루프 heartbeat. 락은 append가 아니라 **read-then-append 전체**를 감싼다.
+  획득 실패는 fail-closed(진행하지 않음)이고, dry-run은 쓰지 않으므로 락을 잡지 않는다.
+
+PR 게이트의 security 축(`mccp:security-reviewer`)이 그 **수정들의 완전성 구멍** 3건을
+다시 냈고 전부 흡수했다. 앞의 둘은 되돌리면 붉어지는 것을 확인했다.
+
+- **S-H1** F1의 abort가 per-file 판독 실패에만 걸려 있었다. `fs.readdirSync(sharedDir)`
+  **자신의** 실패는 같은 try 안에서 "최초 실행(ENOENT)"과 함께 삼켜졌고, 그러면 `seen`이
+  빈 채로 진행해 **이미 공유 위치에 있는 corpus 전체를 다시 append**한다 — F1이 막으려던
+  중복이 그 검사를 우회해 그대로 재현된다. 열거는 판독보다 넓은 사건이므로 `ENOENT`만
+  정상으로 접고 나머지는 `shared-dir-unreadable`로 abort한다.
+- **S-H2** `acceptWorktree`가 `eventsDir`에 `statSync`를 써서 symlink를 **따라갔다**.
+  containment 검사는 `wt`가 이 저장소 소유임만 증명하고 그 **내용**은 해당 worktree
+  소유자가 정하므로, 그 경로가 symlink면 스캔이 저장소 밖으로 재지향되고 거기서 JSON으로
+  파싱되는 것이 전부 공유 baseline에 실린다(CWE-59, 경쟁 창이 필요 없는 결정적 우회).
+  plan S3/S7이 채택한 symlink 거부가 `wt`와 개별 파일에만 걸려 그 사이 디렉토리가 비어
+  있었다. 회귀 test는 저장소 밖에 심어둔 이벤트가 실제로 실리는 것을 확인한 뒤 막는다.
+- **S-M1** F2의 heartbeat가 append 루프에만 있었다. orphan 판정은 mtime을 PID보다 **먼저**
+  보므로, read 단계(공유 corpus 전수 스캔 + worktree마다 동기 `git rev-parse`)가 60s
+  lease를 넘기면 두 번째 실행이 **살아 있는 holder의 락을 회수**하고 두 프로세스가 F2가
+  막으려던 트랜잭션을 동시에 돈다. 두 read 루프에도 heartbeat를 건다.
+- **S-L** 조작된 lock body의 `pid:0`이 POSIX `kill(0,0)`에서 던지지 않아 lease 동안
+  "살아 있음"으로 판정되던 것도 `pid > 0`으로 함께 닫았다.
+
+`--repo-root` 검증 강화(L3) · 소비처별 스캔 상한(M3 잔여) · base 미머지(M4) ·
+선재 red인 `meta-research.test.js:583` · 라운드 원장을 오염시키는
+`plan-review-cli-emit.test.js`의 격리 결함 · PR-Codex R2의 완주 정의 축(UI5 exclusion과
+충돌해 증거 기각) · security LOW 3건(symlink 파일의 조용한 skip 2종 · per-file TOCTOU)은
+[backlog](.claude/plans/codex-findings-backlog.md)에 증거와 함께 이연했다.
+
+### Note
+
+- A1 값은 마이그레이션 시점에 점프한다(실측 `n/a (-/2 · forward-only)` →
+  `27.3% (6/22 · computed)`). 이 시점 **이전 값과는 비교 불가**다 — 개선이 아니라
+  집계 경계가 처음 확정된 것이다.
 
 ## [1.34.3] — 2026-09-02
 
@@ -142,6 +268,7 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   회귀 test가 직접 증명한다.
 - 게이트 배선 diff는 **공집합**이다(UI7) — `commands/` · `hooks/` · `scripts/hooks/` ·
   `plan-review/` 변경 0건. read-only 계측이라 사용자 체감 변화가 없다.
+
 
 ## [1.34.2] — 2026-09-02
 

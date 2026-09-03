@@ -2,15 +2,17 @@
 state_version: 1
 task_fingerprint: ci-full-suite-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-03T05:30:27.715Z
+updated_at: 2026-09-03T07:23:36.949Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-03T05:30:27.715Z
+last_event_at: 2026-09-03T07:23:36.949Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-03T04:12:44.806Z
+dep_check_at: 2026-09-02T08:40:00.651Z
+escalate_pending: true
+escalate_pending_decision_id: ci-full-suite
 ---
 ## Goal
 ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M2 — suite-green. 구현·로컬 측정 완료, commit/PR 대기.
@@ -46,4 +48,4 @@ ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M2 — suite-green
 - 계획 Acceptance 2번(3원소 failing 집합 동일) 로컬 미충족 — 반올림하지 않고 기록
 
 ## Last Updated
-2026-09-03T05:30:27.715Z
+2026-09-03T07:23:36.949Z

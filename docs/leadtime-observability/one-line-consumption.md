@@ -122,36 +122,36 @@ node plugins/mccp/scripts/lib/leadtime.js
 STATUS.md·status.html 상단에 실리는 한 줄:
 
 ```text
-리드타임 (50/63 측정) · p50: 패널 7.5min (50/50) · 패널→ship ledger 0.38d (11/50) · hash 0.28d (17/50)
+리드타임 (54/67 측정) · p50: 패널 7.5min (54/54) · 패널→ship ledger 0.38d (11/54) · hash 0.28d (17/54)
 ```
 
 `leadtime.js` 사람 출력 전문 (첫 줄이 위의 한 줄과 동일하다 — 세 면이 한 문장을 공유한다):
 
 ```text
-리드타임 (50/63 측정) · p50: 패널 7.5min (50/50) · 패널→ship ledger 0.38d (11/50) · hash 0.28d (17/50)
-  state=ok records=50 pre_measurement=13 parse_failures=0 out_of_corpus=30 read_error=false
-  coverage: 50/63 panel records measurable (counts below are a LOWER BOUND)
-  panel_span observed 50/50 measurable (missing 0)
+리드타임 (54/67 측정) · p50: 패널 7.5min (54/54) · 패널→ship ledger 0.38d (11/54) · hash 0.28d (17/54)
+  state=ok records=54 pre_measurement=13 parse_failures=0 out_of_corpus=31 read_error=false
+  coverage: 54/67 panel records measurable (counts below are a LOWER BOUND)
+  panel_span observed 54/54 measurable (missing 0)
   (state above is COMPOSITE — the worst of the loaded axes, not a single axis)
   panel_span — state=ok
-  panel_span (nearest-rank, n=50): min=0.7min p50=7.5min p90=11.9min max=427.4min
+  panel_span (nearest-rank, n=54): min=0.7min p50=7.5min p90=11.9min max=427.4min
   by_verdict:
     converged: n=5 p50=6.4min max=13.0min
-    divergent: n=44 p50=7.6min max=427.4min
+    divergent: n=48 p50=7.5min max=427.4min
     unknown: n=1 p50=1.3min max=1.3min
   by_halt_stage:
-    (completed): n=32 p50=8.2min max=427.4min
+    (completed): n=35 p50=8.2min max=427.4min
     5.2b: n=1 p50=1.3min max=1.3min
-    5.2e: n=17 p50=5.4min max=11.9min
+    5.2e: n=18 p50=5.3min max=11.9min
   post_panel_span — state=ok
-    coverage: eligible 50 · matched ledger_basename 11 · matched ship_plan_hash 17
-      cross: both 6 · only_ledger 5 · only_ship 11 · neither 28
-    ship receipts: 48/80 qualified (unproven-skip 6 · override-qualified 11)
+    coverage: eligible 54 · matched ledger_basename 11 · matched ship_plan_hash 17
+      cross: both 6 · only_ledger 5 · only_ship 11 · neither 32
+    ship receipts: 50/82 qualified (unproven-skip 6 · override-qualified 13)
     ledger_basename (nearest-rank, n=11): min=0.05d p50=0.38d p90=0.70d max=1.74d
     ship_plan_hash (nearest-rank, n=17): min=0.02d p50=0.28d p90=4.18d max=5.92d
     disagreement (both axes matched, n=6, over abs(anchor_delta_ms)): p50=0.00d max=0.00d
-    unmatched[ledger_basename]: 39 = anchor_absent=30 unclassified=9
-    unmatched[ship_plan_hash]: 33 = key_mismatch=16 anchor_absent=11 unclassified=6
+    unmatched[ledger_basename]: 43 = anchor_absent=30 unclassified=13
+    unmatched[ship_plan_hash]: 37 = key_mismatch=18 anchor_absent=11 unclassified=8
 ```
 
 발행된 `.claude/state/leadtime/distribution.json`:
@@ -160,15 +160,15 @@ STATUS.md·status.html 상단에 실리는 한 줄:
 {
   "coverage": {
     "counts_are_lower_bound": true,
-    "measurable": 50,
-    "panel_records": 63
+    "measurable": 54,
+    "panel_records": 67
   },
   "degradations": [],
   "panel_span": {
     "max": 25642300,
     "min": 43984,
-    "n": 50,
-    "p50": 449737,
+    "n": 54,
+    "p50": 447105,
     "p90": 716586
   },
   "post_panel_span": {
@@ -188,10 +188,10 @@ STATUS.md·status.html 상단에 실리는 한 줄:
     },
     "coverage": {
       "both": 6,
-      "eligible": 50,
+      "eligible": 54,
       "matched_ledger": 11,
       "matched_ship": 17,
-      "neither": 28,
+      "neither": 32,
       "only_ledger": 5,
       "only_ship": 11
     },
@@ -207,14 +207,14 @@ STATUS.md·status.html 상단에 실리는 한 줄:
         "key_mismatch": 0,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 9
+        "unclassified": 13
       },
       "ship_plan_hash": {
         "anchor_absent": 11,
-        "key_mismatch": 16,
+        "key_mismatch": 18,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 6
+        "unclassified": 8
       }
     }
   },

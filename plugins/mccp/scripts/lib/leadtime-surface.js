@@ -163,8 +163,12 @@ function formatLeadtimeLine(summary) {
   };
 }
 
-// DD14의 기계적 강제. **실제로 실패할 수 있어야** 게이트다 — 짝을 뗀 문자열이
+// DD14의 falsifier. **실제로 실패할 수 있어야** 게이트다 — 짝을 뗀 문자열이
 // 통과하면 이 함수는 no-op이고, 그것이 이 plan이 두 번 흡수한 결함 계열이다.
+//
+// 강제 주체는 **test다, 런타임이 아니다** — production 호출부는 0건이다. 그것으로
+// 충분한 이유는 이 줄의 생산자가 `formatLeadtimeLine` 단일이기 때문이고, 두 번째
+// 생산자가 생기는 순간 이 함수를 그 생산자의 반환 경로에 넣어야 한다.
 function assertCoverageAdjacency(text) {
   const t = String(text == null ? '' : text);
   if (!HEAD_COVERAGE.test(t)) {

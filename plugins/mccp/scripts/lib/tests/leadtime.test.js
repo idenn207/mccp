@@ -1083,6 +1083,36 @@ test('the projection keeps the disagreement note so the structural zero is never
   assert.ok(!/불일치|disagreement/.test(formatLeadtimeLine(s).text));
 });
 
+// 분할 불변식 파손은 CLI 에서 `*** SUM EQUATION BROKEN ***` 로 크게 보이는데(:1261)
+// 소비 표면 셋(STATUS.md · status.html · distribution.json)에서만 사라졌다 — 강등
+// 열거형에 대응 항목이 없어 한 줄이 `사유 미상` 으로 접혔기 때문. 그 비대칭의 falsifier.
+test('a broken partition invariant reaches the one line as a NAMED reason', () => {
+  const s = summarizeForSurface({
+    state: 'degraded',
+    coverage: { panel_records: 2, measurable: 2 },
+    panel_span: null,
+    post_panel_span: {
+      state: 'degraded',
+      by_anchor: {},
+      coverage: { eligible: 2 },
+      unmatched: {
+        ledger_basename: { total: 2, counts: {}, sum_equation_holds: false },
+        ship_plan_hash: { total: 0, counts: {}, sum_equation_holds: true },
+      },
+    },
+  });
+  assert.ok(s.degradations.includes('sum-equation-broken'),
+    'the reason must be named, not swallowed: ' + JSON.stringify(s.degradations));
+  const note = formatLeadtimeLine(s).parts.note;
+  assert.match(note, /sum-equation-broken/);
+  assert.doesNotMatch(note, /사유 미상/, 'a named reason must never fall back to unknown');
+});
+
+test('the named reason does NOT fire when the partition holds (no false alarm)', () => {
+  const s = summarizeForSurface(aggregate([]));
+  assert.ok(!s.degradations.includes('sum-equation-broken'));
+});
+
 test('human output leads with the shared one line and stays inside 100 columns (DD15)', () => {
   const r = aggregate([panelRecord('a.md', { slug: 'a' })], {
     anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)] }),

@@ -101,8 +101,10 @@ test('status-grid places the line immediately after the status band, not at the 
   const grid = renderStatusGrid({}, formatUtils, {}, { leadtimeLine: line });
   const lines = grid.md.split('\n');
   assert.ok(lines[0].includes('진행 중'), 'line 0 is the status band: ' + lines[0]);
-  assert.equal(lines[1], line.md.split('\n')[0],
-    'the leadtime line is the very next line — the PRD asked for a line at the TOP');
+  assert.equal(lines[1], '',
+    'a blank line separates them — without it CommonMark folds both into one paragraph');
+  assert.equal(lines[2], line.md.split('\n')[0],
+    'the line is still at the TOP — the first content after the status band');
 });
 
 test('status-grid hands the html to the hero panel through grid.leadtimeHtml', () => {

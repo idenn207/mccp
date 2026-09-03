@@ -156,7 +156,12 @@ test('a sentinel formats into a normal absent line rather than crashing the rend
   assertCoverageAdjacency(out.text);
 });
 
-// ── 4. 라이브 경로 — 합성 repo 에서 spawn 없이 완주한다 ─────────────────────
+// ── 4. 라이브 경로 — 합성 repo 에서 완주한다 ────────────────────────────────
+//
+// 여기서 git spawn 이 없는 것은 seam 때문이 **아니다**: `scanLeadtime` 은
+// `allowGit:true` 를 하드코딩하고, 빈 코퍼스라 `readGitTouchedPaths` 가 조회할
+// 경로 0건으로 조기 반환할 뿐이다(`no-paths-to-query`). seam 자체의 회귀는
+// `lib/tests/leadtime.test.js` 의 allowGit:false test 가 덮는다.
 
 test('a real scan over an empty synthetic repo completes and stays blind', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-leadtime-src-'));

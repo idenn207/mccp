@@ -1158,6 +1158,16 @@ function summarizeForSurface(result) {
   if (pps && Array.isArray(pps.negative_spans) && pps.negative_spans.length > 0) {
     degradations.push('negative-spans');
   }
+  // 분할 불변식(`unmatched === Σ(counts)`) 파손은 `equationBroken`(:999)이 축을
+  // degraded로 만들지만 열거형에 대응 항목이 없어 한 줄이 `사유 미상`으로 떨어졌다.
+  // CLI는 `*** SUM EQUATION BROKEN ***`로 크게 보여주므로(:1261) 새 소비 표면
+  // 셋에서만 사라지는 비대칭이었다 — §3.11 C3이 분모의 가시성을 요구하는 그 축이다.
+  if (pps && pps.unmatched && ANCHOR_SERIES.some(function (k) {
+    const u = pps.unmatched[k];
+    return !!(u && u.sum_equation_holds === false);
+  })) {
+    degradations.push('sum-equation-broken');
+  }
 
   return {
     tool: 'leadtime',

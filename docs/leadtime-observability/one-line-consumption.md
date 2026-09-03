@@ -47,7 +47,13 @@ M1은 벽시계를, M2는 패널 종료→ship 구간을 산출했다. 둘 다 *
 `state`가 `degraded`거나 `blind`면 **바로 아래 줄**에 사유가 따로 붙는다(같은 줄에
 붙이면 100칼럼 상한과 충돌한다). 사유는 닫힌 열거형이다:
 `read-error` · `parse-failures` · `git-disabled` · `anchor-source-damaged` ·
-`negative-spans` · `module-load-failed` · `oracle-threw` · `read-failed`.
+`negative-spans` · `sum-equation-broken` · `module-load-failed` · `oracle-threw` ·
+`read-failed`.
+
+`sum-equation-broken`은 미짝 사유 분해의 분할 불변식(`unmatched === Σ(counts)`)이
+깨졌다는 뜻이다. CLI는 이것을 `*** SUM EQUATION BROKEN ***`로 크게 보여주는데, 이
+열거값이 생기기 전까지 소비 표면 셋에서는 같은 사건이 `사유 미상`으로 접혀 사라졌다 —
+축을 `degraded`로 만드는 조건과 사유를 이름 붙이는 조건이 어긋나 있었다.
 
 ## 렌더 vs 숨김 — 4갈래
 

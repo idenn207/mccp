@@ -15,7 +15,7 @@
 // 않으므로** content-stability 는 구성상 성립한다(비교할 변동 필드가 없다).
 // "언제 갱신됐나" 의 답은 git log 다.
 //
-// ── tmp 이름은 `<target>.<pid>-<rand>.tmp` 다 (§3.6) ─────────────────────────
+// ── tmp 이름은 `<target>.<pid>.<rand>.tmp` 다 (§3.6) ─────────────────────────
 //
 // 목적지가 **tracked** 라는 것이 `derive/cli.js#writeAtomic` 과 다른 점이다. 그
 // 헬퍼의 고정 이름 `<target>.tmp` 는 목적지가 gitignored 라 안전했다. 여기서
@@ -54,7 +54,7 @@ function serialize(summary) {
 }
 
 function uniqueTmp(target) {
-  return target + '.' + process.pid + '-' + crypto.randomBytes(4).toString('hex') + '.tmp';
+  return target + '.' + process.pid + '.' + crypto.randomBytes(4).toString('hex') + '.tmp';
 }
 
 // 반환값이 계약이다. mtime 만 보면 "정상 skip" 과 "writer 가 fail-open 으로 조용히

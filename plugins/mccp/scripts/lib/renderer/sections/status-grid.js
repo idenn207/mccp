@@ -255,7 +255,10 @@ function renderStatusGrid(model, formatUtils, planBody, opts) {
   // 그 아래에 붙이면 2600줄 문서의 460행대에 놓여 'STATUS.md 상단 한 줄' 이
   // 성립하지 않는다. 축 부재면 원소를 넣지 않는다(graceful-hide).
   const leadtimeLine = opts.leadtimeLine || null;
-  const leadtimeMd = (leadtimeLine && leadtimeLine.md) ? [leadtimeLine.md] : [];
+  // 빈 줄을 **앞에** 둔다 — CommonMark에서 연속 두 줄은 한 문단이라, 빈 줄이 없으면
+  // 렌더된 STATUS.md에서 상태 띠와 리드타임 줄이 한 문단으로 이어져 붙는다.
+  // 자리는 그대로 최상단이다(상태 띠 바로 다음).
+  const leadtimeMd = (leadtimeLine && leadtimeLine.md) ? ['', leadtimeLine.md] : [];
   const md = [summaryLine].concat(leadtimeMd,
     ['', widgetsMd, '', nextActionMd(nextAction)]).join('\n');
 

@@ -2,16 +2,14 @@
 
 All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.35.0`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
+> **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
-## [1.35.0] — 2026-09-03
+## [Unreleased]
 
-> **§3.7**: `1.34.3 → 1.35.0` (**minor** — leadtime-observability PRD **전체 완료**.
-> M1 wall-clock-aggregate · M2 span-join · M3 one-line-consumption 세 milestone이 모두
-> complete이므로 patch가 아니라 minor 자리다). 목표를 미리 정하지 않았다 — plan은
-> origin/main이 `1.34.3`일 때 `1.35.0`을 적었고, 그 사이 main이 `1.34.4`를 발행했으나
-> minor 자리는 여전히 forward-only라 상향이 필요 없었다. `/mccp:pr` 진입 직전 재계산은
-> 그대로 의무다.
+> 아래 항목들은 main 에 누적된 것이고 아직 어느 릴리스에도 실리지 않았다.
+> 번호는 릴리스 컷이 부여한다(우산 결정 1) — 자식 브랜치는 `plugin.json`
+> version 을 선언하지 않는다. 강제는
+> `node scripts/version-declaration-guard.js` 가 한다.
 
 ### Added
 

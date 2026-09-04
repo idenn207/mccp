@@ -51,6 +51,23 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 
 **MVP** — M1(벽시계 전건 집계) + M2(구간 join과 미짝 분해). M3(소비 회로)까지 착지해야 완료다 — M1·M2만 남기면 우산이 지목한 "producer는 있는데 caller가 없다"를 그대로 재현한다.
 
+**M4는 ship 이후에 열렸다 (2026-09-04, 운영자 지시).** 위 MVP 문장은 M3 착지를 완료
+조건으로 못박았고 M3은 실제로 ship됐다(PR #175 · `dee690d`). 그러나 그 사이클의
+`/mccp:code-review`·`/mccp:pr` 게이트가 **자기 표면에 대해** 낸 지적이 review-only
+권한(§3.9 — 수렴은 plan/implement 소유) 때문에 전건 backlog로 이연됐고, 그중 하나는
+이연이 아니라 **출고된 결함**이다: 한 줄의 표시 폭이 예산을 넘는데 계측기가 그것을
+볼 수 없다(code unit 92 · 표시 폭 102 — `lib/tests/leadtime.test.js`가 `l.length`로
+잰다). 값이 틀린 것은 아니지만 "커버리지 없는 값을 내지 않는다"와 같은 급의 자기
+계약이 지켜지지 않은 채 출고됐다. M4는 그 자기 표면만 닫고 **새 지표를 추가하지
+않는다**.
+
+M4의 범위는 **C4가 소유한 것으로 한정한다.** backlog 1393행 중 source가
+leadtime-observability인 것은 108행이고, 그중 ship 이후까지 열려 있는 것이 17행이다.
+나머지는 각자의 소유 PRD가 있고, 남의 PRD 지적을 여기서 흡수하면 이 저장소가 곳곳에서
+강제하는 소유 원칙이 무너진다. 저장소 전체 backlog 소각은 별도 PRD 사거리다.
+`.claude/state/fix-task.md`는 **없다**(consumed → `fix-task-applied.md`만 잔존) —
+이 축의 미처리 항목은 0건이다.
+
 ### 이 PRD가 못박는 결정 3건 (운영자 미확인)
 
 | # | 결정 | 왜 |
@@ -75,6 +92,7 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 | 1 | wall-clock-aggregate | 측정 가능 레코드 전건의 벽시계 분포가 산출된다(이전 소비처는 converged 5건만 보고했다). 코퍼스 커버리지가 하한으로 명시된다. `corpus.js` 출력은 한 바이트도 바뀌지 않는다 | complete | `.claude/plans/leadtime-observability-m1.plan.md` |
 | 2 | span-join | 패널 종료 → ship 구간이 두 끝 앵커로 각각 산출되고, 미짝 레코드 전건이 사유별로 분류된다(미ship / 앵커 부재 / 키 불일치). 두 앵커의 불일치가 함께 나온다 | complete | `.claude/plans/leadtime-observability-m2.plan.md` |
 | 3 | one-line-consumption | `STATUS.md` 상단 한 줄에 값과 커버리지가 **함께** 뜬다. 값이 없으면 없다고 적고 0으로 적지 않는다. C7이 인용할 분포가 파일로 남는다 | complete | `.claude/plans/leadtime-observability-m3.plan.md` |
+| 4 | one-line-hardening | M1~M3이 이연한 자기 표면의 결함이 닫힌다. 표시 폭 계측이 실제 폭을 재고 한 줄이 그 예산 안에 든다. 커버리지 분모가 무엇의 분모인지 줄에서 갈린다. `md`/`html` 두 면의 note 구조가 같아지고 test가 결함이 아니라 계약을 고정한다. 렌더 경로의 git spawn 비용이 되돌릴 수단을 갖는다. 지표 4의 정의가 판정된다 | in-progress | `.claude/plans/leadtime-observability-m4.plan.md` |
 
 ## Open Questions
 

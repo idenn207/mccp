@@ -1,51 +1,55 @@
 ---
 state_version: 1
-task_fingerprint: ci-full-suite-m1
+task_fingerprint: leadtime-observability-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-03T07:23:36.949Z
+updated_at: 2026-09-04T02:43:41.069Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-03T07:23:36.949Z
+last_event_at: 2026-09-04T02:43:41.069Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T08:40:00.651Z
-escalate_pending: true
-escalate_pending_decision_id: ci-full-suite
+dep_check_at: 2026-09-03T04:12:52.323Z
 ---
 ## Goal
-ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M2 — suite-green. 구현·로컬 측정 완료, commit/PR 대기.
+leadtime-observability M4 — one-line-hardening. 이전 plan이 소실돼 **처음부터 재작성**했다.
+plan-review 게이트는 라운드 캡 소진으로 5.2c-emit에서 HALT — 패널 미발화, receipt 없음.
+운영자 승인(2026-09-04) 하에 패널 없이 진행하는 상태.
 
 ## Plan
-- PRD: `.claude/prds/ci-full-suite.prd.md` — MVP는 축 A 하나(측정 가능)
-- plan: `.claude/plans/ci-full-suite-m1.plan.md` — 봉인됨 `sha256:dab39c61…`. **편집하면 receipt가 stale이 된다**
-- receipt: `.claude/receipts/mccp-plan-codex/ci-full-suite-m1.json` (verdict=divergent, single-pass 봉인)
-- 리뷰 기록: `.claude/reviews/plan-review-ci-full-suite-m1.md` (직전 slug `ci-full-suite` 기록도 별도 보존)
-- branch ci-full-suite · plugin.json version bump 없음 (우산 결정 1: `.github/`는 배포 표면 밖)
+- PRD `.claude/prds/leadtime-observability.prd.md` milestone 4 `in-progress`
+- plan `.claude/plans/leadtime-observability-m4.plan.md` — 재작성본, **아직 untracked**
+- 이전 라운드 기록(11건 지적·증거 포함) `.claude/reviews/plan-review-leadtime-observability-m4-r0-blocked.md`
+- 이번 HALT 기록 `.claude/reviews/plan-review-leadtime-observability-m4.md` (verdict=unknown · halt_stage=5.2c-emit)
+- 라운드 원장 — PRD 슬러그 `leadtime-observability` 3라운드 · `-m4` 슬러그 1라운드. 봉인 cap=1 pinned-by=codex-disabled
 
 ## Done
-- M1 Acceptance 6/6 충족. 컨테이너 5원소(local · ci-node20/24 · 각 r2) 전부 ok:true · attribution:complete · redaction_ok:true
-- 핵심 발견 — 전수 시간은 스위트가 아니라 플랫폼의 성질. 같은 Node v24.19.0에서 Windows 순차 합계가 Linux의 64.8배(코어는 Windows가 4배 많은데도). Linux 전수 75.5초 대 Windows 31.4분
-- OQ1 해결(조용한 머신 = GitHub runner) · OQ4 해결(Node 20 하한 유지 무비용, data.file 귀속 6363/6363 완전) · OQ5 해결. PRD milestone 1 → complete
-- red가 플랫폼마다 다름 — Windows 전용 6 · Linux 전용 7 · 교집합 2. M3의 CI matrix 필요 여부에 직접 근거
-- run 간 편차 실측 — node20 벽시계 +27.1%. 그래서 node20-faster 주장을 철회했고 병렬 하한을 구간(17.5~27.2초)으로 기록
-- plan 154줄 복구(직전 세션 섹션 치환 사고) · Task 0 재수행(PR CONFLICTING이면 pull_request run이 생성조차 안 됨)
+- 이전 M4 plan의 디스크 소실 확인 — 커밋된 적 없고(`git log --all --diff-filter=A` 0건) dangling blob에도 없어 복구 불가
+- 운영자 판단 3건 수령 — 플랜 재작성 · 패널 없이 진행 · 폭 축은 칼럼 예산으로 축소하고 실제 렌더 폭은 열어 둔다
+- 표시 폭 실측 — 현행 줄 code unit 92 · 표시 폭 102(ambiguous=1)/106(ambiguous=2) · 3자리 114 · 4자리 122
+- 줄 설계 후보 8종 폭 측정 후 채택안 확정 — 그룹 라벨이 분모를 한 번 선언하는 형태(108/114/120, 예산 120)
+- plan 재작성 완료 — UI1~UI11 · DD1~DD9 · Files to Change 14행 · Task 9개 · Validation 7단계 · Risks 8행
+- 인용 6건 정정(L1이 잡은 bare citation 1건 포함) 후 L1 재실행 converged · violations 0
+- 게이트 실행 — 봉인 → detect(skill_available·design_signal 둘 다 true) → mode=multi-agent → L1 converged → reserve granted=4 → emit exit 12 (round cap 3/1)
+- 예약 반환 완료(`--actual 0` · delta -4 · launched 0). 원장 미증가 · receipt 미작성 확인
+- 이전 라운드 기록을 `-r0-blocked.md`로 보존 — 저장소의 `-rN-blocked` 선례 준용, 새 기록이 덮지 않게 함
 
 ## In Progress
 
 
 ## Next Step
-/mccp:prp-commit → /mccp:pr. PR CI에서 Linux 3회 측정을 받아 컨테이너에 병합하고 m2-green.md §5c를 갱신한다.
+plan을 먼저 커밋한다(이번 사이클이 잃은 것이 정확히 untracked plan이다) — `git add .claude/plans/leadtime-observability-m4.plan.md .claude/reviews/plan-review-leadtime-observability-m4*.md` 후 `/mccp:prp-implement .claude/plans/leadtime-observability-m4.plan.md`. PR 본문에는 `## Gate Deviation`으로 캡 소진·패널 미승인을 명시할 것.
 
 ## Last Decision
-갈래 H의 귀속을 정정했다 — run.js 오염이 아니라 test가 gitDir를 격리하지 않은 것이고, 계획이 지시한 MCCP_ROUND_LEDGER 주입은 세 리뷰 관점이 반증해 폐기했다. 격리 경계는 env가 아니라 gitDir다.
+폭 예산을 120으로 **먼저 고르고 그 다음 줄 설계를 거기 맞췄다**. 반대 방향(설계를 정하고 숫자를 맞추는 것)이 이전 라운드 패널이 HIGH 3건으로 지목한 침식이라, 선정 순서 자체를 DD1의 근거로 적었다. 기존 100칼럼을 유지하지 않은 이유는 달성 불가이기 때문이다 — 라벨 없는 현행 줄이 이미 106이고, 100에 맞추려면 계약된 앵커 토큰을 떨어뜨려야 하는데 그것이 PRD 결정 1(UI6) 위반이다. 침식 방지 장치는 4자리 투영이 정확히 예산과 같다는 사실 — 줄을 넓히면 test가 붉어지고, 통과시키려면 예산 상수와 test를 함께 고쳐야 해 diff에 남는다.
 
 ## Open Questions
-- Linux 3회 미측정 — 갈래 F·R 4건과 갈래 P 2건(mask · santa-loop-cap DD3)의 최종 판정이 거기 달려 있다
-- post-edit-format-md.test.js는 flaky 확정이나 귀속 불가 — reporter가 파일 단위 실패의 내부 단언을 싣지 않는다(backlog 등재)
-- 선행 mccp-plan-codex receipt가 구조적 stale — 2.5.4의 의무 주입이 plan_hash를 바꾸고 재봉인은 §3.12가 금지한다(backlog 등재)
-- 계획 Acceptance 2번(3원소 failing 집합 동일) 로컬 미충족 — 반올림하지 않고 기록
+- 재작성한 plan을 무엇이 인증하는가 — **아무것도 인증하지 않는다.** 캡 소진으로 패널이 발화하지 못했고 receipt도 없다. 이것이 이 사이클의 정직한 상태다.
+- M4가 닫지 않는 CRITICAL — 칼럼은 대리 지표이고 실제 렌더 폭을 잴 수단이 저장소에 없다(renderer test는 jsdom-free · root package.json 부재). backlog 이연 · 소유 축 renderer.
+- plan 게이트 슬러그가 PRD 경로에서 파생돼 한 PRD의 모든 milestone이 라운드 원장 하나를 공유한다 — M4가 M1~M3의 3라운드를 물려받아 시작부터 캡 초과다. 캡이 decision 단위라는 전제와 어긋나지만 소유 축이 다르다(미조사).
+- 완료 ledger 엔트리(`leadtime-observability-m3__e337d9e3d659.json`)가 미발행 버전 `1.35.0`을 주장해 단순 `git add`가 불가하고 §3.12 no-rehash 때문에 정정도 불가. backlog 이연.
+- state-writer가 main repo 상태를 읽어 worktree에 쓰는 정황(§3.8 라우팅 축) — 이전 세션 STATE.md가 M3 내용으로 덮인 원인 후보. 미조사.
 
 ## Last Updated
-2026-09-03T07:23:36.949Z
+2026-09-04T02:43:41.069Z

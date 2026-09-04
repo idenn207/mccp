@@ -449,3 +449,81 @@ test('M3 (h): a hybrid receipt takes its verdict from the nonce-verified record'
   assert.match(bash, /CODEX_VERDICT_EFF=\$\(cat "\$REVIEW_DIR\/codex-verdict"/,
     'the non-hybrid branch must keep reading the bridge artifact unchanged');
 });
+
+// ═══ review-record-linkage M4 Task 7(a) — 배선 부재를 보는 정적 단언 ═════════
+//
+// **이 두 test 가 주장하는 범위는 좁다.** 여기서 고정하는 것은 "본문 배선이
+// 존재한다" 뿐이다. 이 사이클의 실제 어긋남은 본문 편집이 아니라 **런타임 `--slug`
+// override**(R1 완화)에서 왔고, 정적 단언은 그것을 구조적으로 볼 수 없다 — 본문이
+// 동일한 채 런타임 슬러그만 갈라지는 방향은 여기서 전부 통과한다.
+//
+// 그 런타임 축을 실제로 막는 것은 `cmdRecord` 의 봉인 대조 degradation 이고, 그
+// 반증 test 는 `plan-review-record.test.js` 의 M4 Task 4 (d)(e)(f) 가 소유한다.
+// 두 test 가 같은 것을 지킨다고 적으면 어느 쪽도 지키지 않는다.
+
+const RECORD_INVOCATION = /plan-review\/cli\.js"?\s+record\b/;
+
+test('M4 Task 7(a): every record invocation passes --slug', () => {
+  // `--slug` 가 없으면 `cmdRecord` 는 슬러그를 `unknown-decision` 으로 접고, 그러면
+  // 레코드 파일명도 원장 조회 키도 함께 어긋나 그 실행의 라운드 수가 영구히
+  // 관측되지 않는다. 게이트는 그래도 통과하므로 이 누락은 조용하다.
+  const lines = SRC.split(/\r?\n/);
+  const found = [];
+  lines.forEach((line, i) => {
+    if (!RECORD_INVOCATION.test(line)) return;
+    if (!BLOCK_OF_LINE.has(i + 1)) return;          // 산문 언급은 배선이 아니다
+    // 호출은 백슬래시로 이어지므로 이어지는 줄까지 한 덩어리로 본다.
+    let j = i;
+    let joined = '';
+    while (j < lines.length) {
+      joined += lines[j];
+      if (!/\\\s*$/.test(lines[j])) break;
+      j += 1;
+    }
+    found.push({ n: i + 1, text: joined });
+  });
+
+  assert.ok(found.length > 0, 'expected at least one record invocation in plan.md');
+  const missing = found.filter((f) => f.text.indexOf('--slug') === -1);
+  assert.deepEqual(missing.map((m) => m.n), [],
+    'a record invocation without --slug records under `unknown-decision`, which names ' +
+    'neither the right file nor the right round ledger');
+});
+
+test('M4 Task 7(a): the 5.-1 seal and the record calls derive the slug the SAME way', () => {
+  // 봉인은 `(gate, decision)` 으로 캡을 강제하고 레코드는 `--slug` 로 원장을 찾는다.
+  // 둘이 다른 파생을 쓰기 시작하면 강제된 원장과 측정된 원장이 조용히 갈린다 —
+  // 그것이 DD3 가 관측으로 표면화하는 바로 그 상태이고, 여기서는 그 어긋남이
+  // **본문 편집으로** 들어오는 방향을 막는다.
+  const DERIVE = /receipt\/cli\.js"?\s+derive-decision/;
+  const lines = SRC.split(/\r?\n/);
+  const derivations = [];
+  lines.forEach((line, i) => {
+    if (!DERIVE.test(line)) return;
+    if (!BLOCK_OF_LINE.has(i + 1)) return;
+    let j = i;
+    let joined = '';
+    while (j < lines.length) {
+      joined += lines[j].trim() + ' ';
+      if (!/\\\s*$/.test(lines[j])) break;
+      j += 1;
+    }
+    derivations.push({ n: i + 1, text: joined.replace(/\\\s+/g, ' ').replace(/\s+/g, ' ') });
+  });
+
+  assert.ok(derivations.length >= 2, 'expected the seal derivation plus the record ones');
+  derivations.forEach((d) => {
+    assert.match(d.text, /--command mccp:plan/,
+      'line ' + d.n + ': the gate axis of the ledger key must be the plan command');
+    assert.match(d.text, /--args "\$ARGUMENTS"/,
+      'line ' + d.n + ': the decision axis must come from the same $ARGUMENTS the seal ' +
+      'used — a different input here is a different ledger');
+  });
+
+  // 봉인 쪽이 실제로 그 파생을 소비하는지도 본다. 파생만 있고 소비가 없으면 위
+  // 단언은 참인 채로 배선이 끊길 수 있다.
+  assert.match(SRC, /ROUND_SLUG=\$\(node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/receipt\/cli\.js" derive-decision/,
+    '5.-1 must derive ROUND_SLUG through the shared oracle');
+  assert.match(SRC, /review-rounds\/cli\.js" seal[\s\S]{0,200}--decision "\$ROUND_SLUG"/,
+    '5.-1 must seal the ledger key with that derived slug');
+});

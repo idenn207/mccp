@@ -58,7 +58,7 @@
     "of": 4,
     "passed": false
   },
-  "wall_clock_ms": 58316230,
+  "wall_clock_ms": null,
   "halt_stage": null,
   "backlog_appended": 12,
   "backlog_skipped_nonblocking": 7,
@@ -66,7 +66,7 @@
   "reviewed_plan_hash": "sha256:b39fca3d9a4045748b9f2692b334dc5f4ff1fb58db2647fc570af0dfdb2a73b4",
   "plan_path": ".claude/plans/review-record-linkage-m4.plan.md",
   "receipt_hash": null,
-  "recorded_at": "2026-09-04T01:08:28.214Z",
+  "recorded_at": "2026-09-04T01:48:53.309Z",
   "rounds": 1
 }
 ```
@@ -74,3 +74,4 @@
 ### Recording degradations
 
 - the round-cap seal on disk enforces gate `mccp-implement-codex`, not `mccp-plan-codex` — a later gate (typically /mccp:pr) overwrote the per-git-dir seal, so it cannot confirm which ledger this record read
+- started-at is 60741325ms before now, past the 21600000ms plausibility bound for one gate execution — the REVIEW_DIR artifacts are LEFT OVER from an earlier run (a regeneration reading a stale started-at is exactly how this happens), so wall_clock_ms is recorded as null: an unmeasured duration must not read as a very long one

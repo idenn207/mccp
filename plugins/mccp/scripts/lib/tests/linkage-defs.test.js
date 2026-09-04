@@ -230,3 +230,180 @@ test('pathological input stays within a wall-clock bound (ReDoS guard)', functio
     });
   });
 });
+
+// ── M4 — D1 자격 3값 (DD5) ───────────────────────────────────────────────────
+//
+// 여기서 지키는 것은 두 축이다.
+//   1. 3값이 실제로 갈린다 (상수 스텁이 전부 green 이 되지 않게 긍정·부정 모두)
+//   2. **자기신고 면제가 닫혔다** — `halt_stage` 를 임의 문자열로 바꿔도 verdict 가
+//      불변이다. 초판은 `halt_stage ∈ PRE_DISPATCH_HALT_STAGES` 를 면제 근거로 뒀는데
+//      그 값은 `--halt-stage` 로 들어오는 caller 자유 문자열이라, DD4 가 유일한 강제
+//      지점으로 지목한 감사 종료코드를 문자열 하나로 빠져나갈 수 있었다.
+
+test('M4 — classifyRoundStructure is 3-valued and each branch is reachable', function () {
+  const c = defs.classifyRoundStructure;
+
+  assert.equal(c({ rounds: 1 }).verdict, 'present');
+  assert.equal(c({ rounds: 7 }).verdict, 'present');
+
+  // 키 부재 = M4 이전 코퍼스. 자격이 아니라 축 자체가 없다.
+  assert.equal(c({}).verdict, 'absent');
+  assert.equal(c({ verdict: 'converged' }).verdict, 'absent');
+
+  // null + 패널 증거 없음 = dispatch 이전 halt. 라운드가 실제로 0회다.
+  assert.equal(c({ rounds: null, quorum: null }).verdict, 'not_enrolled');
+  assert.equal(c({ rounds: null, quorum: { responded: 0 } }).verdict, 'not_enrolled');
+
+  // null + 패널 증거 있음 = 리뷰는 돌았는데 몇 라운드였는지 말하지 못한다 → 결손.
+  assert.equal(c({ rounds: null, quorum: { responded: 4 } }).verdict, 'absent');
+  // responded 가 null 인 것은 "비었다"가 아니라 "읽지 못했다" → 면제하지 않는다.
+  assert.equal(c({ rounds: null, quorum: { responded: null } }).verdict, 'absent');
+
+  // 0 은 면제가 아니다 — 원장이 있었고 아무것도 세지 않았다는 측정값이다.
+  assert.equal(c({ rounds: 0, quorum: null }).verdict, 'absent');
+
+  // 정수가 아닌 것은 전부 absent.
+  assert.equal(c({ rounds: '3' }).verdict, 'absent');
+  assert.equal(c({ rounds: 1.5 }).verdict, 'absent');
+  assert.equal(c({ rounds: -1 }).verdict, 'absent');
+
+  // 부정 판정에는 사유가 붙는다 (classifyShipEligibility 와 같은 계약).
+  [{}, { rounds: null, quorum: { responded: 2 } }, { rounds: 0 }].forEach(function (m) {
+    const r = c(m);
+    assert.equal(typeof r.reason, 'string');
+    assert.ok(r.reason.length > 0, 'a negative verdict must carry its reason');
+  });
+
+  // verdict 는 선언된 열거 안에 있다.
+  [{}, { rounds: 1 }, { rounds: null, quorum: null }, null, 42, []].forEach(function (m) {
+    assert.ok(defs.ROUND_STRUCTURE_VERDICTS.indexOf(c(m).verdict) !== -1);
+  });
+});
+
+test('M4 — halt_stage cannot move the verdict (the self-report exemption is closed)', function () {
+  const c = defs.classifyRoundStructure;
+  const stages = [
+    null, '', '5.2b', '5.2a-0', '5.2e', 'pre-dispatch', 'PRE_DISPATCH',
+    'anything the author feels like typing', '../../etc/passwd', '5.2h',
+  ];
+  // 자격을 얻는 경우와 못 얻는 경우 **양쪽** 모두에서 불변이어야 한다. 한쪽만 걸면
+  // "면제를 켜는" 방향이나 "면제를 끄는" 방향 중 하나가 열린 채로 남는다.
+  const bases = [
+    { m: { rounds: null, quorum: null }, want: 'not_enrolled' },
+    { m: { rounds: null, quorum: { responded: 3 } }, want: 'absent' },
+    { m: { rounds: 2, quorum: { responded: 3 } }, want: 'present' },
+    { m: { quorum: null }, want: 'absent' },
+  ];
+  bases.forEach(function (b) {
+    stages.forEach(function (st) {
+      const m = Object.assign({}, b.m, { halt_stage: st });
+      assert.equal(c(m).verdict, b.want,
+        'halt_stage=' + JSON.stringify(st) + ' must not change the verdict for ' +
+        JSON.stringify(b.m));
+    });
+  });
+  // 그리고 소스가 그 필드를 아예 읽지 않는다 — 위 단언은 행동이고 이것은 구조다.
+  const src = fs.readFileSync(DEFS_PATH, 'utf8');
+  const body = src.slice(src.indexOf('function classifyRoundStructure'),
+    src.indexOf('// ── D2 — 리뷰 대상 ship'));
+  assert.ok(body.indexOf('halt_stage') === -1,
+    'classifyRoundStructure must not reference halt_stage at all (a caller-controlled ' +
+    'free string cannot be the basis of an exemption)');
+  assert.equal(typeof defs.PRE_DISPATCH_HALT_STAGES, 'undefined',
+    'the discarded exemption list must not exist');
+});
+
+test('M4 — the frozen D1 predicate is byte-for-byte the M1 one', function () {
+  // `classifyRoundStructure` 는 자격을 바꾸지 정의를 바꾸지 않는다(UI2). 이 단언이
+  // 붉어지면 M4 가 M1 의 동결 baseline 을 움직였다는 뜻이다.
+  const h = defs.hasRoundStructure;
+  assert.equal(h({ rounds: 1 }), true);
+  assert.equal(h({ rounds: 0 }), false);
+  assert.equal(h({ rounds: null }), false);
+  assert.equal(h({}), false);
+  assert.equal(h({ rounds: '1' }), false);
+  assert.equal(h({ rounds: 1.5 }), false);
+  assert.equal(h(null), false);
+  assert.equal(h([]), false);
+  assert.equal(h('rounds: 3'), false);
+
+  const src = fs.readFileSync(DEFS_PATH, 'utf8');
+  const fn = src.slice(src.indexOf('function hasRoundStructure'),
+    src.indexOf('// 대조군. 정의 선택의 반증 자료이므로'));
+  assert.equal(fn.replace(/\s+/g, ' ').trim(),
+    'function hasRoundStructure(measurement) { ' +
+    'if (measurement === null || typeof measurement !== \'object\') return false; ' +
+    'if (Array.isArray(measurement)) return false; ' +
+    'const r = measurement.rounds; ' +
+    'return Number.isInteger(r) && r >= 1; }',
+    'M4 must not touch the M1 predicate — it adds ELIGIBILITY, not a new definition');
+});
+
+test('M4 — classifyRoundStructure is total', function () {
+  [undefined, null, 0, 1, 'x', [], [1, 2], true, function () {}, { rounds: {} },
+    { rounds: [], quorum: [] }, { rounds: null, quorum: 'x' }, Object.create(null),
+  ].forEach(function (input, i) {
+    // 라벨에 입력을 넣지 않는다 — `Object.create(null)` 은 primitive 변환이 없어서
+    // 실패 메시지를 만드는 것 자체가 throw한다(그러면 test 가 대상이 아니라 자기 자신의
+    // 라벨 때문에 붉어진다). 위치가 어느 항목인지 말해 주는 것으로 충분하다.
+    assert.doesNotThrow(function () { defs.classifyRoundStructure(input); },
+      'total-input case #' + i + ' must not throw');
+  });
+});
+
+// local code-review M1 — the shapes the FIRST implementation threw on. It built its
+// reason with `JSON.stringify`, which is not a total function: circular structures,
+// BigInt, and a throwing `toJSON` all raise TypeError/Error. None is reachable from
+// today's callers (record.js builds the value; linkage-audit reads JSON.parse output),
+// but this file is a dep-free predicate library the WRITE PATH imports, and
+// `buildReviewRecord` declares never-throw while `cmdRecord`'s catch turns any throw
+// into NO RECORD AT ALL — the sample loss DD4 exists to prevent. So the contract is
+// asserted against the shapes that actually break it, not only against tidy ones.
+test('M4 — the totality contract holds for the shapes JSON.stringify cannot serialize', function () {
+  const circular = { rounds: {} };
+  circular.rounds.self = circular.rounds;
+
+  const throwingToJson = { rounds: { toJSON: function () { throw new Error('boom'); } } };
+
+  const cases = [
+    ['circular', circular],
+    ['bigint', { rounds: BigInt(1) }],
+    ['throwing toJSON', throwingToJson],
+    ['circular quorum evidence', (function () {
+      const m = { rounds: null, quorum: { responded: {} } };
+      m.quorum.responded.self = m.quorum.responded;
+      return m;
+    }())],
+    ['bigint quorum evidence', { rounds: null, quorum: { responded: BigInt(3) } }],
+  ];
+
+  cases.forEach(function (c) {
+    let r;
+    assert.doesNotThrow(function () { r = defs.classifyRoundStructure(c[1]); },
+      c[0] + ' must not throw — a total function has no exceptions for awkward input');
+    assert.ok(defs.ROUND_STRUCTURE_VERDICTS.indexOf(r.verdict) !== -1);
+    assert.ok(typeof r.reason === 'string' && r.reason.length > 0);
+  });
+
+  // 그리고 소스가 그 함수를 아예 부르지 않는다 — 위는 행동이고 이것은 구조다.
+  const src = fs.readFileSync(DEFS_PATH, 'utf8');
+  const body = src.slice(src.indexOf('function classifyRoundStructure'),
+    src.indexOf('// ── D2 — 리뷰 대상 ship'));
+  assert.ok(body.indexOf('JSON.stringify') === -1,
+    'a module whose header declares every function total cannot reach for a serializer ' +
+    'that throws; summarise the SHAPE instead of serialising the value');
+});
+
+// 반신뢰 입력이 사유 문장의 크기를 정하지 못한다. `by_reason` 은 사유를 맵 KEY 로 쓰므로
+// 값을 그대로 실으면 레코드 하나가 감사 출력의 카디널리티와 크기를 동시에 늘린다.
+test('M4 — a reason never carries the untrusted value itself, only its shape', function () {
+  const huge = 'x'.repeat(100000);
+  const r = defs.classifyRoundStructure({ rounds: huge });
+  assert.equal(r.verdict, 'absent');
+  assert.ok(r.reason.indexOf(huge) === -1, 'the value must not be echoed into the reason');
+  assert.ok(r.reason.length < 500, 'a reason is bounded regardless of its input');
+
+  // 숫자는 여전히 그 값을 말한다 — 무엇이 왜 정수가 아닌지가 사유의 요점이기 때문이다.
+  assert.match(defs.classifyRoundStructure({ rounds: 0 }).reason, /\b0\b/);
+  assert.match(defs.classifyRoundStructure({ rounds: 1.5 }).reason, /1\.5/);
+});

@@ -19,7 +19,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { buildReviewRecord, reviewRecordPath, sanitizeSlug } = require('../plan-review/record');
+const {
+  buildReviewRecord, reviewRecordPath, sanitizeSlug, MAX_PLAUSIBLE_SPAN_MS,
+} = require('../plan-review/record');
 const { runCli, EX_OK } = require('../plan-review/cli');
 
 const HASH = 'sha256:' + 'a'.repeat(64);
@@ -54,6 +56,16 @@ function measurementOf(markdown) {
   return JSON.parse(m[1]);
 }
 
+// `### Recording degradations` 아래의 `- ` 항목들. 이 문장들은 **커밋되는 텍스트**라,
+// 무엇이 그 안에 들어가는지를 test 가 직접 볼 수 있어야 한다(local code-review H1).
+function degradationsOf(markdown) {
+  const sec = markdown.split('### Recording degradations')[1];
+  if (!sec) return [];
+  return sec.split(/\r?\n/)
+    .filter(function (l) { return l.indexOf('- ') === 0; })
+    .map(function (l) { return l.slice(2); });
+}
+
 // ── 1. pure oracle, three shapes ──────────────────────────────────────────────
 
 test('pass path — full artifacts produce the M1 record format plus a measurement', () => {
@@ -69,6 +81,11 @@ test('pass path — full artifacts produce the M1 record format plus a measureme
     startedAtMs: 1000,
     nowMs: 91000,
     haltStage: null,
+    // review-record-linkage M4 — "full artifacts" grew by one axis. A panel that
+    // ran and cannot say how many rounds it spent is now a measurement gap, so a
+    // complete run has to carry the ledger reading too; without it this case is
+    // no longer the pass path it is named after.
+    roundLedger: { available: true, count: 1 },
   });
 
   // The M1 format is preserved verbatim — this record replaces hand-typed
@@ -89,6 +106,7 @@ test('pass path — full artifacts produce the M1 record format plus a measureme
   assert.equal(measurement.halt_stage, null);
   assert.equal(measurement.reviewed_plan_hash, HASH);
   assert.deepEqual(measurement.quorum, { responded: 4, required: 3, roles: 4, of: 4, passed: true });
+  assert.equal(measurement.rounds, 1, 'M4 — the round count rides in the same measurement');
   assert.deepEqual(degradations, [], 'a complete run degrades nothing');
   assert.deepEqual(measurementOf(markdown), measurement, 'the embedded JSON is the measurement');
 });
@@ -502,4 +520,369 @@ test('M3 — buildReviewRecord still never throws on the new axis', function () 
     buildReviewRecord({ slug: 'x', planPath: {}, repoRoot: {}, nowMs: 0 });
   });
   assert.doesNotThrow(function () { buildReviewRecord({}); });
+});
+
+// ═══ review-record-linkage M4 — the round axis ═══════════════════════════════
+//
+// M1 gave the record a measurement; M4 gives it the ONE number the whole
+// milestone is about. Four things are pinned here and they are different
+// questions, so they get different tests:
+//
+//   Task 2 — the value folds correctly, and null is never 0
+//   Task 3 — the record declares its own D1 non-conformance, without dying
+//   Task 6 — the measurement KEY SET is a contract (deletions/renames go red)
+//   Task 4 — the CLI seam actually reads a ledger, and every failure exits 0
+//   Task 7(b) — a real spawn, because an in-process call cannot catch a module
+//               resolution failure
+
+const { spawnSync } = require('child_process');
+const defsM4 = require('../plan-review/linkage-defs');
+const CLI_PATH = path.join(__dirname, '..', 'plan-review', 'cli.js');
+
+const ROUND_GATE = 'mccp-plan-codex';
+
+function writeLedger(root, slug, n, raw) {
+  const dir = path.join(root, '.claude', 'state', 'review-rounds');
+  fs.mkdirSync(dir, { recursive: true });
+  const target = path.join(dir, ROUND_GATE + '__' + slug + '.json');
+  if (typeof raw === 'string') { fs.writeFileSync(target, raw); return target; }
+  const rounds = [];
+  for (let i = 0; i < n; i++) {
+    rounds.push({ index: i, at: '2026-01-01T00:00:00.000Z', channel: 'panel', classification: null });
+  }
+  fs.writeFileSync(target, JSON.stringify(
+    { schema_version: 1, gate_id: ROUND_GATE, decision_id: slug, rounds: rounds }, null, 2));
+  return target;
+}
+
+// ── Task 2 — the fold ────────────────────────────────────────────────────────
+
+test('M4 Task 2: rounds folds from the injected ledger, and absence is null not zero', () => {
+  const cases = [
+    [undefined, null, 'no injection at all — this build/run read no ledger'],
+    [{ available: false, count: null }, null, 'the ledger file did not exist'],
+    [{ available: true, count: 0 }, 0, 'a ledger existed and counted nothing'],
+    [{ available: true, count: 3 }, 3, 'a ledger existed and counted three'],
+  ];
+  cases.forEach(function (c) {
+    const built = buildReviewRecord({
+      slug: 'm4-fold', planPath: '.claude/plans/x.plan.md', mode: 'multi-agent',
+      l2: L2_PASS, decision: DECISION_PASS, startedAtMs: 1000, nowMs: 2000,
+      roundLedger: c[0],
+    });
+    assert.equal(built.measurement.rounds, c[1], c[2]);
+  });
+});
+
+test('M4 Task 2: the rounds KEY is always present — absence means "no axis in this build"', () => {
+  const built = buildReviewRecord({ slug: 'm4-key', nowMs: 1 });
+  assert.ok(Object.prototype.hasOwnProperty.call(built.measurement, 'rounds'),
+    'an absent key and a null value are different facts: the first says a pre-M4 build ' +
+    'wrote this record, the second says this run could not observe the count');
+  assert.equal(built.measurement.rounds, null);
+});
+
+// security S3 — the M3 precedent (:498-504) is a targeted malformed-shape
+// re-assertion per new axis. The general fuzz sweep above carries no roundLedger
+// case, so the never-throw contract for THIS axis is unproven without these.
+test('M4 Task 2: a malformed roundLedger cannot break the never-throw contract', () => {
+  ['garbage', [], 42, true, null, { available: true },
+    { available: true, count: 'three' }, { available: true, count: 1.5 },
+    { available: true, count: -1 }, { available: 'yes', count: 3 },
+    { count: 3 }, Object.create(null),
+  ].forEach(function (rl) {
+    let built;
+    assert.doesNotThrow(function () {
+      built = buildReviewRecord({ slug: 'm4-fuzz', nowMs: 1, roundLedger: rl });
+    }, 'roundLedger=' + JSON.stringify(rl) + ' must not throw');
+    assert.ok(Object.prototype.hasOwnProperty.call(built.measurement, 'rounds'));
+    assert.ok(built.measurement.rounds === null || Number.isInteger(built.measurement.rounds),
+      'a malformed shape folds to null, never to a half-read value');
+  });
+});
+
+// ── Task 3 — the record declares its own non-conformance ─────────────────────
+
+test('M4 Task 3: a D1-absent record says so, and still exits through the normal path', () => {
+  const built = buildReviewRecord({
+    slug: 'm4-absent', planPath: '.claude/plans/x.plan.md', mode: 'multi-agent',
+    l2: L2_PASS, decision: DECISION_PASS, startedAtMs: 1000, nowMs: 2000,
+    roundLedger: { available: true, count: 0 },
+  });
+  assert.equal(defsM4.classifyRoundStructure(built.measurement).verdict, 'absent');
+  assert.ok(built.degradations.some(function (d) { return d.indexOf('D1 round structure ABSENT') === 0; }),
+    'the record must declare its own non-conformance rather than leaving the audit to ' +
+    'discover it silently');
+  assert.match(built.markdown, /### Recording degradations/);
+});
+
+test('M4 Task 3: a not_enrolled record carries NO degradation for this axis', () => {
+  // dispatch 이전에 멎은 실행 — 라운드가 실제로 0회다. degradation 은 "덜 기록됐다"는
+  // 뜻이므로 정상 상태를 거기 적으면 진짜 결손이 그 노이즈에 묻힌다.
+  const built = buildReviewRecord({
+    slug: 'm4-not-enrolled', planPath: '.claude/plans/x.plan.md',
+    startedAtMs: 1000, nowMs: 2000, haltStage: '5.2b',
+    roundLedger: { available: false, count: null },
+  });
+  assert.equal(defsM4.classifyRoundStructure(built.measurement).verdict, 'not_enrolled');
+  assert.ok(!built.degradations.some(function (d) { return d.indexOf('D1 round structure ABSENT') === 0; }),
+    'a run that never reached dispatch has no round to report — that is not a gap');
+});
+
+test('M4 Task 3: a present record carries no degradation and no throw', () => {
+  let built;
+  assert.doesNotThrow(function () {
+    built = buildReviewRecord({
+      slug: 'm4-present', planPath: '.claude/plans/x.plan.md', mode: 'multi-agent',
+      l2: L2_PASS, decision: DECISION_PASS, startedAtMs: 1000, nowMs: 2000,
+      roundLedger: { available: true, count: 2 },
+    });
+  });
+  assert.equal(built.measurement.rounds, 2);
+  assert.equal(defsM4.classifyRoundStructure(built.measurement).verdict, 'present');
+  assert.ok(!built.degradations.some(function (d) { return d.indexOf('D1 round structure ABSENT') === 0; }));
+});
+
+// ── Task 6 — the measurement key set is a contract ───────────────────────────
+//
+// UI3 says the milestone fixes the MINIMUM contract and leaves the prose free.
+// So the assertion is the key set and nothing about the narrative body.
+
+test('M4 Task 6: the measurement key set is pinned — deletions and renames go red', () => {
+  const built = buildReviewRecord({
+    slug: 'm4-keys', planPath: '.claude/plans/x.plan.md', mode: 'multi-agent',
+    l1: { verdict: 'converged' }, l2: L2_PASS, decision: DECISION_PASS,
+    reservation: { granted: 4 }, backlog: { appended: 2, skipped_nonblocking: 1 },
+    startedAtMs: 1000, nowMs: 2000, roundLedger: { available: true, count: 1 },
+  });
+  const EXPECTED = [
+    'backlog_appended', 'backlog_skipped_nonblocking', 'granted', 'halt_stage', 'layers',
+    'plan_path', 'quorum', 'receipt_hash', 'recorded_at', 'rounds', 'reviewed_plan_hash',
+    'source', 'verdict', 'wall_clock_ms',
+  ].sort();
+  assert.deepEqual(Object.keys(built.measurement).sort(), EXPECTED,
+    'the measurement key set is the read-side contract every downstream consumer ' +
+    '(corpus.js, linkage-audit.js, linkage-defs.js) binds to');
+  // 서술 본문에는 아무 제약도 걸지 않는다 (UI3) — 이 test 는 키만 본다.
+});
+
+// ── Task 4 — the CLI seam ────────────────────────────────────────────────────
+
+test('M4 Task 4 (a): a ledger on disk lands in the measurement', () => {
+  withDir(function (ctx) {
+    writeLedger(ctx.root, 'tmp-check', 4);
+    const r = record(ctx, []);
+    assert.equal(r.code, EX_OK);
+    assert.equal(measurementOf(r.markdown).rounds, 4);
+  });
+});
+
+test('M4 Task 4 (b): an ABSENT ledger file is null, never 0', () => {
+  withDir(function (ctx) {
+    const r = record(ctx, []);
+    assert.equal(r.code, EX_OK);
+    const m = measurementOf(r.markdown);
+    assert.equal(m.rounds, null,
+      'ledger.read() folds a missing file to emptyState, so count() returns 0 — reading ' +
+      'that as a measured zero would put DD5 eligibility on top of an indistinguishable 0');
+    assert.notEqual(m.rounds, 0);
+  });
+});
+
+test('M4 Task 4 (c): a corrupt ledger is null plus a degradation, and still exit 0', () => {
+  withDir(function (ctx) {
+    writeLedger(ctx.root, 'tmp-check', 0, '{ truncated');
+    const r = record(ctx, []);
+    assert.equal(r.code, EX_OK, 'instrumentation must never block the gate');
+    assert.equal(measurementOf(r.markdown).rounds, null);
+    assert.match(r.markdown, /round ledger .* is unreadable/);
+  });
+});
+
+// local code-review H1 — the record is git-tracked, so a degradation is a COMMITTED
+// string. The first implementation put `basename` in the sentence and then appended
+// `err.message`, and the ledger's corruption error is built as
+// `'round ledger is not valid JSON at ' + statePath` — so the host absolute path rode
+// in anyway and the comment four lines above promised the opposite. This is the
+// `meta.cwd` leak §3.12 already paid a sanctioned rebind migration to close,
+// re-opened at a new locus. Reproduced before the fix.
+//
+// The assertion is on the SHAPE of a path, not on the tmpdir this run happens to get:
+// pinning the literal root would pass on a machine whose paths look different.
+test('H1: no degradation ever carries a host absolute path into the tracked record', () => {
+  const ABSOLUTE = /(^|[\s(])(?:[A-Za-z]:[\\/]|\/(?:home|Users|tmp|var|private)\/)/;
+
+  // (a) corrupt ledger — the path came from ReviewRoundsLedgerError.message
+  withDir(function (ctx) {
+    writeLedger(ctx.root, 'tmp-check', 0, '{ truncated');
+    const r = record(ctx, []);
+    const deg = degradationsOf(r.markdown);
+    assert.ok(deg.some((d) => /round ledger .* is unreadable/.test(d)),
+      'the degradation must still be emitted — the fix redacts it, it does not remove it');
+    deg.forEach((d) => assert.ok(!ABSOLUTE.test(d),
+      'a committed degradation must not name a host path; got: ' + d));
+    assert.match(r.markdown, /is unreadable \(REVIEW_ROUNDS_CORRUPT\)/,
+      'the CAUSE survives redaction — an enum names the failure without naming the disk');
+  });
+
+  // (b) a slug that cannot be a ledger key — the error message is a different one
+  withDir(function (ctx) {
+    const code = runCli(['record', '--slug', 'Alpha.Beta_1', '--repo-root', ctx.root,
+      '--review-dir', ctx.reviewDir]);
+    assert.equal(code, EX_OK);
+    const md = fs.readFileSync(
+      path.join(ctx.root, '.claude', 'reviews', 'plan-review-Alpha.Beta_1.md'), 'utf8');
+    degradationsOf(md).forEach((d) => assert.ok(!ABSOLUTE.test(d),
+      'a committed degradation must not name a host path; got: ' + d));
+    assert.match(md, /key could not be resolved for this slug \(REVIEW_ROUNDS_BAD_KEY\)/);
+  });
+});
+
+// local code-review H2 — `wall_clock_ms` guarded only the negative direction. M4's own
+// Task 8 regenerated a record a day later from the SAME REVIEW_DIR, so a 6-minute gate
+// was recorded as 971.9 minutes (360957 → 58316230) and `leadtime.js` reported it as
+// the maximum of the live distribution. That tool declares it "plants no new
+// measurement", so it has no way to filter the value out. The upper bound is the
+// contrapositive of the guard that already existed.
+test('H2: a started-at older than one gate execution is null, not a very long span', () => {
+  const bound = MAX_PLAUSIBLE_SPAN_MS;
+
+  // 경계 바로 아래는 통과한다 — 이 가드는 긴 실행을 벌하는 것이 아니다.
+  const ok = buildReviewRecord({
+    slug: 'h2-inside', l2: L2_PASS, decision: DECISION_PASS,
+    startedAtMs: 1000, nowMs: 1000 + bound, roundLedger: { available: true, count: 1 },
+  });
+  assert.equal(ok.measurement.wall_clock_ms, bound, 'the bound itself is still measurable');
+  assert.ok(!ok.degradations.some((d) => d.indexOf('plausibility bound') !== -1));
+
+  // 경계를 넘으면 null + degradation. clamp 가 아니라 폐기여야 한다 — clamp 는 이 모듈이
+  // 모르는 사실(실제 경과 시간)을 새로 만든다.
+  const stale = buildReviewRecord({
+    slug: 'h2-stale', l2: L2_PASS, decision: DECISION_PASS,
+    startedAtMs: 1000, nowMs: 1000 + bound + 1, roundLedger: { available: true, count: 1 },
+  });
+  assert.equal(stale.measurement.wall_clock_ms, null,
+    'an unmeasured duration must not read as a very long one');
+  assert.notEqual(stale.measurement.wall_clock_ms, bound, 'clamping would invent a fact');
+  assert.ok(stale.degradations.some((d) => d.indexOf('plausibility bound') !== -1),
+    'the record declares why the axis is null');
+
+  // 이 사이클이 실제로 기록한 값 — 회귀의 원본.
+  const observed = buildReviewRecord({
+    slug: 'h2-observed', l2: L2_PASS, decision: DECISION_PASS,
+    startedAtMs: 0, nowMs: 58316230, roundLedger: { available: true, count: 1 },
+  });
+  assert.equal(observed.measurement.wall_clock_ms, null,
+    '58316230ms (971.9min) is the value M4 Task 8 actually committed; it must not recur');
+
+  // 음수 가드는 그대로다 — 새 가드가 그것을 대체하지 않는다.
+  const future = buildReviewRecord({ slug: 'h2-future', startedAtMs: 5000, nowMs: 1000 });
+  assert.equal(future.measurement.wall_clock_ms, null);
+  assert.ok(future.degradations.some((d) => d.indexOf('in the future') !== -1));
+});
+
+// 상한을 복제한 이유는 이 파일의 dep-free 계약이다(`codex-policy.js` 는 fs 를 끌어온다).
+// 복제한 값은 갈라질 수 있으므로, dep 제약이 없는 test 가 동치를 붙들어 둔다.
+test('H2: the plausibility bound does not drift from the observation it came from', () => {
+  const codexPolicy = require('../codex-policy');
+  assert.equal(MAX_PLAUSIBLE_SPAN_MS, codexPolicy.MAX_SEAL_AGE_MS,
+    'both encode the same measured claim — one gate execution does not exceed 6 hours ' +
+    '(codex timeout 900s, gate deadline 1200~2400s). If that observation changes, both move.');
+  assert.equal(MAX_PLAUSIBLE_SPAN_MS, 6 * 60 * 60 * 1000);
+});
+
+test('M4 Task 4 (d): no usable seal is paired with "the count is not authoritative"', () => {
+  withDir(function (ctx) {
+    writeLedger(ctx.root, 'tmp-check', 2);
+    const r = record(ctx, []);
+    assert.match(r.markdown, /no usable round-cap seal for this run/);
+    assert.match(r.markdown, /NOT authoritative/,
+      'write.js:52-58 pairs "no usable seal" with "the count is not authoritative"; the ' +
+      'record layer keeps that pairing');
+  });
+});
+
+test('M4 Task 4 (e)(f): a gate mismatch and a decision mismatch get DIFFERENT sentences', () => {
+  const seal = require('../review-rounds/seal');
+  [
+    { gate: 'mccp-pr-codex', decision: 'tmp-check', want: /seal on disk enforces gate/ },
+    { gate: 'mccp-plan-codex', decision: 'some-other-slug',
+      want: /ENFORCED ledger and the MEASURED ledger are different/ },
+  ].forEach(function (c) {
+    withDir(function (ctx) {
+      writeLedger(ctx.root, 'tmp-check', 2);
+      const realGitDir = path.join(ctx.root, '.git');
+      fs.mkdirSync(realGitDir, { recursive: true });
+      seal.sealCap({ gitDir: realGitDir, gateId: c.gate, decisionId: c.decision,
+        cap: 1, mode: 'enforce', pinned: true, pinnedBy: 'test' });
+      const r = record(ctx, []);
+      assert.equal(r.code, EX_OK);
+      assert.match(r.markdown, c.want,
+        'gate=' + c.gate + ' decision=' + c.decision + ' must produce its OWN sentence');
+    });
+  });
+});
+
+// security S2 — a slug that sanitizeSlug accepts and SLUG_RE rejects makes
+// resolveStatePath throw. If that read is evaluated inside the
+// buildReviewRecord({...}) argument list, the existing catch swallows it and NO
+// RECORD IS WRITTEN AT ALL — precisely the sample loss DD4 exists to prevent,
+// and blocked runs are the ones that matter most.
+test('M4 Task 4 (g): a ledger-invalid slug still produces a record (security S2)', () => {
+  withDir(function (ctx) {
+    const code = runCli(['record', '--slug', 'Alpha.Beta_1', '--repo-root', ctx.root,
+      '--review-dir', ctx.reviewDir]);
+    assert.equal(code, EX_OK);
+    const target = path.join(ctx.root, '.claude', 'reviews', 'plan-review-Alpha.Beta_1.md');
+    assert.ok(fs.existsSync(target),
+      'a slug that names a record but cannot name a ledger must still leave a record');
+    const md = fs.readFileSync(target, 'utf8');
+    assert.equal(measurementOf(md).rounds, null);
+    assert.match(md, /round ledger key could not be resolved/);
+  });
+});
+
+test('M4 Task 4: the round axis has NO cli flag (DD2 — measurement is not self-report)', () => {
+  const src = fs.readFileSync(CLI_PATH, 'utf8');
+  ['--rounds', '--round-count', '--ledger-decision', '--ledger-gate', '--gate-id'].forEach(function (f) {
+    assert.equal(src.indexOf("'" + f + "'"), -1,
+      'a flag on this axis turns a measurement into a self-report (§3.13: the intent ' +
+      'decision has no CLI surface, for exactly this reason); found ' + f);
+  });
+  assert.match(src, /const ROUND_LEDGER_GATE_ID = 'mccp-plan-codex';/,
+    'the gate id must be a constant, not a caller-supplied value');
+});
+
+// ── Task 7(b) — a real spawn ─────────────────────────────────────────────────
+//
+// runCli is in-process and shares this process's module cache, so it cannot
+// observe a module-resolution failure in the new lazy requires. A spawn can.
+
+test('M4 Task 7(b): a spawned cli.js record writes a record whose rounds classify present', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'm4-e2e-'));
+  try {
+    const reviewDir = path.join(root, '.claude', 'state', 'plan-review');
+    fs.mkdirSync(reviewDir, { recursive: true });
+    fs.writeFileSync(path.join(reviewDir, 'started-at'), String(Date.now() - 2000));
+    fs.writeFileSync(path.join(reviewDir, 'l2.json'), JSON.stringify(L2_PASS));
+    fs.writeFileSync(path.join(reviewDir, 'decision.json'), JSON.stringify(DECISION_PASS));
+    writeLedger(root, 'e2e-slug', 2);
+
+    const res = spawnSync(process.execPath, [CLI_PATH, 'record',
+      '--slug', 'e2e-slug', '--repo-root', root, '--review-dir', reviewDir,
+      '--plan', '.claude/plans/x.plan.md'], { encoding: 'utf8', cwd: root });
+    assert.equal(res.status, 0, 'stderr: ' + (res.stderr || ''));
+
+    const target = path.join(root, '.claude', 'reviews', 'plan-review-e2e-slug.md');
+    assert.ok(fs.existsSync(target));
+    // 디스크에 쓰인 것을 corpus 파서로 되읽는다 — 생산자와 소비자가 같은 파일에
+    // 대해 같은 답을 내는지가 이 test 의 요점이다.
+    const corpusMod = require('../plan-review/corpus');
+    const parsed = corpusMod.parseRecord(fs.readFileSync(target, 'utf8'));
+    assert.equal(parsed.kind, 'record');
+    assert.equal(parsed.measurement.rounds, 2);
+    assert.equal(defsM4.classifyRoundStructure(parsed.measurement).verdict, 'present');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

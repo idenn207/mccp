@@ -1043,6 +1043,12 @@ async function main() {
   // BELOW the dep-check block and OUTSIDE the MCCP_CODEX_DISABLED guard — see
   // the comment at that block for why sharing either would silence it.
   let installSkewNotice = '';
+  // checkAll() already computes the same axis, but only when the dep-check
+  // block runs at all. Carrying the VALUE forward avoids a second set of git
+  // calls in that case; it does not make the banner conditional on that block,
+  // because the consumer below falls back to computing it itself. DD4a is about
+  // where the banner FIRES, not about paying for the same probe twice.
+  let depCheckSkew = null;
   try {
     injectorModule = require('../state/state-injector');
     const { execFileSync } = require('child_process');
@@ -1078,6 +1084,7 @@ async function main() {
       // undefined is what lets resolveImpeccable's own default apply instead of
       // relying on `opts.repoRoot || process.cwd()` happening to agree.
       const result = depCheck.checkAll({ repoRoot: injectorRepoRoot || undefined });
+      depCheckSkew = result.install_skew || null;
       const missing = [];
       if (!result.codex_plugin.installed) missing.push('codex@openai-codex');
       // The banner reads the SKILL resolution, not the PATH probe: an npm-less
@@ -1164,7 +1171,7 @@ async function main() {
   try {
     const depCheck = require('../lib/dep-check');
     const stateWriter = require('../state/state-writer');
-    const skew = depCheck.checkInstallSkew({ repoRoot: injectorRepoRoot || undefined });
+    const skew = depCheckSkew || depCheck.checkInstallSkew({ repoRoot: injectorRepoRoot || undefined });
     const notice = depCheck.installSkewNotice(skew);
     const skewKey = depCheck.installSkewKey(skew);
 

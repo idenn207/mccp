@@ -220,11 +220,16 @@ test('v0.3.6 Task 4: contentSnapshot excludes the 3 timestamp fields', () => {
 
 test('v0.3.6 Task 4: HASH_EXCLUDE_FRONTMATTER_KEYS exposes the timestamp self-bump keys', () => {
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS instanceof Set);
-  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 4);
+  assert.strictEqual(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.size, 5);
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('updated_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('last_event_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('created_at'));
   assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('dep_check_at'));
+  // review-record-linkage M5 — same reason as dep_check_at: a timestamp the
+  // SessionStart block self-bumps every boot. Its semantic sibling
+  // install_skew_state is deliberately NOT here.
+  assert.ok(sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('install_skew_at'));
+  assert.ok(!sw.HASH_EXCLUDE_FRONTMATTER_KEYS.has('install_skew_state'));
 });
 
 test('v0.3.6 Task 4: contentHash is deterministic and identical for snapshot-equal states', () => {

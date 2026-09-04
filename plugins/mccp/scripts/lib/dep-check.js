@@ -249,11 +249,22 @@ function installSkewNotice(skew) {
 // and never again — and a state CHANGE (newly behind, or resolved) would not
 // bring it back. That is the failure this milestone exists to close, so the
 // axis gets its own present-only field (dep_check_eclipsed precedent).
+//
+// commits_behind is deliberately NOT in the key. It is a monotonic counter, so
+// folding it in makes every single commit a new key: the banner re-fires each
+// session and — because install_skew_state IS hashed — STATE.md is rewritten on
+// every commit. That is exactly the churn dep_check_at was pulled out of the
+// content hash to stop ("Including it in the hash dirtied STATE.md in
+// `git status` every session", state-writer.js), returning through the value
+// axis instead of the timestamp one. The state name alone carries what the
+// banner asserts — that the running build is not this worktree — and that
+// sentence is equally true at 180 commits and at 181. The live count still
+// reaches the operator: the banner text is recomputed from the fresh result
+// every time it fires, so the number shown is never the stale keyed one.
 function installSkewKey(skew) {
   if (!skew) return null;
   if (skew.state !== 'behind' && skew.state !== 'diverged') return null;
-  const n = (typeof skew.commits_behind === 'number') ? skew.commits_behind : '?';
-  return skew.state + '-' + n;
+  return skew.state;
 }
 
 // One table row. `unknown` prints its reason enum — the enum is a closed set by

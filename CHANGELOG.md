@@ -304,6 +304,23 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 
+- install-skew 배너의 dedupe 키에서 `commits_behind`를 뺐다. 그 값은 단조 증가 카운터라
+  키에 넣으면 **커밋 하나마다** 키가 새것이 되고, `install_skew_state`는 content hash에
+  포함되므로 배너가 매 세션 재발화하면서 STATE.md 가 매 커밋 재작성된다 — `dep_check_at`
+  을 해시에서 뺀 사유(“Including it in the hash dirtied STATE.md in `git status` every
+  session”)가 timestamp 축이 아니라 **값 축**으로 되살아난 형태다. 상태 이름만으로도
+  배너가 주장하는 명제(실행 중인 빌드가 이 워크트리가 아니다)는 180커밋에서나
+  181커밋에서나 똑같이 참이고, 실제 숫자는 배너 문구가 매번 새로 계산하므로 운영자에게
+  그대로 도달한다. 상태 전이(`behind`↔`diverged`↔해소)는 여전히 재발화한다.
+
+- `.claude/reviews/plan-review-review-record-linkage.md` — M1 패널 레코드(finding 16건 +
+  file:line evidence)를 복원했다. M5 의 **halt 한 첫 시도**가 plan hash 를 해소하지 못해
+  `-m5` 접미 없이 PRD 슬러그로 떨어지면서 그 파일을 “findings: None recorded”로 덮었고,
+  `codex-findings-backlog.md` 가 `원문 …/plan-review-review-record-linkage.md` 로 거는
+  참조 여러 건이 dangling 이 됐다. 이 위험은 M3 시점에 R1 으로 이미 기록돼 있었고
+  mitigation(“명시 슬러그 `-mN` 을 쓴다”)이 **정상 경로만** 덮은 것이 실현 원인이다.
+  halt 레코드는 유실 없이 `plan-review-review-record-linkage-m5-halt.md` 로 보존한다.
+
 - 투영의 zero-join 계열이 `{n:0, p50:null}`이 아니라 `null`이다 — 빈 분포를 실으면
   "관측했더니 0"과 "관측이 없음"이 구분되지 않는다(부재 규칙 (a)의 투영 층 대우).
 

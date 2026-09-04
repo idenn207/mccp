@@ -572,6 +572,57 @@ implement 시점의 `rendering_surface` 탐지가 소유한다.
 > 패널 승인은 cross-gate dedupe를 만족하지 못하므로 `/mccp:pr`에서 PR-Codex가 발화한다
 > (DD2 — 다만 Codex 정책이 그대로면 그쪽도 `skipped`로 봉인된다).
 
+## Codex Implementation Review
+
+- 호출: `node <plugin-root>/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 1 (cap=1, `pinned-by=single-pass+codex-disabled`)
+- 결과: **Codex는 발화하지 않았다** — `classification=disabled`, `blocking=false`,
+  `durationMs=3`. `MCCP_CODEX_DISABLED=1`이 영구 운영자 정책으로 설정돼 있고(§3.3 —
+  1회성 escape가 아니다), 2.5.0의 `codex-policy.js seal`이 `codex_disabled=true`로
+  봉인했다. spawn 직전 short-circuit이며 장애가 아니다.
+- 합치 결론: **없음.** Implement-Codex는 이 사이클에서 판정을 내지 않았다. 그 사실을
+  `resolution.codex_verdict='skipped'`로 그대로 봉인하므로 cross-gate dedupe는 닫힌 채
+  남고 `/mccp:pr`에서 PR-Codex 경로가 skip으로 접히지 않는다.
+- YAGNI Triage: 해당 없음 (finding 0건 — 리뷰어가 발화하지 않았다)
+- Deferred to backlog: 0
+- Open Questions: 없음. 이 게이트에서 미해소로 남은 항목은 없다 —
+  `DIVERGENT_UNRESOLVED`가 아니라 **미발화**다. 둘을 같은 단어로 적지 않는다.
+- Codex session 참조: 없음 (spawn 미발생)
+
+### 이 사이클의 implement-time 결정 (2.5.2)
+
+plan이 Task 1~10에서 모듈 경로 · 함수 시그니처 · 반환 스키마 · 사유 enum 7종 · mirror
+대상 · 배너 위치(DD4a) · 이분화 범위(`post_baseline` 한정)까지 전부 pre-commit했다.
+따라서 새로 도입되는 구조적 결정은 없고, 남는 것은 plan이 명시한 계약의 기계적 구현이다.
+
+### Security Reviewer
+
+Task 1의 `install-skew.js`는 외부 소유 파일(`installed_plugins.json`)에서 읽은
+`gitCommitSha`를 git 인자로 넘기고, `CLAUDE_PLUGIN_ROOT`가 가리키는 디렉토리를
+재판정한다 — 입력 검증 · argv 주입 · 경로 처리 축이므로 2.5.5의 security-reviewer
+계약을 발동시켰다. 결과: **HIGH 1 · MEDIUM 4 · LOW 3**.
+
+| # | Sev | 지적 | 판정 |
+|---|---|---|---|
+| 1 | **HIGH** | `plugin_dir_override` 재판정이 `CLAUDE_PLUGIN_ROOT`를 shape 검증 없이 `fs`/`git`의 `cwd`로 넘긴다. repo-tracked `.claude/settings.json`의 `env` 블록이 그 값을 UNC(`\host\share`)로 세팅할 수 있고, SessionStart는 무상호작용 자동 실행이므로 **악성 저장소를 여는 것만으로** Windows가 SMB 핸드셰이크를 시도해 NTLM 자격증명을 유출한다 | **ACCEPT_NOW** — Task 1의 "판정할 수 없으면 `override_unjudged`로 접는다" 분기가 이미 그 자리다. 검증을 **모든 fs/git 접촉보다 앞**에 둔다(try/catch 안이면 이미 네트워크 호출이 끝난 뒤다) |
+| 2 | MEDIUM | `installed_version`이 `dep-check.js`가 이미 `safeLabel`로 막은 것과 같은 파일에서 오는데, 새 배너·표에 그 sanitizer 없이 도달한다 (ANSI/제어문자 터미널 스푸핑) | **ACCEPT_NOW (신규 코드)** — 배너와 표는 이 사이클이 새로 쓰는 출력 표면이다. sanitizer 없이 쓰는 것은 MEDIUM 이연이 아니라 **결함을 알고 심는 것**이다 |
+| 3 | MEDIUM | cache-dir containment를 substring으로 하면 `..` · win32 대소문자 · 접미 경계로 우회돼 변조된 설치가 `current`로 보고된다 | **ACCEPT_NOW (신규 코드)** — 같은 근거. `path.resolve` + `path.sep` 경계 + win32 대소문자 무시 |
+| 4 | MEDIUM | "never throws"가 주입된 `readInstalled`/`runGit`의 약속에만 의존한다 | **ACCEPT_NOW** — plan이 이미 요구한 것(Task 1 "절대 throw하지 않는다" + Task 2 lazy-require sentinel). 양쪽 다 구현한다 |
+| 5 | MEDIUM | 레지스트리 read 크기 상한 없음 + `execFileSync` timeout 없음 (#1과 겹치면 UNC 미응답 호스트가 동기 SessionStart를 정지시킨다) | **분할** — timeout·`stdio`는 **ACCEPT_NOW**(#1의 hang 절반). `dep-check.js#readInstalledPlugins`의 상한은 **DEFER** (선재 결함 · codex 축과 공유 소유). M5 자체 reader에는 `statSync` 상한을 넣어 새 소비처를 늘리지 않는다 |
+| 6 | LOW | hex-only 정규식은 이 두 argv 위치에 충분하나 `--end-of-options` 방어층이 없다 | **ACCEPT_NOW** — 비용 0이고 `linkage-audit.js:247-267` 관례와 정합. 미래에 정규식이 완화될 때의 안전망 |
+| 7 | LOW | `installed_plugins.json`에 쓸 수 있는 주체는 `state:current`를 위조할 수 있다 | **DEFER + 헤더 명시** — 신뢰 모델의 내재 한계다. 이 진단은 *사고성* 노후를 탐지하지 attacker를 탐지하지 않는다. 모듈 헤더가 그렇게 말한다 |
+| 8 | LOW | `entries[0]` 선택이 다중 레지스트리 엔트리를 방어하지 않는다 | **ACCEPT_NOW** — `dep-check.js:81` 선례를 따르는 의도적 선택임을 주석 한 줄로 |
+
+- **CRITICAL 0건. HIGH 1건은 전부 Phase 3 진입 전에 흡수**했으므로 미해소 보안 질문은
+  남지 않는다 — `MCCP-GATE-STOP` 대상이 아니다(§3.14: HIGH/CRITICAL은 그 자리에서 흡수).
+- MEDIUM/LOW의 판정과 이연 사유는 `.claude/plans/codex-findings-backlog.md`에 4행으로
+  적재했다. `ACCEPT_NOW (신규 코드)`로 표시한 것들은 §3.14의 MEDIUM 이연 규칙에 대한
+  예외가 아니라 그 규칙의 사거리 밖이다 — **이미 있는 결함을 고치는 것**이 아니라
+  **이 사이클이 새로 쓰는 코드에 결함을 심지 않는 것**이다.
+- 리뷰어가 명시적으로 확인한 것: hex-only 정규식 + `execFileSync` 조합을 일관되게
+  적용하는 한 **argv 주입 경로는 남지 않는다**. 잔여 표면은 전부 신규 `CLAUDE_PLUGIN_ROOT`
+  재판정 단계(#1)와 출력 sanitization·DI 경계에 몰려 있었다.
+
 ## External Research Provenance
 
 - Source PRD: .claude/prds/review-record-linkage.prd.md

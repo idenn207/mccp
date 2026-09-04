@@ -921,3 +921,130 @@ test('M4 — check exit codes are a separate table from the state ladder', funct
   assert.match(mod.DEFAULT_M4_BOUNDARY_REF, /^[0-9a-f]{40}$/,
     'a full SHA, for the same reason DEFAULT_BASELINE_REF is one');
 });
+
+// ── M5 DD5 — `undecidable` 사유 이분화는 라이브 파티션 **단독** ────────────────
+//
+// 이 축의 진짜 시험은 "두 사유가 나오는가"가 아니라 "동결 파티션이 안 움직이는가"다.
+// `linkage-audit.js:539` 가 같은 `by_reason` 을 `pre_baseline` 에도 싣고
+// `frozenOnly()` 가 그것을 통째로 통과시키므로, 정련을 공용 경로에 넣으면 커밋된
+// 75건의 키가 전부 바뀐다 — UI6(소급 금지) 를 block 에서 warn 으로 강등하는 것이
+// 정확히 그 경로다 (L2 architect + invariant HIGH 흡수).
+
+test('M5 DD5 — a build with no M3 producer key reports producer_absent_in_build', function () {
+  const { root, baseline } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  fs.writeFileSync(path.join(rc, 'no-m3.json'), liveReceipt({}, 'sha256:' + 'a'.repeat(64)));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'ship from a build with no producer');
+
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const reasons = r.json.post_baseline.ship_eligibility.by_reason;
+  assert.ok(reasons.producer_absent_in_build >= 1,
+    'a receipt carrying none of the M3 keys must read as producer_absent_in_build, got ' +
+    JSON.stringify(reasons));
+});
+
+test('M5 DD5 — an M3-era build that never stamped eligibility is a REAL wiring defect', function () {
+  const { root, baseline } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  // 생산자가 있는 빌드의 흔적(`review_record_path`)은 있는데 자격 키가 없다.
+  // 판별 기준이 `meta.plan_path` 였다면 M4 receipt 가 그것을 갖고도 링크가 없어서
+  // 오분류됐다(F5) — 그래서 기준은 M3 가 도입한 키 집합이다.
+  fs.writeFileSync(path.join(rc, 'm3-unstamped.json'), liveReceipt({
+    review_record_path: '.claude/reviews/plan-review-m3-unstamped.md',
+  }, 'sha256:' + 'b'.repeat(64)));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'ship from an M3 build without the eligibility key');
+
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const reasons = r.json.post_baseline.ship_eligibility.by_reason;
+  assert.ok(reasons.producer_present_but_unstamped >= 1,
+    'a receipt carrying an M3 key but no eligibility field must read as ' +
+    'producer_present_but_unstamped, got ' + JSON.stringify(reasons));
+  // 두 사유가 코퍼스 안에 **공존**하는 것은 정상이다 — 픽스처에는 M3 이전 형태의
+  // ship 도 들어 있다. 한 receipt 가 둘로 세어지지 않는다는 것(상호배타)은 코퍼스
+  // 수준이 아니라 `linkage-defs.test.js` 의 단위 단언이 지킨다.
+  const total = Object.keys(reasons).reduce(function (a, k) { return a + reasons[k]; }, 0);
+  assert.equal(total, r.json.post_baseline.ship_eligibility.counts.eligible +
+    r.json.post_baseline.ship_eligibility.counts.not_eligible +
+    r.json.post_baseline.ship_eligibility.counts.undecidable,
+    'every ship must be counted under exactly one reason');
+});
+
+test('M5 DD5 — the FROZEN partition keeps its sealed reason string verbatim', function () {
+  // 이것이 UI6 의 실제 시험이다. 사유가 pre_baseline 으로 새면 커밋된 동결 블록의
+  // 키가 바뀌고, `linkage-frozen-baseline.test.js` 가 red 가 된다.
+  const { root, baseline } = mkRepo();
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const preReasons = Object.keys(r.json.pre_baseline.ship_eligibility.by_reason);
+  preReasons.forEach(function (k) {
+    assert.ok(k !== 'producer_absent_in_build' && k !== 'producer_present_but_unstamped',
+      'the live-only reason bifurcation leaked into pre_baseline — this moves the ' +
+      'sealed frozen-baseline bytes and demotes UI6 from block to warn. Call ' +
+      'refineLiveUndecidableReason ONLY in the live loop.');
+  });
+});
+
+test('M5 DD5 — --frozen-only output is byte-identical before and after the live axis', function () {
+  // 동결 뷰는 화이트리스트다. 새 라이브 필드(rounds_fidelity 포함)가 그 안으로
+  // 새지 않는지를 프로젝션 자체로 확인한다.
+  const { root, baseline } = mkRepo();
+  const frozen = run(root, ['--frozen-only', '--baseline-ref', baseline]);
+  assert.equal(frozen.code, 0);
+  const parsed = JSON.parse(frozen.stdout);
+  assert.ok(!('post_baseline' in parsed), 'the frozen view must not carry the live partition');
+  assert.ok(!('rounds_fidelity' in parsed), 'the new M5 axis must not reach the frozen view');
+  assert.ok(!('rounds_fidelity' in parsed.pre_baseline),
+    'the new M5 axis must not reach pre_baseline');
+});
+
+// ── M5 DD6 — rounds_fidelity 는 대조만 한다 ──────────────────────────────────
+
+test('M5 DD6 — countRoundsFidelity classifies the four states and nothing else', function () {
+  const audit = require('../linkage-audit');
+  const ship = function (rounds, ledger) {
+    const meta = { created_at: 'x' };
+    if (ledger !== undefined) meta.round_ledger_count = ledger;
+    const resolution = {};
+    if (rounds !== undefined) resolution.rounds = rounds;
+    return { body: { resolution: resolution, meta: meta } };
+  };
+
+  // F7 의 형태: 리터럴 1 과 원장 0.
+  assert.deepEqual(audit.countRoundsFidelity([ship(1, 0)]),
+    { agree: 0, ledger_zero: 1, disagree: 0, unreadable: 0 });
+  assert.deepEqual(audit.countRoundsFidelity([ship(3, 3)]),
+    { agree: 1, ledger_zero: 0, disagree: 0, unreadable: 0 });
+  assert.deepEqual(audit.countRoundsFidelity([ship(0, 0)]),
+    { agree: 1, ledger_zero: 0, disagree: 0, unreadable: 0 },
+    'equal values agree even when both are zero — ledger_zero is specifically (0, 1)');
+  assert.deepEqual(audit.countRoundsFidelity([ship(3, 1)]),
+    { agree: 0, ledger_zero: 0, disagree: 1, unreadable: 0 });
+  // 읽을 수 없는 것을 비교 결과로 접지 않는다.
+  [ship(undefined, 0), ship(1, undefined), ship('1', 0), ship(1.5, 0), { body: null }].forEach(function (s) {
+    assert.deepEqual(audit.countRoundsFidelity([s]),
+      { agree: 0, ledger_zero: 0, disagree: 0, unreadable: 1 },
+      'an unreadable pair must not be folded into a comparison verdict');
+  });
+});
+
+test('M5 DD6 — the axis reports and does NOT change any exit code', function () {
+  // 임계도 종료코드도 붙지 않는다. 붙는 순간 M5 가 C4 의 해석을 선점한다 (UI12).
+  const { root, baseline } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  fs.writeFileSync(path.join(rc, 'ledger-zero.json'), JSON.stringify({
+    schema_version: 1, gate_id: 'mccp-pr-codex', decision_id: 'lz',
+    plan_hash: 'sha256:deadbeef', round: 1,
+    resolution: { converged: true, rounds: 1 },
+    receipt_hash: 'sha256:' + 'c'.repeat(64),
+    meta: { created_at: '2024-01-01T00:00:00.000Z', command: '/mccp-pr-codex', round_ledger_count: 0 },
+  }, null, 2));
+  commitAt(root, '2024-06-01T00:00:00+00:00', 'a skip-path ship with a literal rounds=1');
+
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  assert.equal(r.code, 0, 'rounds_fidelity must not move the exit code');
+  const rf = r.json.post_baseline.rounds_fidelity;
+  assert.ok(rf, 'the axis must be present in the live partition');
+  assert.ok(rf.ledger_zero >= 1, 'the F7 shape must be counted, got ' + JSON.stringify(rf));
+  assert.equal(typeof rf.agree, 'number');
+  assert.equal(typeof rf.disagree, 'number');
+  assert.equal(typeof rf.unreadable, 'number');
+});

@@ -19,6 +19,30 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- `plugins/mccp/scripts/lib/install-skew.js` — **실행 중인 mccp 빌드가 이 워크트리에서
+  얼마나 뒤처졌는지**를 판정하는 read-only 오라클 (review-record-linkage M5). 판정은
+  version 문자열 비교가 아니라 **커밋 도달성**이다 — 우산 결정 1 이후 자식 브랜치가
+  `plugin.json` version 을 선언하지 않으므로 두 번호가 같으면서 내용이 다른 상태가
+  정상이고, 그래서 번호는 이 질문에 답할 수 없다. 4상태(`current`/`behind`/`diverged`/
+  `unknown`)이고 `unknown`은 **절대 `current`로 접히지 않는다**: 판정 못 한 것을 "정상"
+  으로 보고하면 진단이 고장난 그 순간 스스로 꺼진다. 실패 사유는 **닫힌 enum 7종**이며
+  `err.message`를 싣지 않는다(M4 H1 선례 — 호스트 절대경로 유출). `CLAUDE_PLUGIN_ROOT`
+  는 **어떤 fs/git 접촉보다 먼저** 로컬·절대·비-UNC로 검증한다 — repo-tracked
+  `.claude/settings.json`의 `env` 블록이 그 값을 UNC 로 세팅할 수 있고 SessionStart 는
+  무상호작용 자동 실행이라, 접촉 자체가 Windows 에서 SMB/NTLM 자격증명 유출이 된다.
+  `--end-of-options`는 `rev-list`에만 붙는다(`merge-base`에 붙이면 `--is-ancestor`가
+  rev 로 해석돼 상시 실패한다 — 실측).
+- `plugins/mccp/scripts/lib/tests/install-skew.test.js` ·
+  `plugins/mccp/scripts/lib/tests/install-skew-wiring.test.js` — 오라클 단위 회귀와
+  **배선 부재를 보는 정적 단언**. 후자가 존재하는 이유는 이 PRD 의 지배적 실패 모드
+  자체다: 오라클이 완벽히 동작하면서 아무도 호출하지 않을 수 있고, 단위 test 는 그것을
+  구조적으로 못 잡는다. DD4a 회귀 가드는 문자열 근접이 아니라 **중괄호 정합**으로
+  `MCCP_CODEX_DISABLED` 가드 블록의 범위를 실제로 계산해, 배너가 그 안으로 되돌아가면
+  붉어진다.
+- `docs/review-record-linkage/deferred-triage.md` — 이 PRD 의 backlog 103행을 (a) 이미
+  해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류. 누락 0. 분류
+  없이 "다음 마일스톤"이라고 적는 것은 이연이 아니라 유실이므로, M5 는 **닫지 않되
+  남김없이 센다**.
 - `plugins/mccp/scripts/lib/leadtime-surface.js` — 한 줄 포매터. `formatLeadtimeLine`이
   CLI · `STATUS.md` · `status.html` · `distribution.json` **네 면이 공유하는 유일한 문장**을
   만든다. `assertCoverageAdjacency`가 "커버리지 없는 값 토큰은 존재할 수 없다"를 기계적으로
@@ -148,6 +172,37 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Changed
 
+- `dep-check.js` — `checkAll`에 `install_skew` 키를 얹는 **엄격한 상위집합**(기존 5키
+  불변, v1.31.2 가 `impeccable` 을 붙인 것과 같은 형태). `checkInstallSkew`는 지연
+  require + try/catch 로 감싸 `dep-check` 헤더의 "Never throws" 계약을 지키며, 오라클
+  자신도 주입된 effect 를 내부에서 감싼다 — 어느 쪽도 상대의 약속에만 기대지 않는다.
+  `install skew` 행이 CLI 표에 추가됐고 `installed_version`은 기존 `safeLabel`을 거친다
+  (같은 파일의 같은 필드에 대해 이미 세워 둔 분업).
+- `session-start.js` — 설치 skew 배너를 **`MCCP_CODEX_DISABLED` 가드 밖의 자기 블록**
+  으로 추가 (review-record-linkage M5, DD4a). 판본 격차와 Codex 가용성은 무관한 축이고,
+  CLAUDE.md §3.12 가 `MCCP_CODEX_DISABLED=1` 을 **표준 설치**라 부르므로 그 가드 안에
+  두면 이 진단은 표준 머신에서 한 번도 발화하지 않는다 — 통로를 만들고 부르지 않는 것,
+  이 마일스톤이 닫으려는 실패 그 자체다. throttle 도 공유하지 않는다: `dep_check_at`은
+  매 세션 재스탬프되므로 그 시계만으로는 배너가 한 번 뜨고 다시는 뜨지 않는다.
+- `state-writer.js` — present-only frontmatter `install_skew_at` · `install_skew_state`
+  추가 (`dep_check_eclipsed` 선례). 전자만 `HASH_EXCLUDE_FRONTMATTER_KEYS`에 든다 —
+  타임스탬프는 self-bump 이고 상태 문자열은 의미 payload 다.
+- `plan-review/linkage-defs.js` — `classifyShipEligibility`에 **추가 필드** `code`
+  (기존 `verdict`·`reason`의 의미 불변)와 라이브 전용 `refineLiveUndecidableReason`.
+  `undecidable` 사유를 `producer_absent_in_build` / `producer_present_but_unstamped`
+  로 가르되 **`no_explicit_field` 갈래에만** 적용한다 — 나머지 두 갈래는 M3 키를 물을
+  수 없거나 이미 다른 축의 결함이라, 같은 규칙을 적용하면 없는 사실을 만든다.
+- `linkage-audit.js` — 위 정련을 **라이브 파티션에서만** 호출한다. 동결 사유 문자열은
+  `docs/review-record-linkage/frozen-baseline.md`에 축자 커밋된 `by_reason` 키이고,
+  움직이지 않는 것 자체가 no-retro 불변식의 계약이다. 공용 경로에 넣으면 75건의 키가
+  전부 바뀌어 그 불변식이 block 에서 warn 으로 강등된다. 함께 `post_baseline`에
+  `rounds_fidelity`(`agree`/`ledger_zero`/`disagree`/`unreadable`) 추가 — **임계도
+  종료코드도 없다.** 붙이는 순간 `resolution.rounds` 대 `meta.round_ledger_count`의
+  해석을 M5 가 선점하게 되고, 그 해석은 C4 소유다.
+- `setup.md` · `docs/dogfood-install.md` · `docs/review-record-linkage/frozen-baseline.md`
+  — skew 행의 읽는 법, **배선 마일스톤의 라이브 acceptance 는 `--plugin-dir` 아래에서만
+  성립한다**는 절차, 라이브 파티션의 M5 실측(동결 블록 밖). 동결 블록 바이트는 불변이고
+  `linkage-frozen-baseline.test.js`가 그것을 확인한다.
 - `leadtime.js` — `audit(opts)`에 `allowGit`(기본 `true`) spawn 게이트 추가. `false`면 W3이
   `no`가 아니라 `unavailable`이 되고 `degradations:['git-disabled']`가 산출물에 실린다.
   **분포는 두 모드에서 동일하다** — 증인은 미짝의 분류에만 쓰인다. 순수 투영

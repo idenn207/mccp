@@ -348,3 +348,50 @@ cwd 에서 재생성하면 그 0 들이 이 문서에 커밋되고 바이트 tes
 }
 ```
 <!-- END linkage-audit.js --frozen-only (verbatim) -->
+
+## 라이브 파티션 — M5 실측 (2026-09-04)
+
+> 이 절은 **동결 블록 밖**이고, 위 블록의 바이트를 한 글자도 건드리지 않는다. 동결은
+> 트리로 정해지고 값이 움직이지 않는 것 자체가 계약이다 — 여기 적는 수치는 그 계약의
+> 반대편, 즉 **움직이도록 되어 있는** 라이브 파티션의 관측이다.
+
+M5는 `undecidable` 사유를 라이브 파티션에서만 두 갈래로 갈랐다(DD5). 동결 파티션은
+봉인된 문자열을 그대로 쓴다 — 초안은 "바이트가 움직이면 문서를 함께 갱신한다"고 했으나
+그 처방은 no-retro 불변식을 block에서 warn으로 강등하는 것이었고, 그래서 처방을 뒤집어
+적용 범위를 라이브로 좁혔다.
+
+| 축 | 값 | 읽는 법 |
+|---|---|---|
+| `post_baseline.state` | `ok` | 코퍼스를 전부 읽었다 |
+| HEAD ship / record | 88 / 73 | |
+| `ship_eligibility.counts` | eligible 0 · not_eligible 0 · undecidable 88 | 아직 어떤 ship도 자격을 명시하지 않았다 |
+| `ship_eligibility.by_reason` | `producer_absent_in_build`: 88 | **M5의 신규 관측.** 88건 전부가 M3 키를 하나도 갖지 않는다 — 배선 결함이 아니라 그 receipt들을 발행한 빌드에 생산자가 없었다는 뜻이다 |
+| `linkage` | receipt→review 0 · review→receipt 0 · bidirectional 0 | |
+| `linkage.denominator` | `null` | 0 이 아니다. "리뷰 대상이 없다"가 아니라 **"판정 수단이 없다"** 는 관측이다 |
+| `rounds_fidelity` | agree 8 · ledger_zero 5 · disagree 0 · unreadable 75 | 판정하지 않고 대조만 한다(DD6). 해석은 C4 소유 |
+
+### 이 수치가 말하는 것과 말하지 않는 것
+
+`producer_absent_in_build: 88`은 **M5 진단의 첫 산출물**이다. M4까지는 같은 88건이
+"상류 plan receipt가 git-tracked된 적 없다"는 단일 사유로 접혀 있었고, 그 문장은 M3
+이후로 사실이 아니었다(생산자는 실재한다). 이제 코퍼스가 스스로 말한다 — **문제는
+배선이 아니라 그 배선을 모르는 빌드가 receipt를 발행했다는 것**이다.
+
+같은 사실을 skew 오라클이 독립적으로 확인한다:
+
+```
+$ node plugins/mccp/scripts/lib/install-skew.js
+{ "state": "behind", "installed_version": "1.33.6",
+  "installed_sha": "647dfecb…", "head_sha": "e0d05f70…",
+  "commits_behind": 179, "plugin_dir_override": false, "reason": null }
+```
+
+즉 이 저장소의 게이트를 실행한 본문은 179 커밋 뒤처진 판본의 것이다. `bidirectional`이
+`0`인 것은 **이 상태에서는 예상된 값**이지 링크 배선의 결함이 아니다. 그 구분을 세우는
+것이 M5의 일이고, `0`을 `>= 1`로 바꾸는 것은 그 다음 — `--plugin-dir` 아래에서 완주하는
+경로다([docs/dogfood-install.md](../dogfood-install.md)).
+
+**아직 주장하지 않는 것**: 이 표의 `bidirectional: 0`은 M5의 acceptance를 만족시키지
+않는다. acceptance는 `>= 1`이고, 그 값은 라이브 완주가 산출해야 한다. 부분 착지로
+끝난다면 M5의 outcome 문장에서 라이브 실값 주장을 **빼야 한다** — 주장을 남긴 채
+acceptance만 무르게 하는 것이 M2가 dropped된 이유다.

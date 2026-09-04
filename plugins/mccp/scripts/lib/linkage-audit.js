@@ -322,6 +322,34 @@ function baselineTree(root, ref) {
 //
 // `linkage-defs.js` 는 손대지 않는다(UI4 — D3 의 정의는 M1 소유). 감사 쪽에서 더
 // 강한 조건을 얹을 뿐이고, `join_note` 가 그 차이를 명시한다.
+// M5 DD6 — `resolution.rounds` 와 `meta.round_ledger_count` 를 나란히 센다.
+//
+//   agree        두 값이 같다
+//   ledger_zero  ledger === 0 이면서 rounds === 1 (F7 의 형태)
+//   disagree     그 밖의 불일치
+//   unreadable   둘 중 하나를 정수로 읽을 수 없다
+//
+// `unreadable` 이 먼저다 — 비교할 수 없는 것을 비교 결과로 접으면 그 순간 관측이
+// 아니라 주장이 된다. `ledger_zero` 는 `agree` 와 겹치지 않는다(0 !== 1).
+function countRoundsFidelity(ships) {
+  const out = { agree: 0, ledger_zero: 0, disagree: 0, unreadable: 0 };
+  (ships || []).forEach(function (s) {
+    const body = (s && s.body && typeof s.body === 'object') ? s.body : null;
+    const resolution = (body && body.resolution && typeof body.resolution === 'object') ? body.resolution : null;
+    const meta = (body && body.meta && typeof body.meta === 'object') ? body.meta : null;
+    const rounds = resolution ? resolution.rounds : undefined;
+    const ledger = meta ? meta.round_ledger_count : undefined;
+    if (!Number.isInteger(rounds) || !Number.isInteger(ledger)) {
+      out.unreadable += 1;
+      return;
+    }
+    if (rounds === ledger) { out.agree += 1; return; }
+    if (ledger === 0 && rounds === 1) { out.ledger_zero += 1; return; }
+    out.disagree += 1;
+  });
+  return out;
+}
+
 function computeLinkage(eligibleShips, eligibility, maps) {
   const byPath = (maps && maps.recordByPath) || new Map();
   const link = {
@@ -664,7 +692,14 @@ function aggregate(input) {
     const liveEligibilityReasons = {};
     const liveEligible = [];
     liveShips.forEach(function (s) {
-      const e = defs.classifyShipEligibility(s.body);
+      const base = defs.classifyShipEligibility(s.body);
+      // M5 DD5 — 사유 이분화는 **여기에만** 있다. `pre_baseline`(:513)은 동결된
+      // 사유 문자열을 그대로 쓴다. 그 대칭을 깨는 것이 요점이다: 동결 블록은
+      // 값이 움직이지 않는 것 자체가 계약이고(UI6), 사유를 바꾸면
+      // `frozen-baseline.md:318`의 75건 키가 전부 바뀐다. `frozenOnly()`가
+      // `pre_baseline`을 통째로 통과시키므로 그 유입을 막는 것은 화이트리스트가
+      // 아니라 **여기서 부르지 않는 것**이다.
+      const e = defs.refineLiveUndecidableReason(s.body, base);
       liveEligibility[e.verdict] = (liveEligibility[e.verdict] || 0) + 1;
       liveEligibilityReasons[e.reason] = (liveEligibilityReasons[e.reason] || 0) + 1;
       if (e.verdict === 'eligible') liveEligible.push(s);
@@ -688,6 +723,15 @@ function aggregate(input) {
       recordByPath: recordByPath(liveRecords),
       diagnostics: true,
     });
+    // M5 DD6 — `rounds_fidelity`. **판정하지 않고 대조만 한다.**
+    //
+    // F7이 관측한 형태: skip-path ship 의 `resolution.rounds` 가 리터럴 1 인데
+    // `meta.round_ledger_count` 는 0 이다. M2 dropped 노트가 그것을 "소실이 아니라
+    // 표현 한계"로 이연했고 해석은 C4 가 소비 시점에 소유한다(UI12). 그래서 여기에는
+    // 임계도 종료코드도 붙이지 않는다 — 붙이는 순간 M5 가 C4 의 결정을 선점한다.
+    //
+    // 라이브 파티션 전용이다. 동결 블록에 새 필드를 더하면 커밋된 바이트가 움직인다.
+    post.rounds_fidelity = countRoundsFidelity(liveShips);
   }
   result.post_baseline = post;
 
@@ -905,6 +949,13 @@ function renderHuman(r) {
       L.push('    round_structure (REPORT; enforcement is --check-round-structure): present=' +
         rc.present + ' not_enrolled=' + rc.not_enrolled + ' absent=' + rc.absent);
     }
+    if (lp.rounds_fidelity) {
+      const rf = lp.rounds_fidelity;
+      // 상태만 보고한다. 어느 값이 옳은지는 C4 가 소비 시점에 정한다 (DD6 · UI12).
+      L.push('    rounds_fidelity (REPORT only; resolution.rounds vs meta.round_ledger_count): agree=' +
+        rf.agree + ' ledger_zero=' + rf.ledger_zero + ' disagree=' + rf.disagree +
+        ' unreadable=' + rf.unreadable);
+    }
     L.push('    linkage: receipt->review=' + lp.linkage.receipt_to_review +
       ' review->receipt=' + lp.linkage.review_to_receipt +
       ' bidirectional=' + lp.linkage.bidirectional +
@@ -1092,6 +1143,7 @@ module.exports = {
   liveCorpusNotInTree: liveCorpusNotInTree,
   readLiveCorpus: readLiveCorpus,
   computeLinkage: computeLinkage,
+  countRoundsFidelity: countRoundsFidelity,
   DEFAULT_BASELINE_REF: DEFAULT_BASELINE_REF,
   STATE_EXIT_CODES: STATE_EXIT_CODES,
   exitCodeForState: exitCodeForState,

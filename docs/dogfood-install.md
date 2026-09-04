@@ -92,6 +92,42 @@ CLAUDE.md §3.7이 "cache 직접 copy 같은 bootstrap workaround가 매 cycle �
 세션 한정인 것이 설계이므로, 상주 설치는 릴리스에 두고 시험은 플래그로 그때그때 여는
 것이 두 요구를 동시에 만족시키는 유일한 배치다.
 
+## 배선 마일스톤의 라이브 acceptance는 이 경로 아래에서만 성립한다
+
+> review-record-linkage M5 (Task 9). 이 절은 편의 안내가 아니라 **acceptance 절차**다.
+
+`${CLAUDE_PLUGIN_ROOT}`가 설치 캐시를 가리키는 한, in-flight 브랜치의 명령 본문은
+**실행되지 않는다.** `marketplace.json`의 plugin source가 `ref: release`이므로
+`claude plugin update`로도 그 격차는 좁혀지지 않는다 — 캐시가 뒤처지는 것은 사고가
+아니라 릴리스 채널 분리 이후의 **항구적 기본 상태**다.
+
+그 결과가 이 저장소에서 두 번 실측됐다. review-record-linkage M3·M4는 링크 배선을
+전부 구현하고 게이트를 완주했는데, 그 사이클들이 **자기 ship receipt에** 링크 필드를
+남기지 못했다 — 게이트가 실행한 본문이 그 배선을 모르는 판본의 것이었기 때문이다.
+단위 test는 전부 green이었다. 즉 **test 통과는 배선이 발화했다는 증거가 아니다.**
+
+따라서:
+
+- **라이브 실값을 acceptance로 갖는 마일스톤은 `--plugin-dir` 아래에서 완주해야 한다.**
+  그 밖의 경로에서 얻은 `0`은 결함의 증거가 아니라 **측정하지 않았다는 뜻**이다.
+- **보고서가 어느 경로에서 완주했는지 명시해야 한다.** 명시가 없으면 그 사이클의 라이브
+  수치는 해석 불가다.
+- **완주 전후로 `installed_plugins.json`의 sha256이 불변임을 확인한다.** 이 절차는 설치
+  상태를 바꾸지 않는 것이 계약이다(아래 "캐시를 직접 고치는 것은 금지다" 참조).
+
+지금 어느 판본이 실행 중인지는 추측하지 말고 물어라:
+
+```bash
+node plugins/mccp/scripts/lib/dep-check.js          # `install skew` 행
+node plugins/mccp/scripts/lib/install-skew.js       # 판정 JSON 원문
+```
+
+`state`가 `behind`/`diverged`면 이 저장소의 브랜치 본문은 실행되고 있지 않다.
+`[plugin-dir override]`가 붙으면 이 절차가 적용된 상태이고, 그때 `state`는
+override 디렉토리의 HEAD 기준으로 다시 판정된다 — override 라고 침묵하지 않는다.
+낡은 sibling 워크트리를 `--plugin-dir`로 가리키는 것이 바로 그 판정이 잡아야 할
+상태이기 때문이다.
+
 ## 한계
 
 측정하지 못한 것과 이 절차가 닫지 않는 것을 함께 적는다.

@@ -48,6 +48,7 @@ mccp dep-check
   impeccable skill: available (project v3.5.0, impeccable) | ambiguous (2 sources) | missing
   impeccable CLI  : installed (/path)  | missing  [telemetry only — no gate reads this]
   codex disabled  : yes (MCCP_CODEX_DISABLED=1) | no
+  install skew    : current (running v1.34.4) | BEHIND by N commit(s) (running v1.33.6) | DIVERGED (…) | unknown (<reason>)
 ```
 
 The two impeccable rows answer **different questions** and are expected to
@@ -59,6 +60,26 @@ which only an npm-global install leaves behind. Only the first has decision
 authority: no gate branch and no phase below reads the CLI row (v1.0.0-baseline
 F-W1-2 prescribed two honest fields over one ambiguous one). `ambiguous` means
 two bare-name bodies were found and the oracle refuses to guess which one opens.
+
+The `install skew` row (review-record-linkage M5) answers a different question
+from every row above it: **which mccp build is actually executing**. It is
+commit *reachability* — is the installed build's `gitCommitSha` an ancestor of
+this worktree's HEAD — not a version-string compare, because since CLAUDE.md
+§3.7 stopped branches from declaring `plugin.json` versions, two equal numbers
+over different content is the normal state and the number cannot answer it.
+
+`BEHIND`/`DIVERGED` is **not an error and blocks nothing** — since
+`marketplace.json` pinned the plugin source to `ref: release`, a user cache that
+trails main is the permanent default, not an accident. It matters when you are
+developing mccp itself: the command bodies your gates execute come from the
+installed build, so an in-flight branch's changes are not the ones running. The
+`[plugin-dir override]` suffix means `CLAUDE_PLUGIN_ROOT` points outside the
+plugin cache, so the row judges that directory's HEAD instead — see
+[docs/dogfood-install.md](../../../docs/dogfood-install.md). `unknown (<reason>)`
+carries a closed reason enum (`git_failed`, `not_a_repo`, `registry_unreadable`,
+`sha_absent`, `sha_malformed`, `override_unjudged`, `oracle_unavailable`); it
+never folds to `current`, because a diagnostic that reports "fine" when it could
+not judge switches itself off exactly when it stops working.
 
 If `--dry-run` was passed, print which Phases 2/3/4 *would* execute, then skip
 Phases 2/3/4 and advance to Phase 5. Phase 5 has its own read-only dry-run path
@@ -436,6 +457,13 @@ user what state the gates are in:
   Codex review.
 - `codex_disabled=yes` → gates run, Codex calls are skipped, receipts carry
   `codex_skipped: true` with `reason: 'codex_disabled'`.
+- `install_skew.state` is `behind`/`diverged` → everything above still holds,
+  but the command bodies being executed are the **installed** build's, not this
+  checkout's. Nothing is blocked. If you are developing mccp and need an
+  in-flight branch to actually run, use `claude --plugin-dir <worktree>/plugins/mccp`
+  ([docs/dogfood-install.md](../../../docs/dogfood-install.md)) — never overwrite
+  the version-keyed cache directory, which would make the registry's `version`
+  and `gitCommitSha` disagree with what is on disk.
 - codex missing AND not disabled → gates run, Codex calls auto-fallback per
   call (slower, noisier — `/mccp:setup` again or set
   `MCCP_CODEX_DISABLED=1` to silence).

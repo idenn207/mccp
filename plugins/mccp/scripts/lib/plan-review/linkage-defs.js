@@ -192,27 +192,70 @@ function classifyRoundStructure(measurement) {
 const ELIGIBILITY_FIELD = 'plan_review_expected';   // boolean, 명시 전용
 const NOT_ELIGIBLE_REASON_FIELD = 'no_plan_review_reason';
 
+// M5 DD5 — 분기 식별자. `reason` **문자열은 동결이다**: 그 값이 `pre_baseline`의
+// `by_reason` 키가 되어 `docs/review-record-linkage/frozen-baseline.md`에 축자
+// 커밋돼 있고, 동결 블록이 "움직이지 않는다"는 것 자체가 UI6의 계약이다. 그래서
+// 하류가 분기를 구별해야 할 때 문자열을 파싱하지 않도록 **추가 필드**를 준다.
+// 기존 두 키(`verdict`·`reason`)의 의미는 한 글자도 바뀌지 않는다.
+const ELIGIBILITY_CODES = Object.freeze({
+  metaUnreadable: 'meta_unreadable',
+  explicitTrue: 'explicit_true',
+  explicitFalseExplained: 'explicit_false_explained',
+  explicitFalseUnexplained: 'explicit_false_unexplained',
+  noExplicitField: 'no_explicit_field',
+});
+
+// M3가 도입한 키 집합. "이 receipt를 발행한 빌드에 생산자가 있었는가"의 판별자다.
+//
+// 판별 기준이 `meta.plan_path`가 **아닌** 이유: M4 receipt는 그것을 가지고도 링크가
+// 없다(F5). `plan_path`는 M3 이전부터 있었으므로 생산자의 존재를 증언하지 못한다.
+const M3_PRODUCER_KEYS = Object.freeze([
+  'review_record_path',
+  ELIGIBILITY_FIELD,
+  NOT_ELIGIBLE_REASON_FIELD,
+  'link_evidence_skip_reason',
+]);
+
+// DD5 — 라이브 파티션에서만 쓰는 두 사유.
+const LIVE_UNDECIDABLE_REASONS = Object.freeze({
+  producerAbsent: 'producer_absent_in_build',
+  producerPresentUnstamped: 'producer_present_but_unstamped',
+});
+
 function classifyShipEligibility(receipt) {
   const meta = obj(receipt && receipt.meta);
   if (meta === null) {
-    return { verdict: 'undecidable', reason: 'receipt has no readable meta object' };
+    return {
+      verdict: 'undecidable',
+      reason: 'receipt has no readable meta object',
+      code: ELIGIBILITY_CODES.metaUnreadable,
+    };
   }
   const declared = meta[ELIGIBILITY_FIELD];
 
   if (declared === true) {
-    return { verdict: 'eligible', reason: 'meta.' + ELIGIBILITY_FIELD + '=true (explicit)' };
+    return {
+      verdict: 'eligible',
+      reason: 'meta.' + ELIGIBILITY_FIELD + '=true (explicit)',
+      code: ELIGIBILITY_CODES.explicitTrue,
+    };
   }
   if (declared === false) {
     // 부정 주장에는 사유가 붙어야 한다. 사유 없는 not_eligible은 분모를 줄이는
     // 무증거 주장이고, 지표 2를 달성 가능하게 만들려는 압력이 정확히 그리로 향한다.
     const why = meta[NOT_ELIGIBLE_REASON_FIELD];
     if (typeof why === 'string' && why.trim().length > 0) {
-      return { verdict: 'not_eligible', reason: 'meta.' + NOT_ELIGIBLE_REASON_FIELD + ': ' + why.trim() };
+      return {
+        verdict: 'not_eligible',
+        reason: 'meta.' + NOT_ELIGIBLE_REASON_FIELD + ': ' + why.trim(),
+        code: ELIGIBILITY_CODES.explicitFalseExplained,
+      };
     }
     return {
       verdict: 'undecidable',
       reason: 'meta.' + ELIGIBILITY_FIELD + '=false but meta.' +
         NOT_ELIGIBLE_REASON_FIELD + ' is absent or empty — an unexplained exclusion is not a decision',
+      code: ELIGIBILITY_CODES.explicitFalseUnexplained,
     };
   }
   return {
@@ -220,6 +263,42 @@ function classifyShipEligibility(receipt) {
     reason: 'no explicit meta.' + ELIGIBILITY_FIELD +
       ' — and nothing else in a ship receipt decides it (plan_hash and meta.command are ' +
       'present on every receipt; the upstream plan receipt was never git-tracked)',
+    code: ELIGIBILITY_CODES.noExplicitField,
+  };
+}
+
+// DD5 — 라이브 파티션 전용 사유 정련.
+//
+// 위 fallthrough 사유는 "상류 plan receipt가 git-tracked된 적 없다"고 단정하는데
+// M3 이후로 그것은 **사실이 아니다**(F6: 생산자가 실재한다). 그러나 그 문자열은
+// 동결 코퍼스의 키라 고칠 수 없다. 그래서 고치지 않고, 라이브 파티션에서만 두
+// 갈래로 정련한다.
+//
+//   producer_absent_in_build        이 receipt를 발행한 빌드에 생산자가 없었다
+//   producer_present_but_unstamped  생산자가 있는 빌드인데 값이 없다 (진짜 배선 결함)
+//
+// **`no_explicit_field` 갈래에만 적용한다.** 나머지 두 `undecidable`은 M3 키를
+// 물을 수 없거나(meta 판독 불가) 이미 다른 축의 결함이므로(무증거 exclusion), 같은
+// 규칙을 적용하면 없는 사실을 만든다 (L2 architect MEDIUM 흡수).
+//
+// 이 판별은 **완전하지 않다** — M3 키를 하나도 쓰지 않는 정상 ship과 생산자 없는
+// 빌드가 구분되지 않는다. 그래서 이름이 `build`가 아니라 `producer_absent_in_build`
+// 이고, `by_reason`은 열린 맵이라 후속 축이 사유를 늘릴 수 있다. 모르는 것을 아는
+// 척하지 않는 것이 이 필드의 계약이다.
+function refineLiveUndecidableReason(receipt, classification) {
+  const c = classification;
+  if (!c || c.code !== ELIGIBILITY_CODES.noExplicitField) return c;
+  const meta = obj(receipt && receipt.meta);
+  if (meta === null) return c;
+  const producerPresent = M3_PRODUCER_KEYS.some(function (k) {
+    return Object.prototype.hasOwnProperty.call(meta, k);
+  });
+  return {
+    verdict: c.verdict,
+    reason: producerPresent
+      ? LIVE_UNDECIDABLE_REASONS.producerPresentUnstamped
+      : LIVE_UNDECIDABLE_REASONS.producerAbsent,
+    code: c.code,
   };
 }
 
@@ -308,6 +387,10 @@ module.exports = {
   ROUND_STRUCTURE_VERDICTS: ROUND_STRUCTURE_VERDICTS,
   ROUND_STRUCTURE_CONTROLS: ROUND_STRUCTURE_CONTROLS,
   classifyShipEligibility: classifyShipEligibility,
+  refineLiveUndecidableReason: refineLiveUndecidableReason,
+  ELIGIBILITY_CODES: ELIGIBILITY_CODES,
+  M3_PRODUCER_KEYS: M3_PRODUCER_KEYS,
+  LIVE_UNDECIDABLE_REASONS: LIVE_UNDECIDABLE_REASONS,
   classifyLink: classifyLink,
   isRepoRelativePath: isRepoRelativePath,
   LINKAGE_FIELD_NAMES: LINKAGE_FIELD_NAMES,

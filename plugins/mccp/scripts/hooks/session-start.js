@@ -1039,6 +1039,10 @@ async function main() {
   // `missing.length > 0` gate, where a fully-resolved-but-shadowed install
   // would never be reported at all.
   let eclipsedNotice = '';
+  // review-record-linkage M5 (DD4a). Its own variable, filled by its own block
+  // BELOW the dep-check block and OUTSIDE the MCCP_CODEX_DISABLED guard — see
+  // the comment at that block for why sharing either would silence it.
+  let installSkewNotice = '';
   try {
     injectorModule = require('../state/state-injector');
     const { execFileSync } = require('child_process');
@@ -1141,8 +1145,68 @@ async function main() {
     }
   }
 
+  // ── install skew (review-record-linkage M5, DD4a) ─────────────────────────
+  //
+  // This block sits OUTSIDE the MCCP_CODEX_DISABLED guard above, and that
+  // placement is the whole point. Version skew and Codex availability are
+  // unrelated axes; there is no reason to bind them to one switch. CLAUDE.md
+  // §3.12 calls MCCP_CODEX_DISABLED=1 a STANDARD install, so a skew banner
+  // inside that guard would never fire on a standard machine — the diagnostic
+  // would be built and never called, which is precisely the failure M5 exists
+  // to close.
+  //
+  // The throttle is not shared either. dep_check_at is re-stamped on every
+  // session that runs dep-check (see :1114-1121 for the same argument applied
+  // to the eclipsed axis), so keying this banner on that clock alone would show
+  // it once and never again — and a state CHANGE (newly behind, or resolved)
+  // would not bring it back. Hence install_skew_at + install_skew_state, this
+  // axis's own present-only fields.
+  try {
+    const depCheck = require('../lib/dep-check');
+    const stateWriter = require('../state/state-writer');
+    const skew = depCheck.checkInstallSkew({ repoRoot: injectorRepoRoot || undefined });
+    const notice = depCheck.installSkewNotice(skew);
+    const skewKey = depCheck.installSkewKey(skew);
+
+    let priorSkewAt = null;
+    let priorSkewState = null;
+    try {
+      if (injectorRepoRoot) {
+        const existing = stateWriter.readState(injectorRepoRoot);
+        priorSkewAt = existing.frontmatter.install_skew_at || null;
+        priorSkewState = existing.frontmatter.install_skew_state || null;
+      }
+    } catch (_e) {
+      // best-effort; treat as no prior dedupe state
+    }
+
+    const skewAgeMs = priorSkewAt ? Date.now() - Date.parse(priorSkewAt) : Infinity;
+    const skewWithin24h = Number.isFinite(skewAgeMs) && skewAgeMs >= 0 && skewAgeMs < 24 * 60 * 60 * 1000;
+    const sameSkew = skewKey === priorSkewState;
+    if (notice && !(sameSkew && skewWithin24h)) {
+      installSkewNotice = notice;
+      log(installSkewNotice);
+    }
+
+    if (injectorRepoRoot) {
+      try {
+        stateWriter.update(injectorRepoRoot, {
+          installSkew: { checkedAt: new Date().toISOString(), state: skewKey },
+        });
+      } catch (e) {
+        log(`[SessionStart] install-skew state update skipped: ${e.message}`);
+      }
+    }
+  } catch (err) {
+    log(`[SessionStart] install-skew skipped: ${err.message}`);
+  }
+
   if (depCheckNotice && shouldInjectContext) {
     additionalContextParts.push(depCheckNotice);
+  }
+
+  if (installSkewNotice && shouldInjectContext) {
+    additionalContextParts.push(installSkewNotice);
   }
 
   if (eclipsedNotice && shouldInjectContext) {

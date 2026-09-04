@@ -138,6 +138,13 @@ function emptyState() {
       // sharing that key would make a shadowed install read as an absent one to
       // every consumer of the field. Present-only (dep_check_missing mirror).
       dep_check_eclipsed: null,
+      // review-record-linkage M5 (DD4a) — the install-skew banner's own dedupe
+      // axis. It cannot ride on dep_check_at/dep_check_missing: that block is
+      // gated on MCCP_CODEX_DISABLED and its clock is re-stamped every session,
+      // so sharing either would make the skew banner fire once and never again
+      // on a standard install. Present-only (dep_check_eclipsed mirror).
+      install_skew_at: null,
+      install_skew_state: null,
       // v0.3.2 — dual-reviewer escalate flag (set by receipt-write when an
       // escalate trigger fires; cleared on next clean receipt for the same
       // decision_id). Conditional emit — only rendered when escalate_pending=true.
@@ -317,6 +324,9 @@ function renderFrontmatter(fm) {
   if (fm.dep_check_at) out.push('dep_check_at: ' + fm.dep_check_at);
   if (fm.dep_check_missing) out.push('dep_check_missing: ' + fm.dep_check_missing);
   if (fm.dep_check_eclipsed) out.push('dep_check_eclipsed: ' + fm.dep_check_eclipsed);
+  // review-record-linkage M5 — present-only (dep_check_eclipsed mirror).
+  if (fm.install_skew_at) out.push('install_skew_at: ' + fm.install_skew_at);
+  if (fm.install_skew_state) out.push('install_skew_state: ' + fm.install_skew_state);
   // cost-model-subscription M3 (Axis 2, F3) — chain_aborted provenance (present-only,
   // dep_check_at mirror). Emitted only when the flag was set by a channel.
   if (fm.abort_owner) out.push('abort_owner: ' + fm.abort_owner);
@@ -405,6 +415,15 @@ function mergeState(existing, patch) {
     // dep-check state without knowing about the eclipsed axis cannot silently
     // clear it.
     if (dc.eclipsed !== undefined) merged.frontmatter.dep_check_eclipsed = dc.eclipsed || null;
+  }
+  // review-record-linkage M5 (DD4a) — its own patch key, written by its own
+  // SessionStart block. Deliberately NOT folded into patch.depCheck: that
+  // channel only runs when MCCP_CODEX_DISABLED is unset, and folding the skew
+  // axis into it would re-gate the banner on the flag DD4a moved it out from.
+  if (patch.installSkew !== undefined) {
+    const sk = patch.installSkew || {};
+    merged.frontmatter.install_skew_at = sk.checkedAt || now;
+    merged.frontmatter.install_skew_state = sk.state || null;
   }
 
   // v0.2.2 Task 8 — auto-chain + cost ceiling fields
@@ -601,7 +620,11 @@ function withStateLock(repoRoot, fn) {
 // on every session boot. The semantic payload lives in dep_check_missing
 // (which packages are missing) — dep_check_at is just timestamp self-bump.
 // Including it in the hash dirtied STATE.md in `git status` every session.
-const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at', 'dep_check_at']);
+// install_skew_at joins for exactly the reason dep_check_at is here: it is a
+// timestamp the SessionStart block self-bumps on every boot, so counting it
+// would make every session a content change. install_skew_state is NOT excluded
+// — that one carries the semantic payload (which skew state was last reported).
+const HASH_EXCLUDE_FRONTMATTER_KEYS = new Set(['updated_at', 'last_event_at', 'created_at', 'dep_check_at', 'install_skew_at']);
 
 function contentSnapshot(state) {
   const fm = {};

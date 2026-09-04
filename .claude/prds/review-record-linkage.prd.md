@@ -112,7 +112,13 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 | 3 | bidirectional-link | receipt가 리뷰 경로를, 리뷰가 receipt 식별자를 갖는다. 필드는 present-only(`makeSkeleton` 미포함)라 과거 receipt의 hash가 불변이다 | complete | [.claude/plans/review-record-linkage-m3.plan.md](../plans/review-record-linkage-m3.plan.md) |
 | 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | complete | [.claude/plans/review-record-linkage-m4.plan.md](../plans/review-record-linkage-m4.plan.md) |
 | 5 | live-firing-closure | M1~M4가 만든 배선이 **실제로 발화한다** — 착지 후 발행되는 ship receipt가 `meta.review_record_path`·`meta.plan_review_expected`를 봉인하고 `linkage.bidirectional >= 1`·`denominator != null`이 된다. 발화하지 못하면 그 사실을 설치-skew 진단이 시끄럽게 말한다 | in-progress | [.claude/plans/review-record-linkage-m5.plan.md](../plans/review-record-linkage-m5.plan.md) |
-| 6 | deferred-ledger-closure | 이 PRD가 남긴 backlog 79행 · Open Questions 5건 · fix-task escalation 1건이 각각 해소/이연/무효 중 하나로 **명시 판정**되고 판정 근거가 파일에 남는다. 코드 변경은 §3.14 임계(HIGH/CRITICAL) 흡수분에 한정한다 | pending | — |
+| 6 | deferred-ledger-closure | 이 PRD가 남긴 backlog **73행**(M5가 분류를 마쳤고 판정만 남았다 — [deferred-triage.md](../../docs/review-record-linkage/deferred-triage.md)) · `FAIL` 버킷 14행(§3.14 해제 조건 대기, 일괄) · Open Questions 5건 · fix-task escalation 1건이 각각 해소/이연/무효 중 하나로 **명시 판정**되고 판정 근거가 파일에 남는다. 코드 변경은 §3.14 임계(HIGH/CRITICAL) 흡수분에 한정한다 | pending | — |
+
+> **M6 행의 "79행"을 정정했다 (M5 Task 7, 2026-09-04).** 실측은 `Source plan` 열 기준
+> 이 PRD 103행이고 그중 M5 자신의 사이클이 16행이다. M5 이전 누적은 87행이며, M5가
+> (a) 이미 해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류를
+> 마쳤다(합계 103, 누락 0). 79는 어느 세는 규칙으로도 재현되지 않는다 — 근거 없는
+> 수치가 관측표에 남아 있던 것이고, 그 정정 자체가 이 PRD가 닫으려는 결함이다.
 
 > **M2 dropped 사유 (2026-09-01, 기계 확인).** `env-contract-integrity M3`(origin/main
 > v1.33.6)가 이 마일스톤의 outcome을 그대로 출시했다 — 통로(`write.js`의 ledger 파생) ·

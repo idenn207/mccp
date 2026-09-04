@@ -425,3 +425,28 @@ backlog에 HIGH로 기등재돼 있고 소유 축은 review-loop-bypass / env-co
 **이 사이클은 그 결함의 두 번째 실증 사례**로 기록된다(첫 번째는 M2).
 
 리뷰 기록: `.claude/reviews/plan-review-orchestrator-step-wiring.md` (`halt_stage=5.2c-emit`).
+
+### 다음 단계에 우회는 필요하지 않다 (실측)
+
+UI5는 차단 시 감사된 우회를 예정했으나, **실측 결과 우회 없이 진행된다.** 슬러그가
+갈리기 때문이다 — plan 게이트는 인자(PRD 경로)에서 `orchestrator-step-wiring`을 파생하지만
+`/mccp:prp-implement`는 **plan 경로**에서 `orchestrator-step-wiring-m3`을 파생한다
+(memory: decision-slug-diverges-plan-vs-implement).
+
+| 슬러그 | missing | stale | blocking | open_critical | 판정 |
+|---|---|---|---|---|---|
+| `orchestrator-step-wiring` (PRD 슬러그) | 0 | **1** | 0 | 0 | stale — soft 모드도 막는다 |
+| `orchestrator-step-wiring-m3` (plan 슬러그) | 1 | 0 | 0 | 0 | **missing-only** |
+
+`stale` 1건은 M1 사이클이 같은 PRD 슬러그에 남긴 옛 receipt가 이 계획과 다른 `plan_hash`를
+담고 있어서지, 이 계획의 결함이 아니다. milestone 슬러그에는 그 receipt가 아예 없다.
+
+missing-only는 v1.3.1 informational allow-path의 정확한 발화 조건이고
+(`hooks/receipt-prompt.js:470-475` — `isRecoverable` ∧ missing>0 ∧ stale=0 ∧ blocking=0 ∧
+open_critical=0), `mccp:prp-implement`는 recoverable 목록에 있다(실측 확인). 따라서 hook은
+**ALLOW + context 주입**으로 통과시키고 `MCCP_SKIP_RECEIPT`는 불필요하다. Phase 0.0은
+`mccp-plan-codex`를 blind write하지 않고 분기하므로(§3.13) receipt 위조도 일어나지 않는다.
+
+**전제 조건 하나**: 반드시 **plan 경로**로 호출해야 한다.
+`/mccp:prp-implement .claude/plans/orchestrator-step-wiring-m3.plan.md`.
+PRD 경로나 PRD 슬러그로 호출하면 위 표의 첫 행(stale)에 걸려 막힌다.

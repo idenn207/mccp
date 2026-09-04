@@ -30,25 +30,41 @@ M1은 벽시계를, M2는 패널 종료→ship 구간을 산출했다. 둘 다 *
 ## 한 줄 문법
 
 ```
-리드타임 (<측정>/<코퍼스> 측정) · p50: 패널 <값> (<n>/<측정>) · 패널→ship ledger <값> (<n>/<eligible>) · hash <값> (<n>/<eligible>)
+리드타임 (<측정>/<코퍼스> 측정) · p50: 패널 <값> (<n>) · 패널→ship (조인 <eligible>): ledger <값> (<n>) · hash <값> (<n>)
 ```
 
-규칙은 셋이다.
+규칙은 넷이다.
 
 1. **코퍼스 커버리지가 맨 앞에 온다.** CLI는 "커버리지 줄이 값보다 먼저 나온다"를 줄
    순서로 지켰다. 한 줄 표면에는 "앞 줄"이 없으므로 같은 명제를 인접성으로 다시 적는다.
-2. **모든 값 토큰이 자기 커버리지를 괄호로 바로 뒤에 단다.** 예외는 없다 —
-   `미산출`도 값 토큰이고 자기 커버리지를 단다. 통계 이름(`p50`)은 헤드에서 한 번
-   선언하므로 토큰마다 반복하지 않는다. 이 규칙은 `assertCoverageAdjacency`가
-   기계적으로 강제하고, 짝을 뗀 입력이 실제로 throw하는 것을 test가 고정한다.
-3. **값 부재는 `0`이 아니라 `미산출`이다.** 없는 것을 0으로 적으면 "즉시 끝났다"는
+2. **모든 값 토큰이 자기 분자를 괄호로 바로 뒤에 단다.** 예외는 없다 — `미산출`도 값
+   토큰이고 자기 분자를 단다. 통계 이름(`p50`)은 헤드에서 한 번 선언하므로 토큰마다
+   반복하지 않는다.
+3. **분모는 토큰이 아니라 그룹 라벨이 한 번 선언한다** (M4). 헤드의
+   `(<측정>/<코퍼스> 측정)`이 `패널` 토큰을 지배하고, `패널→ship (조인 <eligible>):`이
+   `ledger`와 `hash`를 지배한다. 두 분모는 오늘 우연히 같은 값이지만 **모집단이
+   다르다** — 앞은 패널 span이 측정된 레코드, 뒤는 `recorded_at` 파싱에 성공해 조인
+   후보가 된 레코드다. 2와 3은 `assertCoverageAdjacency`가 함께 강제하고, 분자를 뗀
+   입력과 **그룹 라벨을 지운 입력이 각각** throw하는 것을 test가 고정한다.
+4. **값 부재는 `0`이 아니라 `미산출`이다.** 없는 것을 0으로 적으면 "즉시 끝났다"는
    없는 사실이 생긴다.
 
-`state`가 `degraded`거나 `blind`면 **바로 아래 줄**에 사유가 따로 붙는다(같은 줄에
-붙이면 100칼럼 상한과 충돌한다). 사유는 닫힌 열거형이다:
+`state`가 `degraded`거나 `blind`면 **바로 아래 문단**에 사유가 따로 붙는다(같은 줄에
+붙이면 `SHARED_LINE_BUDGET`과 충돌한다). md는 빈 줄을 낀 문단 분리이고 html은 `<p>`
+둘이라 두 면의 구조가 같다 — 단일 개행으로 이으면 CommonMark가 한 문단으로 접어 구조가
+갈린다(M4). **`state`가 `ok`여도 `degradations`가 비어 있지 않으면 같은 자리에 `관측
+축소:` 문단이 붙는다** — 손상이 아니라 운영자가 줄인 관측이고, 그 구분이 없으면
+`MCCP_LEADTIME_GIT=off`가 이 세 표면에서 아무 흔적도 남기지 않는다. 사유는 닫힌
+열거형이다:
 `read-error` · `parse-failures` · `git-disabled` · `anchor-source-damaged` ·
 `negative-spans` · `sum-equation-broken` · `module-load-failed` · `oracle-threw` ·
 `read-failed`.
+
+폭 예산은 `leadtime-surface.js`의 `SHARED_LINE_BUDGET`(120 **표시 칼럼**)이 소유한다.
+`String.length`가 아니라 `displayWidth`로 재는데, East Asian Wide를 2칼럼으로 세지 않으면
+이 줄은 92로 읽히고 실제로는 108을 차지한다 — M3까지 폭 가드가 통과하던 이유가 그
+차이였다. Ambiguous(`·` · `→`)는 보수적으로 2로 센다. **칼럼은 실제 렌더 폭의 대리
+지표다** — 이 저장소에는 레이아웃 엔진이 없어 브라우저에서 접히는지는 여전히 열린 축이다.
 
 `sum-equation-broken`은 미짝 사유 분해의 분할 불변식(`unmatched === Σ(counts)`)이
 깨졌다는 뜻이다. CLI는 이것을 `*** SUM EQUATION BROKEN ***`로 크게 보여주는데, 이
@@ -110,7 +126,7 @@ bare `derive()`는 spawn-free 예산 위에 있으므로 축 계산 자체를 �
 ## 동결된 실측
 
 <details>
-<summary>한 줄 · 사람 출력 · 발행된 payload (축자, 2026-09-03)</summary>
+<summary>한 줄 · 사람 출력 · 발행된 payload (축자, 2026-09-04)</summary>
 
 생산 명령:
 
@@ -122,36 +138,38 @@ node plugins/mccp/scripts/lib/leadtime.js
 STATUS.md·status.html 상단에 실리는 한 줄:
 
 ```text
-리드타임 (54/67 측정) · p50: 패널 7.5min (54/54) · 패널→ship ledger 0.38d (11/54) · hash 0.28d (17/54)
+리드타임 (61/74 측정) · p50: 패널 7.5min (60) · 패널→ship (조인 61): ledger 0.41d (16) · hash 0.28d (18)
 ```
 
 `leadtime.js` 사람 출력 전문 (첫 줄이 위의 한 줄과 동일하다 — 세 면이 한 문장을 공유한다):
 
 ```text
-리드타임 (54/67 측정) · p50: 패널 7.5min (54/54) · 패널→ship ledger 0.38d (11/54) · hash 0.28d (17/54)
-  state=ok records=54 pre_measurement=13 parse_failures=0 out_of_corpus=31 read_error=false
-  coverage: 54/67 panel records measurable (counts below are a LOWER BOUND)
-  panel_span observed 54/54 measurable (missing 0)
+리드타임 (61/74 측정) · p50: 패널 7.5min (60) · 패널→ship (조인 61): ledger 0.41d (16) · hash 0.28d (18)
+  state=ok records=61 pre_measurement=13 parse_failures=0 out_of_corpus=31 read_error=false
+  coverage: 61/74 panel records measurable (counts below are a LOWER BOUND)
+  panel_span observed 60/61 measurable (missing 1)
   (state above is COMPOSITE — the worst of the loaded axes, not a single axis)
   panel_span — state=ok
-  panel_span (nearest-rank, n=54): min=0.7min p50=7.5min p90=11.9min max=427.4min
+  panel_span (nearest-rank, n=60): min=0.7min p50=7.5min p90=12.6min max=427.4min
   by_verdict:
     converged: n=5 p50=6.4min max=13.0min
-    divergent: n=48 p50=7.5min max=427.4min
-    unknown: n=1 p50=1.3min max=1.3min
+    divergent: n=52 p50=7.5min max=427.4min
+    unavailable: n=1 p50=17.3min max=17.3min
+    unknown: n=2 p50=1.1min max=1.3min
   by_halt_stage:
-    (completed): n=35 p50=8.2min max=427.4min
+    (completed): n=36 p50=8.2min max=427.4min
     5.2b: n=1 p50=1.3min max=1.3min
-    5.2e: n=18 p50=5.3min max=11.9min
+    5.2c-emit: n=2 p50=1.1min max=17.3min
+    5.2e: n=21 p50=5.3min max=11.9min
   post_panel_span — state=ok
-    coverage: eligible 54 · matched ledger_basename 11 · matched ship_plan_hash 17
-      cross: both 6 · only_ledger 5 · only_ship 11 · neither 32
-    ship receipts: 50/82 qualified (unproven-skip 6 · override-qualified 13)
-    ledger_basename (nearest-rank, n=11): min=0.05d p50=0.38d p90=0.70d max=1.74d
-    ship_plan_hash (nearest-rank, n=17): min=0.02d p50=0.28d p90=4.18d max=5.92d
-    disagreement (both axes matched, n=6, over abs(anchor_delta_ms)): p50=0.00d max=0.00d
-    unmatched[ledger_basename]: 43 = anchor_absent=30 unclassified=13
-    unmatched[ship_plan_hash]: 37 = key_mismatch=18 anchor_absent=11 unclassified=8
+    coverage: eligible 61 · matched ledger_basename 16 · matched ship_plan_hash 18
+      cross: both 7 · only_ledger 9 · only_ship 11 · neither 34
+    ship receipts: 56/88 qualified (unproven-skip 6 · override-qualified 13)
+    ledger_basename (nearest-rank, n=16): min=0.05d p50=0.41d p90=1.09d max=1.74d
+    ship_plan_hash (nearest-rank, n=18): min=0.02d p50=0.28d p90=4.18d max=5.92d
+    disagreement (both axes matched, n=7, over abs(anchor_delta_ms)): p50=0.00d max=0.00d
+    unmatched[ledger_basename]: 45 = anchor_absent=30 unclassified=15
+    unmatched[ship_plan_hash]: 43 = key_mismatch=25 anchor_absent=11 unclassified=7
 ```
 
 발행된 `.claude/state/leadtime/distribution.json`:
@@ -160,44 +178,44 @@ STATUS.md·status.html 상단에 실리는 한 줄:
 {
   "coverage": {
     "counts_are_lower_bound": true,
-    "measurable": 54,
-    "panel_records": 67
+    "measurable": 61,
+    "panel_records": 74
   },
   "degradations": [],
   "panel_span": {
     "max": 25642300,
     "min": 43984,
-    "n": 54,
+    "n": 60,
     "p50": 447105,
-    "p90": 716586
+    "p90": 756525
   },
   "post_panel_span": {
     "by_anchor": {
       "ledger_basename": {
         "max": 150743189,
-        "n": 11,
-        "p50": 33035593,
-        "p90": 60830831
+        "n": 16,
+        "p50": 35050053,
+        "p90": 94558358
       },
       "ship_plan_hash": {
         "max": 511876477,
-        "n": 17,
+        "n": 18,
         "p50": 24176707,
         "p90": 360895695
       }
     },
     "coverage": {
-      "both": 6,
-      "eligible": 54,
-      "matched_ledger": 11,
-      "matched_ship": 17,
-      "neither": 32,
-      "only_ledger": 5,
+      "both": 7,
+      "eligible": 61,
+      "matched_ledger": 16,
+      "matched_ship": 18,
+      "neither": 34,
+      "only_ledger": 9,
       "only_ship": 11
     },
     "disagreement": {
       "max": 0,
-      "n": 6,
+      "n": 7,
       "p50": 0
     },
     "disagreement_note": "structurally-zero: ledger.completed_at copies ship receipt meta.created_at (PRD open question)",
@@ -207,14 +225,14 @@ STATUS.md·status.html 상단에 실리는 한 줄:
         "key_mismatch": 0,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 13
+        "unclassified": 15
       },
       "ship_plan_hash": {
         "anchor_absent": 11,
-        "key_mismatch": 18,
+        "key_mismatch": 25,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 8
+        "unclassified": 7
       }
     }
   },

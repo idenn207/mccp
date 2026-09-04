@@ -48,7 +48,11 @@ function renderLeadtimeLine(model, formatUtils) {
   const escapeHtml = (formatUtils && formatUtils.escapeHtml)
     || ((s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
 
-  const md = note ? (line.text + '\n' + note) : line.text;
+  // note 는 **문단**으로 분리한다(M4 DD5). 빈 줄 없이 잇는 단일 개행은 CommonMark 의
+  // soft break 라 두 줄이 한 문단으로 접히는데, 바로 아래 html 은 `<p>` 둘을 낸다.
+  // 그러면 두 면의 정보는 같아도 **구조가 다르고**, PRODUCT.md Design Principle 4 가
+  // 요구하는 것은 "동일 정보, 다른 표현"이지 "다른 구조"가 아니다.
+  const md = note ? (line.text + '\n\n' + note) : line.text;
   const html = '<p class="mono muted">' + escapeHtml(line.text) + '</p>'
     + (note ? '<p class="muted">' + escapeHtml(note) + '</p>' : '');
 

@@ -253,6 +253,7 @@ const RAW = [
   ['MCCP_RECLAIM_IDENTITY_TOLERANCE_MS', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/lib/session-processes.js:946', '동일성 판정 허용 오차.'],
   ['MCCP_WORKTREE_SCAN_CAP', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/derive/sources/worktrees.js:280', 'worktree 스캔 상한.'],
   ['MCCP_WORKTREE_ACTIVE_DAYS', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/derive/sources/worktrees.js:290', 'worktree active 일수.'],
+  ['MCCP_LEADTIME_GIT', 'bool', B, 'on', ON, 'active', 'observability', 'plugins/mccp/scripts/lib/leadtime-derive.js:96', '리드타임 git 증인 spawn.'],
 
   // ── external — mccp가 정의하지 않지만 mccp 경로가 읽는 이름 ─────────────────
   ['CLAUDE_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:68', '주입된 플러그인 루트.'],

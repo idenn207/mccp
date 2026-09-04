@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: leadtime-observability-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T02:43:41.069Z
+updated_at: 2026-09-04T06:10:09.013Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-04T02:43:41.069Z
+last_event_at: 2026-09-04T06:10:09.013Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -13,9 +13,7 @@ last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-09-03T04:12:52.323Z
 ---
 ## Goal
-leadtime-observability M4 — one-line-hardening. 이전 plan이 소실돼 **처음부터 재작성**했다.
-plan-review 게이트는 라운드 캡 소진으로 5.2c-emit에서 HALT — 패널 미발화, receipt 없음.
-운영자 승인(2026-09-04) 하에 패널 없이 진행하는 상태.
+leadtime-observability M4 — one-line-hardening. 9개 Task 완료, Validation 1~7 전부 통과. 커밋 전 상태.
 
 ## Plan
 - PRD `.claude/prds/leadtime-observability.prd.md` milestone 4 `in-progress`
@@ -25,31 +23,33 @@ plan-review 게이트는 라운드 캡 소진으로 5.2c-emit에서 HALT — 패
 - 라운드 원장 — PRD 슬러그 `leadtime-observability` 3라운드 · `-m4` 슬러그 1라운드. 봉인 cap=1 pinned-by=codex-disabled
 
 ## Done
-- 이전 M4 plan의 디스크 소실 확인 — 커밋된 적 없고(`git log --all --diff-filter=A` 0건) dangling blob에도 없어 복구 불가
-- 운영자 판단 3건 수령 — 플랜 재작성 · 패널 없이 진행 · 폭 축은 칼럼 예산으로 축소하고 실제 렌더 폭은 열어 둔다
-- 표시 폭 실측 — 현행 줄 code unit 92 · 표시 폭 102(ambiguous=1)/106(ambiguous=2) · 3자리 114 · 4자리 122
-- 줄 설계 후보 8종 폭 측정 후 채택안 확정 — 그룹 라벨이 분모를 한 번 선언하는 형태(108/114/120, 예산 120)
-- plan 재작성 완료 — UI1~UI11 · DD1~DD9 · Files to Change 14행 · Task 9개 · Validation 7단계 · Risks 8행
-- 인용 6건 정정(L1이 잡은 bare citation 1건 포함) 후 L1 재실행 converged · violations 0
-- 게이트 실행 — 봉인 → detect(skill_available·design_signal 둘 다 true) → mode=multi-agent → L1 converged → reserve granted=4 → emit exit 12 (round cap 3/1)
-- 예약 반환 완료(`--actual 0` · delta -4 · launched 0). 원장 미증가 · receipt 미작성 확인
-- 이전 라운드 기록을 `-r0-blocked.md`로 보존 — 저장소의 `-rN-blocked` 선례 준용, 새 기록이 덮지 않게 함
+- plan을 게이트 진입 전에 커밋(9501ef7) — 이 사이클이 잃은 것이 정확히 untracked plan이었다
+- mccp-plan-codex receipt를 MCCP_SKIP_INTENT_GATE audited override로 작성(라운드 캡 소진으로 /mccp:plan 재실행 불가). verdict=incomplete 봉인
+- Task 1~9 전건 완료 — displayWidth+SHARED_LINE_BUDGET · 그룹 분모 한 줄 · falsifier 3단언 · md 문단 분리 · 폭 회귀 test · 폭 가드 수정 · MCCP_LEADTIME_GIT 배선 · derive test 신설 · 동결면/PRD 재생성
+- Validation 1~7 전부 통과 (축 test 109 · env lint L1~L12 · 렌더 108/120 · 토글 불변 · 동결면 문자 일치 · 버전 미선언 · renderer 684)
+- PRD milestone 4 complete + 지표 4 정의를 커버리지 축으로 판정(DD8) — 이로써 PRD 4개 milestone 전부 종료
+- 구현 리포트 작성 .claude/PRPs/reports/leadtime-observability-m4-report.md
+- /mccp:code-review 로컬 리뷰 실행 — HIGH 2 · MEDIUM 1 · LOW 3 검출, HIGH/MEDIUM 전건 흡수
+- H1 흡수: one-line-consumption.md 의 닫힌 열거형이 편집 사고로 9종 중 8종 소실됐던 것을 복원
+- H2 흡수: MCCP_LEADTIME_GIT=off 가 한 줄 표면에 흔적을 남기지 않던 결함을 note 분기(관측 축소:)로 닫음 — state 는 ok 인데 degradations 만 실리던 경로
+- M1 흡수: TOKEN_GOVERNOR 를 Object.create(null) 로 바꿔 프로토타입 라벨 오진 제거
+- 회귀 test 4건 신설(ok+degradations note 발화·미발화 · 프로토타입 라벨 · 토글의 표면 도달) — Validation 1 축 109→113 · renderer 684 · lint L1~L12 전부 통과
+- L2~L4 는 증거와 함께 codex-findings-backlog.md 에 이연 적재(§3.14)
 
 ## In Progress
 
 
 ## Next Step
-plan을 먼저 커밋한다(이번 사이클이 잃은 것이 정확히 untracked plan이다) — `git add .claude/plans/leadtime-observability-m4.plan.md .claude/reviews/plan-review-leadtime-observability-m4*.md` 후 `/mccp:prp-implement .claude/plans/leadtime-observability-m4.plan.md`. PR 본문에는 `## Gate Deviation`으로 캡 소진·패널 미승인을 명시할 것.
+커밋 완료. 다음은 /mccp:pr — PR 본문에 ## Gate Deviation 으로 (1) plan 게이트 라운드 캡 소진·패널 미승인 (2) implement 게이트 Codex skip(MCCP_CODEX_DISABLED 봉인 정책) (3) plan-conflict detector 오탐 override 를 명시할 것.
 
 ## Last Decision
-폭 예산을 120으로 **먼저 고르고 그 다음 줄 설계를 거기 맞췄다**. 반대 방향(설계를 정하고 숫자를 맞추는 것)이 이전 라운드 패널이 HIGH 3건으로 지목한 침식이라, 선정 순서 자체를 DD1의 근거로 적었다. 기존 100칼럼을 유지하지 않은 이유는 달성 불가이기 때문이다 — 라벨 없는 현행 줄이 이미 106이고, 100에 맞추려면 계약된 앵커 토큰을 떨어뜨려야 하는데 그것이 PRD 결정 1(UI6) 위반이다. 침식 방지 장치는 4자리 투영이 정확히 예산과 같다는 사실 — 줄을 넓히면 test가 붉어지고, 통과시키려면 예산 상수와 test를 함께 고쳐야 해 diff에 남는다.
+리뷰가 잡은 H2 를 문서 문구 완화가 아니라 코드로 닫았다. 두 선택지가 있었고(주석·문서의 주장을 산출물 JSON 으로 좁히기 vs 표면이 실제로 말하게 하기), 후자를 택한 이유는 DD6 이 토글을 정당화한 근거가 정확히 "끈 것을 조용히 끄지 않는다" 였기 때문이다. note 는 별도 문단이라 폭 예산과 무관하고(줄은 108/120 불변), 문구를 손상 과 가른 것은 운영자가 당긴 레버를 손상으로 적으면 반대 방향의 거짓이 되기 때문이다. completion-ledger 엔트리는 DD9 대로 커밋에서 제외했다.
 
 ## Open Questions
-- 재작성한 plan을 무엇이 인증하는가 — **아무것도 인증하지 않는다.** 캡 소진으로 패널이 발화하지 못했고 receipt도 없다. 이것이 이 사이클의 정직한 상태다.
-- M4가 닫지 않는 CRITICAL — 칼럼은 대리 지표이고 실제 렌더 폭을 잴 수단이 저장소에 없다(renderer test는 jsdom-free · root package.json 부재). backlog 이연 · 소유 축 renderer.
-- plan 게이트 슬러그가 PRD 경로에서 파생돼 한 PRD의 모든 milestone이 라운드 원장 하나를 공유한다 — M4가 M1~M3의 3라운드를 물려받아 시작부터 캡 초과다. 캡이 decision 단위라는 전제와 어긋나지만 소유 축이 다르다(미조사).
-- 완료 ledger 엔트리(`leadtime-observability-m3__e337d9e3d659.json`)가 미발행 버전 `1.35.0`을 주장해 단순 `git add`가 불가하고 §3.12 no-rehash 때문에 정정도 불가. backlog 이연.
-- state-writer가 main repo 상태를 읽어 worktree에 쓰는 정황(§3.8 라우팅 축) — 이전 세션 STATE.md가 M3 내용으로 덮인 원인 후보. 미조사.
+- 이 milestone의 어떤 게이트도 cross-model review를 받지 않았다 — plan은 캡 소진, implement는 Codex 정책 skip. dual-review는 PR 단계로 미뤄졌고 dedupe가 닫힌 채라 PR-Codex가 반드시 발화한다
+- 실제 렌더 폭은 닫지 않았다(UI8) — 칼럼은 대리 지표이고 저장소에 레이아웃 엔진이 없다. backlog CRITICAL 이연, 소유 축 renderer
+- design trigger가 게이트 시점(false)과 EXECUTE 이후(true)로 갈렸다 — detector가 diff를 읽으므로 구조적. critique loop과 Phase 3.7이 돌지 않았다. 소유 축 detector scope
+- completion-ledger 엔트리는 여전히 untracked(DD9) — 미발행 버전 1.35.0 주장 때문. backlog 이연
 
 ## Last Updated
-2026-09-04T02:43:41.069Z
+2026-09-04T06:10:09.013Z

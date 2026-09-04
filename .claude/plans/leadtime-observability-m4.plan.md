@@ -441,3 +441,33 @@ MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 plugins/mccp/scripts/lib/
   release-channel-separation. 그 가드는 `plugin.json` · footer 2면 · CHANGELOG만 본다.
 - **hero 슬롯에서 리드타임 줄의 위치·강조 등급** — M3 PR 게이트가 이연한 UX 결정. 소유 축이 다르다.
 - **임계값 · 자동 분기**(C7) · **`/mccp:work` 진입 앵커 생산**(C2) · **halt 대기 구간**(C9 M1).
+
+## Codex Implementation Review
+
+- 호출: `node <plugin-root>/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 0 (발화 없음)
+- 합치 결론: **Codex는 발화하지 않았다.** 봉인된 운영자 정책(`MCCP_CODEX_DISABLED=1`)에 따라
+  spawn 직전 short-circuit — `classification=disabled` · `blocking=false` · `durationMs=2`.
+  이것은 장애가 아니라 의도된 skip이며(§3.3 15종 중 실패가 아닌 둘 중 하나), receipt는
+  `codex_verdict='skipped'` 를 봉인한다.
+
+> Codex skipped per MCCP_CODEX_DISABLED=1
+
+- YAGNI Triage: 해당 없음 — finding 0건(리뷰어가 발화하지 않았으므로 triage할 대상이 없다).
+- Deferred to backlog: 0
+- Open Questions: 없음 — 단, **이 milestone의 어떤 게이트도 cross-model review를 받지 않았다.**
+  plan 게이트는 라운드 캡 소진으로 패널이 발화하지 못했고(`## Gate Deviation`), implement
+  게이트는 위와 같이 Codex가 정책상 skip됐다. dual-review는 우회된 것이 아니라 **PR 단계로
+  미뤄졌다** — plan receipt가 `intent_gate_verdict=incomplete`, implement receipt가
+  `codex_verdict='skipped'` 를 봉인하므로 cross-gate dedupe가 닫힌 채라
+  `/mccp:pr` 에서 PR-Codex가 반드시 발화한다.
+- Codex session 참조: 없음 (프로세스 미생성)
+
+### Security Reviewer
+
+security-reviewer를 호출하지 않았다 — **실패 fallback이 아니라 조건 미충족**이다. 2.5.5의
+대상 카탈로그(auth · crypto · secrets · input validation · SQL/cmd injection · SSRF · path
+traversal · privilege escalation)에 이 변경이 닿지 않는다. 가장 가까운 축은 Task 7의
+`MCCP_LEADTIME_GIT` 이지만, 그것은 `parseBool` 로 bool 하나를 읽어 **기존** `execFileSync`
+호출을 끄는 게이트이며 새 입력이 sink에 도달하지 않고 공격면을 넓히지 않는다(축소 방향).
+따라서 `security_skipped` 플래그도 세우지 않는다.

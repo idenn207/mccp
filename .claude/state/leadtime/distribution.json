@@ -1,14 +1,14 @@
 {
   "coverage": {
     "counts_are_lower_bound": true,
-    "measurable": 57,
-    "panel_records": 70
+    "measurable": 59,
+    "panel_records": 72
   },
   "degradations": [],
   "panel_span": {
     "max": 25642300,
     "min": 43984,
-    "n": 57,
+    "n": 59,
     "p50": 449737,
     "p90": 779328
   },
@@ -29,10 +29,10 @@
     },
     "coverage": {
       "both": 7,
-      "eligible": 57,
+      "eligible": 59,
       "matched_ledger": 13,
       "matched_ship": 18,
-      "neither": 33,
+      "neither": 35,
       "only_ledger": 6,
       "only_ship": 11
     },
@@ -48,14 +48,14 @@
         "key_mismatch": 0,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 14
+        "unclassified": 16
       },
       "ship_plan_hash": {
         "anchor_absent": 11,
         "key_mismatch": 23,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 5
+        "unclassified": 7
       }
     }
   },

@@ -136,7 +136,7 @@ registry 행 포맷에 만기 열이 없으므로 새 열을 만들지 않고 no
   *조립된 출력 전체에 C0/C1 제어문자가 없다*(DD4).
 
 ### Task 3: `findings.js`가 다른 reader와 같은 방식으로 공유 corpus를 본다
-- **Action**: `derive/sources/findings.js:37`의 직접 `path.join`을 `session-activity.js:119-131`과
+- **Action**: `derive/sources/findings.js:37`의 직접 `path.join`을 `plugins/mccp/scripts/derive/sources/session-activity.js:119-131`과
   같은 형태로 바꾼다 — local + `commonDirOf(repoRoot)` 기반 공유 위치 둘 다 스캔, 토글 미읽기,
   해소 실패는 후보 미추가로 접기, `event_id` 기반 dedupe.
 - **Mirror**: `m8-coverage-gate.js:187-197` — 이미 같은 판단을 내린 두 번째 선례.
@@ -152,7 +152,7 @@ registry 행 포맷에 만기 열이 없으므로 새 열을 만들지 않고 no
   그 값이 분자에 들어가지 않는다. `sessions_local` 부재(구 소스) fallback은 오늘 동작 유지.
 
 ### Task 5: reader가 DD8의 격리 주장을 실제로 강제한다
-- **Action**: `session-activity.js`의 per-line 루프에서 **공유 디렉토리 출처**
+- **Action**: `plugins/mccp/scripts/derive/sources/session-activity.js`의 per-line 루프에서 **공유 디렉토리 출처**
   (`dirIsShared`)인 이벤트가 `sessions[sessionId]` 엔트리를 만들지 않게 한다. 그 이벤트는
   A1 축 집합에만 기여한다. `observed_local` 표식은 이미 있으므로(`:211`) 그 옆에 엔트리
   **생성** 자체를 가르는 경계를 둔다.
@@ -300,7 +300,7 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 | M1·M2의 acceptance가 조용히 회귀한다 | 중 | Validation 3(위치 독립성)과 `work-command-body.test.js` 전건이 회귀 그물. 둘 다 M3가 건드리는 파일을 지난다 |
 | 이 계획의 plan 게이트가 라운드 소진으로 차단된다 | **확실** | 실측 확인됨 — slug `orchestrator-step-wiring`에 panel 3라운드, 실효 cap 1. UI5대로 우회하지 않고 받아들이며 `## Gate Record`에 기록한다. 원인(캡 pin)은 UI4로 범위 밖 |
 | backlog 정리가 행을 소실시킨다 | 낮음 | Task 8이 삭제를 금지하고 표시만 단다. Validate가 파서 전 행 인식을 확인 |
-| Task 3의 findings 공유 스캔이 중복 계상한다 | 낮음 | `session-activity.js`의 `event_id` dedupe와 같은 형태를 쓴다. 순서 극성(첫 디렉토리 전건 수용)도 같이 따른다 |
+| Task 3의 findings 공유 스캔이 중복 계상한다 | 낮음 | `plugins/mccp/scripts/derive/sources/session-activity.js`의 `event_id` dedupe와 같은 형태를 쓴다. 순서 극성(첫 디렉토리 전건 수용)도 같이 따른다 |
 
 ## Acceptance
 
@@ -390,3 +390,38 @@ routing mode: `auto` (implement 단계에서 유효). plan 단계는 **recommend
 | polish | `/impeccable polish` |
 | system | `/impeccable document` |
 | system | `/impeccable extract` |
+
+## Gate Record
+
+이 계획의 plan 게이트는 **L2 패널에 도달하지 못했다.** 사유·대가·판단을 그대로 남긴다
+(UI5 — 우회하지 않고 받아들이되 기록한다).
+
+| 단계 | 결과 |
+|---|---|
+| 5.-1 codex/round seal | `codex_disabled=true` · `cap=1 mode=enforce pinned-by=single-pass+codex-disabled` |
+| 5.0 impeccable detect | `skill_available=1` · `design_signal=1` → critique loop 발화 |
+| 5.0 design critique | R0 5건 → 전건 흡수 → R1 `CONVERGED` (rounds=2, 이연 0) |
+| 5.2 mode | `multi-agent` (quorum 3/4, L3 미발화) |
+| 5.2a L1 | R0 `divergent` (C6 미해소 인용 1건) → 인용 3건을 full 경로로 정정 → **R1 `converged`, 위반 0** |
+| 5.2b reserve | `granted=4 required=3` — 통과 |
+| 5.2c emit-workflow-args | **`EX_BLOCK` (exit 12)** — `3/1 for mccp-plan-codex__orchestrator-step-wiring` |
+| 정리 | 예약 반환(`--actual 0`, launched 0) · `halt_stage=5.2c-emit` 기록 |
+
+**차단 원인은 이 계획의 결함이 아니라 슬러그 키잉이다.** 라운드 원장은 PRD 슬러그
+(`orchestrator-step-wiring`)로 키잉되는데 그 키에는 M1·M2 사이클이 남긴 panel 라운드가
+이미 3건 쌓여 있다. 실효 cap은 1이고, 그 pin은 `single-pass+codex-disabled` 두 축이 함께
+건 것이라 `MCCP_GATE_ROUND_CAP`으로 들어올려지지 않는다(pinned cap은 그 변수를 읽지 않는다).
+
+**따라서 `mccp-plan-codex` receipt는 작성되지 않는다.** 패널이 돌지 않았으므로 verdict도
+proof도 없고, 5.6b는 그 상태에서 receipt를 쓰는 것을 금지한다 — 결과가 알려지지 않은 리뷰에
+대해 receipt를 쓰면 `resolution.converged`가 기본값 `true`를 물려받아 **certify한 적 없는
+것을 certify했다고 읽히기 때문**이다. M2와 같은 상태이며, 위조하지 않았다.
+
+**캡 pin 자체는 이 milestone이 고치지 않는다** (UI4). `review-single-pass.js#effectiveRoundCap`이
+`codexDisabled=true`에서 채널을 구분하지 않고 캡을 1로 pin하는데, `multi-agent` 모드의 L2
+리뷰어는 Codex가 아니라 `mccp:review-*` Claude 서브에이전트이므로 그 pin의 근거 문구
+("Codex is off; there is no reviewer for a second round")는 이 모드에서 거짓이다. 이 관측은
+backlog에 HIGH로 기등재돼 있고 소유 축은 review-loop-bypass / env-contract-integrity다.
+**이 사이클은 그 결함의 두 번째 실증 사례**로 기록된다(첫 번째는 M2).
+
+리뷰 기록: `.claude/reviews/plan-review-orchestrator-step-wiring.md` (`halt_stage=5.2c-emit`).

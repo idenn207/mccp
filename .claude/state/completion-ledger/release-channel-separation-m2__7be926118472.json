@@ -1,0 +1,27 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "release-channel-separation-m2",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.34.5",
+    "completed_at": "2026-09-03T07:12:08.993Z",
+    "commit_sha": "a24578ef369cfb6d8f683b542fb23f0e08053b87",
+    "plan_basename": "release-channel-separation-m2.plan.md",
+    "plan_file_hash": "sha256:f291cf63b536290055786971e912d25e573b6dc68d297af4fbec2b0fde839764",
+    "risks_closed": [
+      "`--plugin-dir`가 commands만 로드하고 hook을 빼면 \"main을 시험한다\"가 성립하지 않는다",
+      "설치된 `mccp@mccp`와 동시 로드돼 hook이 두 번 돌고 receipt·lock이 오염된다",
+      "실험이 운영자의 전역 설치를 깨뜨린다",
+      "후퇴선의 dev manifest가 릴리스 manifest와 뒤바뀌어 worktree 본문이 사용자에게 배포된다",
+      "절차가 두 곳(README·docs)에 복제돼 어긋난다",
+      "문서만 쓰고 실행 검증 없이 완료 처리된다",
+      "Windows 한 대에서만 측정돼 다른 OS에서 절차가 다르다",
+      "`release` 브랜치에 branch-protection·서명이 없어 채널 자체가 신뢰 앵커로 약하다",
+      "병렬 브랜치가 같은 version 번호를 선점한다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:7be926118472432d5b05a0c9c00dfc8641f3538ebf33bb402b62a8d364a34de1",
+    "verdict_provenance": "codex-verdict"
+  }
+}

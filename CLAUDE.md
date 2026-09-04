@@ -326,7 +326,10 @@ node scripts/version-declaration-guard.js [--base origin/main] [--json]
 셋은 같은 행위의 다른 표면이라 한 가드가 소유한다. CI
 (`.github/workflows/version-declaration-gate.yml`)가 모든 PR에서 돌린다.
 릴리스 컷만이 유일한 합법 경로이고, 그때는 `MCCP_RELEASE_CUT`에 **사유**를 담아
-켠다(값이 곧 사유 — §3.15와 같은 형태).
+켠다(값이 곧 사유 — §3.15와 같은 형태). 컷 절차 자체 — 선행조건 · 번호 결정 · 다섯 면
+동기 · 태그 · `release` fast-forward · 확인 — 와 롤백 절차는
+[docs/release-channel.md](docs/release-channel.md)가 소유한다. 이 절은 **번호를 누가
+선언하는가**만 정하고 절차는 옮겨 적지 않는다.
 
 **언제 확인하는가가 무엇을 확인하는가만큼 중요하다.** CI 게이트는 구조적으로
 **ship receipt 봉인 이후**다 — `/mccp:pr`이 finalize(2.5.7)하고 push(3.2)한 **뒤에야**

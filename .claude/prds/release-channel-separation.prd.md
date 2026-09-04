@@ -52,6 +52,8 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(�
 
 **M1은 사용자 가시 변화 0으로 착지해야 한다.** `release`를 `647dfec`에 고정하면 사용자가 이미 설치한 바로 그 커밋이므로 `version`이 변하지 않고, 문서상 version 문자열이 업데이트 신호이므로 업데이트가 발생하지 않는다. 안전 장치를 켜는 일이 노출을 만들면 자기모순이다.
 
+**M4는 신설이며 새 기능이 아니다.** M1~M3이 자기 산출물 안에 **명시로 이연한 부채**만 닫는다 — 릴리스 좌표 파일의 형태 단언을 사이클 단위에서 상시 CI로 옮기고(Axis A), 렌더러 두 footer가 번호를 manifest에서 파생하게 해 컷이 움직이는 면을 다섯에서 셋으로 줄이고(Axis B), 남은 관측·기록 부채를 정리한다. **`Out of scope`의 "릴리스 자동화(CI에서 tag + fast-forward)"와 구별한다** — Axis A는 태그도 fast-forward도 하지 않고 좌표 파일의 **형태만** 잰다. 첫 릴리스 컷은 여전히 일어나지 않았고 M4가 그것을 일으키지 않는다.
+
 ### 이 PRD가 못박는 결정 3건
 
 | # | 결정 | 근거 |
@@ -78,8 +80,11 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(�
 | 1 | channel-pin | `marketplace.json`이 `git-subdir` + `ref: release`가 되고 `release` 브랜치가 `647dfec`(v1.33.6)에 선다. **라이브 검증 1회로** (a) source 타입 변경이 설치를 깨지 않고 (b) main 머지가 사용자 version을 바꾸지 않으며 (c) `release`를 되돌리면 이전 버전이 설치되는 것이 실측된다. 사용자 가시 변화 0 | complete | [.claude/plans/release-channel-separation-m1.plan.md](../plans/release-channel-separation-m1.plan.md) |
 | 2 | dogfood-install | worktree를 가리키는 로컬 설치 절차가 문서화되어 "캐시 직접 복사" workaround(§3.7)가 은퇴한다. 다른 프로젝트에서 main을 시험할 수 있는 경로가 생긴다 | complete | [.claude/plans/release-channel-separation-m2.plan.md](../plans/release-channel-separation-m2.plan.md) |
 | 3 | release-runbook | 릴리스 컷 절차(version bump → tag → `release` fast-forward → 확인)와 **롤백 절차**가 `docs/release-channel.md`에 기록된다. M1이 실제로 수행한 것을 옮겨 적는다 | complete | [.claude/plans/release-channel-separation-m3.plan.md](../plans/release-channel-separation-m3.plan.md) |
+| 4 | residual-closure | M1~M3이 명시로 이연한 부채를 닫는다. 좌표 파일 형태 단언이 사이클 단위에서 **모든 PR에서 도는 CI 게이트**가 되고(`release-manifest-gate`), 렌더러 두 footer가 번호를 `plugin.json`에서 **파생**해 컷이 움직이는 면이 다섯에서 셋으로 준다. 새 기능 0 · 원격 채널 ref 무이동 | in-progress | [.claude/plans/release-channel-separation-m4.plan.md](../plans/release-channel-separation-m4.plan.md) |
 
-소유 파일: `.claude-plugin/marketplace.json` · `README.md` · `docs/release-channel.md`(신설). **어느 in-flight 브랜치도 이 파일들을 소유하지 않는다** — C1·C2·C3·C4와 완전 병렬 가능하다.
+소유 파일: `.claude-plugin/marketplace.json` · `README.md` · `docs/release-channel.md`(신설) · `docs/dogfood-install.md`(M2 신설) · **M4 신설분** `scripts/release-manifest-guard.js` · `scripts/tests/release-manifest-guard.test.js` · `.github/workflows/release-manifest-gate.yml` · `plugins/mccp/scripts/lib/renderer/plugin-version.js` · `plugins/mccp/scripts/lib/renderer/tests/plugin-version.test.js`, **M4 편집분** `scripts/version-declaration-guard.js` · `scripts/tests/version-declaration-guard.test.js` · `.github/workflows/version-declaration-gate.yml` · `plugins/mccp/scripts/lib/renderer/{html,markdown}.js` · `plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js`.
+
+**병렬 가능성 주장의 범위를 좁힌다** (2026-09-01 santa R1이 지적한 문장이다). M1~M3의 소유 파일에 대해서는 "어느 in-flight 브랜치도 이 파일들을 소유하지 않는다"가 참이었고 C1·C2·C3·C4와 완전 병렬이었다. **M4의 편집분은 그렇지 않다** — renderer 두 면과 `version-declaration-guard.js`는 우산의 다른 자식이 건드릴 수 있는 축이므로, M4는 그 셋에 대해 병렬 무충돌을 주장하지 않는다. 충돌이 나면 §3.5.1(머지가 파일을 소리 없이 삭제하지 않았는지)을 먼저 돌린다.
 
 ## Open Questions
 
@@ -88,6 +93,7 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(�
 - [x] **`release`가 fast-forward 불가가 되는 경우의 처리.** main이 rebase되거나 hot-fix가 release에서 먼저 나가면 fast-forward가 깨진다. 그때 강제 이동을 허용할 것인지, 아니면 release를 항상 main의 조상으로 유지할 것인지. — **답(M3): 항상 main의 조상으로 유지한다.** 컷은 fast-forward 전용이고 유일하게 허용되는 비-FF 이동은 롤백이며, 롤백조차 (i) 되돌릴 좌표 태그가 먼저 존재하고 (ii) 관측 SHA에 결속한 lease를 쓰고 (iii) 사후에 기록된다는 세 조건 아래에서만 일어난다. FF가 깨졌으면 채널을 강제로 전진시키지 않고 그 변경을 main에 먼저 착지시킨 뒤 **새 번호로 다시 컷**한다. 근거: 강제 전진을 허용하면 `git rev-list --count origin/release..origin/main`이 의미를 잃는데 그 명령이 곧 컷 트리거의 관측 수단이다 — 한 번의 편의가 트리거를 재는 눈을 망가뜨린다. 절차와 금지 형태 셋은 [docs/release-channel.md](../../docs/release-channel.md) 4절이 소유한다. **이 답은 논증이며 미측정이다** — FF 불가 상황은 아직 일어난 적이 없다.
 - [x] **다른 프로젝트에서 운영자가 어느 채널에 있어야 하는가.** 안정을 원하면 `release`지만, 그러면 새 게이트를 실사용으로 검증할 표면이 사라진다(우산 §7.2가 "실사용자는 운영자 자신이면 된다"고 적은 지점). M2가 여기에 답해야 한다. — **답(M2):** 기본은 모든 프로젝트에서 `release`에 상주하고, main을 시험하려는 프로젝트만 `claude --plugin-dir <worktree>/plugins/mccp`로 **세션 단위 opt-in**한다. 안정과 검증 표면을 둘 다 갖는 방법은 "어느 한쪽에 상주"가 아니라 프로젝트별·세션별 선택이며, `--plugin-dir`가 세션 한정인 것이 그 배치를 가능하게 한다. 실측에서 그 실행은 설치 상태를 바꾸지 않았고(`installed_plugins.json` sha256 무변화 · 신규 캐시 디렉토리 0개) CLI가 plugin 이름 수준에서 worktree 사본을 우선하므로 채널을 재우는 선행 단계도 없다. 절차·한계는 [docs/dogfood-install.md](../../docs/dogfood-install.md)가 소유한다.
 - [x] **`autoUpdate: true`를 유지할 것인가.** 유지하면 릴리스가 사용자에게 자동 도달하고, 끄면 명시적 업데이트를 요구한다. 채널 분리 후에는 자동이 안전해지지만 확인 필요. — **답(M3): 유지한다.** 근거는 추측이 아니라 M1 Acceptance 5의 실측이다 — marketplace clone이 사람 개입 없이 `origin/main`을 따라가는 동안 설치는 `1.33.6`/`647dfec`에 고정돼 있었다. 즉 채널 분리 후 auto-update가 최신으로 유지하는 것은 *marketplace clone*이고 *plugin 본문*은 `release`가 잡으므로, 자동을 켜 두는 것이 더 이상 미검증 변경의 도달을 뜻하지 않는다. **한정**: 컷으로 `release`가 움직였을 때 사용자가 `claude plugin update`를 **명시적으로 실행하지 않고도** 받는지는 측정된 바 없다(M1의 모든 전이는 그 명령을 직접 실행해 관측했다). 그래서 런북의 확인 단계는 명시 실행을 전제한다 — [docs/release-channel.md](../../docs/release-channel.md) 2.6절.
+- [x] **`known_marketplaces.json`에 `ref`가 없어 `marketplace.json` 편집이 머지 즉시 사용자에게 도달하는 잔여를 어디가 소유하는가.** 채널이 닫는 것은 plugin 본문이지 좌표 파일이 아니다 — marketplace clone은 계속 `main`을 추종하므로 이 파일의 편집(`source` 타입 변경 · `ref` 변경 · `sha` 추가 · **`url` 변경**)은 릴리스 컷을 거치지 않는다. 2026-09-02 santa R2가 "PRD에 6번째 Open Question으로 추가하거나" 처방을 냈으나 PRD에 항목이 없었다. — **답(M4): 두 곳이 나눠 갖는다.** 규정은 [docs/release-channel.md](../../docs/release-channel.md) 6절이 소유한다 — 그 파일을 **릴리스 표면**으로 규정하고 편집 시 2.6절 확인 절차를 함께 돌게 한다. 강제는 M4 Axis A가 소유한다 — [`scripts/release-manifest-guard.js`](../../scripts/release-manifest-guard.js)가 형태 6축(`source`/`url`/`path`/`ref` 값 · `sha` 부재 · 엔트리 유일성)을 단언하고 `.github/workflows/release-manifest-gate.yml`이 **`paths` 필터 없이 모든 PR에서** 돌린다(좁히면 `sha` 핀의 red가 한 번만 발화하고 죽는다). **한정**: 이 가드는 좌표의 **형태**를 재지 **custody**를 재지 않는다 — 브랜치 보호 부재(7절, 2026-09-04 재측정: `release`·`main` 둘 다 404)와 required status check 미지정은 닫히지 않았다.
 
 ## Risks
 

@@ -494,3 +494,59 @@ validate --command mccp:prp-implement  ->  ok:false, stale 1, blocking 0, missin
 ## Codex Adversarial Review
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
+
+## Codex Implementation Review
+
+- 호출: `node plugins/mccp/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, worktree 판본 1.34.4)
+- 라운드 수: 0 (Codex 미발화)
+- 합치 결론: **Codex skipped per `MCCP_CODEX_DISABLED=1`** — 영구 운영자 정책이라 1회성 escape가 아니다. `classification=disabled` · `blocking=false` · `durationMs=2`(spawn 직전 short-circuit). 봉인된 라운드 캡은 `cap=1 pinnedBy=single-pass+codex-disabled`이므로 R2는 기계가 거부한다.
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | — | — | — | Codex 미발화로 finding 0건. plan 단계 L2 패널 15건은 이미 `## Gate Deviation`에서 triage·적재됐다 |
+- Deferred to backlog: 0 (이 게이트에서 신규 발생 0건)
+- Open Questions: 없음 — auto-CRITICAL 카탈로그(security boundary · atomic state · schema breakage) 해당 0건
+- Codex session 참조: n/a (미발화)
+
+### Security Reviewer
+
+`Task(mccp:security-reviewer)` 1회 발화(review-only, 편집 0). 판정: **CRITICAL 0 · HIGH 0**.
+MEDIUM 3 · LOW 3. 따라서 auto-CRITICAL stop 해당 없음 — Phase 3 진입을 막지 않는다.
+
+리뷰어가 **부재를 확인한** 축 셋(추측이 아니라 근거를 댄 것만 옮긴다):
+
+- **prototype pollution 없음** — `JSON.parse`/`require()`의 JSON 로더는 `__proto__`를
+  `[[DefineOwnProperty]]`로 own data property로 만들지 `[[Set]]`을 타지 않는다. 이 경로들은
+  전부 직접 own-property read(`obj.version` · `source.ref` · `source.url`)이고 재귀 merge·
+  `Object.assign`·spread가 없다.
+- **path traversal 없음** — `require('../../../.claude-plugin/plugin.json')`은 변수·env·사용자
+  입력이 섞이지 않는 고정 리터럴이다. 리뷰어가 **설치 캐시를 실제로 열어** 산술을 검증했다:
+  `~/.claude/plugins/cache/mccp/mccp/1.33.7/scripts/lib/renderer/html.js`와
+  `.../1.33.7/.claude-plugin/plugin.json`이 함께 실재하므로 `..` 3단이 worktree와 캐시
+  양쪽에서 manifest 루트에 닿는다. Task 4의 load-bearing 주장이 독립적으로 재확인됐다.
+- **fail-closed 자세가 요구와 일치** — Task 1의 "읽기·파싱·엔트리 탐색 실패는 전부 HALT"와
+  `url` 값 단언이 가장 결과가 큰 축을 덮는다.
+
+| # | Severity | Verdict | 처리 |
+|---|---|---|---|
+| S1 | MEDIUM | ACCEPT_NOW (부분) + DEFER | 극성 반전의 **간접 참조 우회** — 아래 |
+| S2 | MEDIUM | ACCEPT_NOW | `paths:` 필터에 신규 파일 누락 시 게이트가 dead code — Task 7의 자기 요구사항이라 구현으로 닫는다 |
+| S3 | MEDIUM | DEFER_TO_BACKLOG | 이 가드는 **형태를 재지 custody를 재지 않는다** — 브랜치 보호 부재·required check 미지정. UI4로 범위 밖 |
+| S4 | LOW | ACCEPT_NOW | semver 검사는 앵커된 `/^\d+\.\d+\.\d+$/` 전체 일치로 — Task 4의 "semver 형태를 검사한다"가 이미 요구하는 형태 |
+| S5 | LOW | ACCEPT_NOW | 중복 `mccp` 엔트리 → HALT. Task 1의 "엔트리 탐색 실패는 HALT" 계약이 덮는 **모호성**이므로 새 축이 아니다 |
+| S6 | LOW | DEFER_TO_BACKLOG | `require()` 모듈 캐시 staleness — CLI 1회 호출 수명에서는 무해 |
+
+**S1이 이 리뷰의 실질이다.** Task 7의 앵커-후-리터럴 검사는 앵커 **한 줄**만 스캔하므로,
+리터럴을 그 줄 밖으로 옮기면(`const FOOTER_V = '1.34.4';` 뒤 `'…>v' + FOOTER_V`) 앵커는
+계속 매치되고 그 줄에 `\d+\.\d+\.\d+`가 없어 가드가 `derived`를 인증한다 — 파생이
+아닌 값에 대해. 구 4면 설계에는 이 구멍이 **없었다**(어떤 형식 이탈이든 `undefined` →
+`version-face-unreadable`로 fail-closed였다). 즉 극성 반전이 새로 여는 회귀다.
+
+처리는 둘로 나눈다. (1) **흡수** — 가드 헤더 주석에 이 잔여와 보상 검사의 분담을 명시해,
+다음 독자가 "리터럴이 없으니 파생이다"로 읽지 않게 한다. (2) **이연** — 정적 단일 줄
+스캔을 모듈 참조 단언으로 바꾸는 것은 별개 축(가드가 렌더러의 내부 배선을 알아야 한다)이라
+backlog에 증거와 함께 남긴다. 보상 검사는 `i18n-surface.test.js`가 **렌더 출력**을
+`require('plugin.json').version`과 대조하는 것이고, S2를 닫으면 그것이 실제로 CI에서 돈다 —
+그 둘이 함께여야 S1의 잔여가 관측 가능한 상태로 남는다.
+
+**미흡수 이연**: S3 · S6 · S1의 (2)축 → `.claude/plans/codex-findings-backlog.md` (Task 13).

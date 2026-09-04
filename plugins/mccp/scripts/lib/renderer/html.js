@@ -3,6 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const { serializeDetails } = require('./parsers/drawer-detail');
+// footer 의 번호는 리터럴이 아니라 plugin.json 에서 파생한다 — 릴리스 컷이
+// 움직여야 하는 면을 다섯에서 셋으로 줄인다(PRD Open Question 2 의 답).
+const { footerVersionLabel } = require('./plugin-version');
 
 // v1.13.0 — vendored-inline jQuery (slim, no ajax/effects). Read once at module
 // load + embedded inline (NEVER an external <script src> — Codex F2 trust
@@ -1419,7 +1422,7 @@ function renderHtml(model, sections, verdict, derivedAt, formatUtils) {
     + '</section>');
 
   parts.push('</main>');
-  parts.push('<footer role="contentinfo" class="page-foot mono">v1.34.4 · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
+  parts.push('<footer role="contentinfo" class="page-foot mono">' + footerVersionLabel() + ' · <code lang="en">.claude/</code> 통합 derive · derive-only · LLM-free</footer>');
   parts.push('</div>');
 
   // v1.18.1 M3 — 우측 상세 드로어. 섹션 details(Map)를 단일 map 으로 aggregate.

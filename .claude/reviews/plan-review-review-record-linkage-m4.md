@@ -58,13 +58,19 @@
     "of": 4,
     "passed": false
   },
-  "wall_clock_ms": 360957,
+  "wall_clock_ms": 58316230,
   "halt_stage": null,
   "backlog_appended": 12,
   "backlog_skipped_nonblocking": 7,
   "granted": 4,
   "reviewed_plan_hash": "sha256:b39fca3d9a4045748b9f2692b334dc5f4ff1fb58db2647fc570af0dfdb2a73b4",
   "plan_path": ".claude/plans/review-record-linkage-m4.plan.md",
-  "recorded_at": "2026-09-03T09:02:32.941Z"
+  "receipt_hash": null,
+  "recorded_at": "2026-09-04T01:08:28.214Z",
+  "rounds": 1
 }
 ```
+
+### Recording degradations
+
+- the round-cap seal on disk enforces gate `mccp-implement-codex`, not `mccp-plan-codex` — a later gate (typically /mccp:pr) overwrote the per-git-dir seal, so it cannot confirm which ledger this record read

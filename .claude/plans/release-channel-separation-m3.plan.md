@@ -750,3 +750,11 @@ SQL/cmd injection · SSRF · path traversal · privilege escalation이고, 이 �
 그 receipt의 봉인을 구조적으로 불가능하게 만들었고, 이 사이클은 위조 대신 부재를 택했다.
 `/mccp:prp-implement` 진입은 운영자가 명시한 감사 override(`MCCP_SKIP_INTENT_GATE`)로
 이뤄졌으며 그 사유 원문은 PR 본문에 싣는다. 진입이 승인이 아니라는 사실이 여기 남는다.
+
+## Milestone Closure Provenance
+
+- Milestone : 3-release-runbook
+- Verdict   : done
+- Closure   : .claude/milestone-closures/3-release-runbook.md
+- sha256    : sha256:e15b8784117d4af6cd83a26171edb222c9b04d787f20d9236b3bed5c6a3c168e
+- Stamped at: 2026-09-04T02:23:58.543Z

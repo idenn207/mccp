@@ -35,12 +35,20 @@ test('(c) an unknown classification is never read as reachable (fail-closed)', (
   assert.match(r.reason, /fail-closed/);
 });
 
-test('(d) every one of codex-invoke\'s 14 classifications is mapped, and only "ok" is reachable', () => {
-  // 열거는 `codex-invoke.js:14-22` 의 주석 헤더와 1:1이어야 한다. enum 이 늘어났는데
+// ci-full-suite M2 갈래 D — 이 수는 이제 **한 군데에만** 산다. 이전에는 `14`가 세 군데
+// (EXPECTED.length · KNOWN_CLASSIFICATIONS.length · 주석 헤더 declared.length)에 각각 박혀
+// 있어, enum이 하나 늘 때 고칠 자리가 셋이었고 실제로 하나가 누락됐다. 값은 여전히
+// 리터럴로 핀된다(그것이 drift 탐지의 요점이다) — 단지 한 번만 쓴다.
+const EXPECTED_CLASSIFICATION_COUNT = 15;
+
+test('(d) every codex-invoke classification is mapped, and only "ok" is reachable', () => {
+  // 열거는 `codex-invoke.js` 의 주석 헤더와 1:1이어야 한다. enum 이 늘어났는데
   // 오라클이 모르는 상태를 이 단언이 잡는다.
   const EXPECTED = [
     ['ok', 'reached'],
     ['disabled', 'env-policy'],
+    // 예산 소진은 env 정책도 전송 장애도 아니다 — 자기 kind를 갖는다.
+    ['round-cap-reached', 'budget-spent'],
     ['registry-missing', 'not-installed'],
     ['registry-malformed', 'not-installed'],
     ['plugin-not-installed', 'not-installed'],
@@ -55,8 +63,9 @@ test('(d) every one of codex-invoke\'s 14 classifications is mapped, and only "o
     ['parse-error', 'transport'],
   ];
 
-  assert.strictEqual(EXPECTED.length, 14, 'the enum is documented as exactly 14 values');
-  assert.strictEqual(KNOWN_CLASSIFICATIONS.length, 14,
+  assert.strictEqual(EXPECTED.length, EXPECTED_CLASSIFICATION_COUNT,
+    'the enum is documented as exactly ' + EXPECTED_CLASSIFICATION_COUNT + ' values');
+  assert.strictEqual(KNOWN_CLASSIFICATIONS.length, EXPECTED_CLASSIFICATION_COUNT,
     'the oracle knows ' + KNOWN_CLASSIFICATIONS.length + ' classifications, not 14');
 
   let reachableCount = 0;
@@ -83,7 +92,7 @@ test('(d2) the enumerated list matches the codex-invoke comment header verbatim'
     .split('|')
     .map((s) => s.trim())
     .filter(Boolean);
-  assert.strictEqual(declared.length, 14,
+  assert.strictEqual(declared.length, EXPECTED_CLASSIFICATION_COUNT,
     'the comment header declares ' + declared.length + ' values: ' + JSON.stringify(declared));
   for (const c of declared) {
     assert.ok(Object.prototype.hasOwnProperty.call(CLASSIFICATION_KIND, c),

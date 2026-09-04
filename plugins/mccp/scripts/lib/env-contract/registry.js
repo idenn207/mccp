@@ -238,7 +238,7 @@ const RAW = [
   ['MCCP_GH_SHIM', 'string', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/lib/github-discussions.js:38', 'gh CLI 대체 경로.'],
   ['MCCP_CODE_CLI', 'string', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/lib/find-code-cli.js:70', 'claude CLI 경로.'],
   ['MCCP_GITIGNORE_LOCK_WAIT_MS', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/lib/gitignore-provision.js:509', 'gitignore lock 대기 상한.'],
-  ['MCCP_A3_READ_USER_MEMORY', 'bool', B, 'off', OFF, 'active', 'hooks', 'plugins/mccp/scripts/derive/cli.js:374', 'derive의 메모리 읽기 허용.'],
+  ['MCCP_A3_READ_USER_MEMORY', 'bool', B, 'off', OFF, 'active', 'hooks', 'plugins/mccp/scripts/derive/cli.js:397', 'derive의 메모리 읽기 허용.'],
 
   // ── observability — renderer/dashboard · journal · evidence · session ───────
   ['MCCP_RENDER_TRIGGER_DEBOUNCE_MS', 'int', null, '5000', null, 'active', 'observability', 'plugins/mccp/scripts/lib/renderer/trigger.js:233', '재렌더 debounce.'],
@@ -295,12 +295,12 @@ const RAW = [
   // 축 밖 1행(M5 Task 3.3): origin/main `b111dca`(codex-intent-context M3)가 도입했으나
   // 미등재라 L1이 red였다. 런타임 동작 변경 0이며, 이 줄이 없으면 M5는 자기가 확장하는
   // lint를 green으로 검증할 수 없다.
-  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:702', 'test 전용 — `--invoke-module` 허용.'],
+  ['MCCP_PLAN_REVIEW_TEST_INVOKE', 'bypass-flag', BY, 'off', OFF, 'test-only', 'review', 'plugins/mccp/scripts/lib/plan-review/cli.js:719', 'test 전용 — `--invoke-module` 허용.'],
   ['MCCP_PLAN_REVIEW_L1', 'string', null, null, null, 'absent-by-design', 'retired', 'docs/environment/retired.md:1', '의도적 부재 — 끌 수 없다.'],
   ['MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL', 'bool', B, 'off', OFF, 'test-only', 'retired', 'plugins/mccp/commands/plan.md:687', 'test 전용 — critique 강제 실패.'],
   ['MCCP_PERF_INJECT_QUADRATIC', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],
   ['MCCP_TEST_SESSION_START_PATH', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],
-  ['MCCP_EXPLORE_CONTROL_PLACEMENT', 'string', null, null, null, 'comment-only', 'retired', 'plugins/mccp/scripts/lib/renderer/html.js:1109', '제거됨 — 주석만 잔존.'],
+  ['MCCP_EXPLORE_CONTROL_PLACEMENT', 'string', null, null, null, 'comment-only', 'retired', 'plugins/mccp/scripts/lib/renderer/html.js:1112', '제거됨 — 주석만 잔존.'],
   ['MCCP_PLAN_REVIEW_', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/plan-review/budget.js:26', '환경변수 아님 — 접두사 오탐.'],
   ['MCCP_DISABLE_VALUES', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:48', '환경변수 아님 — JS 상수.'],
   ['MCCP_IGNORE_BLOCK', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/gitignore-provision.js:60', '환경변수 아님 — JS 상수.'],

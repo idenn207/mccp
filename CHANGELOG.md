@@ -19,6 +19,27 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- `plugins/mccp/scripts/lib/leadtime-surface.js` — 한 줄 포매터. `formatLeadtimeLine`이
+  CLI · `STATUS.md` · `status.html` · `distribution.json` **네 면이 공유하는 유일한 문장**을
+  만든다. `assertCoverageAdjacency`가 "커버리지 없는 값 토큰은 존재할 수 없다"를 기계적으로
+  강제하고, 짝을 뗀 입력이 실제로 throw하는 것을 test가 고정한다(no-op 게이트 방지).
+  단위 어휘(`fmtMin`/`fmtDay`)의 소유도 여기로 옮겨 `leadtime.js`가 require한다 —
+  반대 방향은 순환이라 `module.exports` 할당 전에 `undefined`를 받는다.
+- `plugins/mccp/scripts/lib/leadtime-derive.js` — `scanLeadtime(root, opts)`. `leadtimeScan`
+  이 참일 때만 돌고(기본 off) 절대 throw하지 않는다. 실패는 blind 골격의 한 인스턴스인
+  sentinel이며 `error_kind`는 **닫힌 열거형**이다 — `err.message`는 절대경로를 품으므로
+  stderr로만 나간다.
+- `plugins/mccp/scripts/lib/leadtime-distribution.js` — `.claude/state/leadtime/distribution.json`
+  writer. **git-tracked** 목적지라 tmp 이름이 `<target>.<pid>-<rand>.tmp`이고 rename 실패 시
+  unlink한다(§3.6). payload에 시각 필드가 하나도 없어 content-stability가 구성상 성립하고,
+  판정은 mtime이 아니라 **반환값**(`{written:false, reason:'unchanged'}`)이 한다.
+- `plugins/mccp/scripts/lib/renderer/sections/leadtime-line.js` — `{md, html}` 또는 `null`.
+  hide 조건은 **축 부재 하나**(키 부재 또는 `null`)이고 값 부재는 숨기지 않는다.
+- `docs/leadtime-observability/one-line-consumption.md` — 한 줄 문법 · 파일 스키마 · 강등
+  계약 · 동결 실측. 「한계」 절이 동결 블록 **위**에 오고 블록은 `<details>`로 접힌다.
+- test 3면 신규 + 2면 확장 — `leadtime-surface` · `leadtime-distribution` ·
+  `renderer/tests/leadtime-line` · `derive/tests/leadtime-source` · `leadtime.test.js` M3 절.
+
 - **review-record-linkage M4 — review-round-structure**: 패널 레코드의 `## Measurement`가
   `rounds`를 싣는다. M1이 D1으로 고정한 정의(`measurement.rounds`가 정수 ≥ 1)를 착지 후
   레코드가 실제로 만족하고, 값의 원천은 `write.js`가 `resolution.rounds`를 파생하는 것과
@@ -61,39 +82,6 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   - **동결 baseline은 바이트 불변**이다. 신규 3값 카운트는 라이브 파티션에만 나타나고
     `round_structure`는 여전히 `0/42`다 — 자격 도입이 과거를 유리하게 만들지 않는다는 것이
     측정으로 확인된다.
-
-### Fixed
-
-- **review-record-linkage M4 착지 후 로컬 code-review 흡수** (같은 사이클, 별도 커밋).
-  네 축 모두 **실측 재현 후** 수정했고 각각 반증 test를 동반한다.
-  - **degradation이 호스트 절대경로를 git-tracked 레코드에 실었다.** `cmdRecord`가 원장
-    판독 실패를 적을 때 파일명만 싣겠다고 주석에 적고서 `err.message`를 이어 붙였는데,
-    `ledger.js`의 손상 에러는 `'... is not valid JSON at ' + statePath`라 절대경로가 통째로
-    들어간다. degradation은 `record.js`가 verbatim 기록하고 그 파일은 `.claude/reviews/`라
-    tracked다 — §3.12가 `meta.cwd`에 대해 sanctioned 재봉인 도구까지 만들어 닫았던 유출이
-    새 locus에서 다시 열려 있었다. 이제 에러의 **원인 코드만** 싣는다
-    (`REVIEW_ROUNDS_CORRUPT` · `REVIEW_ROUNDS_BAD_KEY`) — enum은 경로를 나르지 않는다.
-  - **`wall_clock_ms`가 음수만 방어해, 재생성이 없던 시간을 측정값으로 기록했다.** M4 자신의
-    Task 8이 하루 뒤 **같은 REVIEW_DIR**을 다시 읽어 6분짜리 게이트를 971.9분으로 적었고
-    (`360957` → `58316230`), `leadtime.js`가 그것을 라이브 분포의 최댓값으로 보고했다 — 그
-    도구는 "새 계측을 심지 않는다"고 선언하므로 걸러 낼 방법이 없다. 이제 `started-at`이
-    상한을 넘으면 `null` + degradation이다(clamp하지 않는다 — 상한으로 자르면 모르는 사실을
-    새로 만든다). 상한은 임의 knob이 아니라 `codex-policy.js`의 `MAX_SEAL_AGE_MS`와 **같은
-    관측**(게이트 1회 실행이 6시간을 넘지 않는다)이고, dep-free 계약 때문에 값을 복제하되
-    test가 두 상수의 동치를 붙든다. 해당 레코드는 재생성해 정정했다.
-  - **`classifyRoundStructure`가 모듈의 총함수 계약을 깼다.** 사유 문장을 `JSON.stringify`로
-    만들었는데 그 함수는 순환 참조 · BigInt · 던지는 `toJSON`에서 throw한다. 오늘의
-    호출자로는 도달 불가지만 이 파일은 **write 경로가 import하는** dep-free 술어 라이브러리이고,
-    `buildReviewRecord`의 never-throw를 뚫으면 `cmdRecord`의 catch가 레코드를 **아예 안 쓴다**
-    — DD4가 막으려던 표본 손실 그 자체다. 값을 직렬화하지 않고 **형태만** 말하도록 바꿨다
-    (부수 효과로 반신뢰 입력이 `by_reason` 맵의 카디널리티를 정하지 못한다).
-  - **`--check-round-structure`에서 `degraded`가 `violations`에 덮였다.** 서로를 지우는 두
-    줄(가드 + 무조건 `else if`)이 있어 순효과가 "absent가 있으면 무조건 violations"였고,
-    창 안에 파손 레코드가 있어도 exit 2가 exit 1로 접히며 요약 경고가 사라졌다. 두 상태는
-    다른 질문에 답하므로(`degraded` = 다 보지 못했다 → 위반 수는 하한) `degraded`가 이기게
-    하고, 경고는 state가 아니라 **각 배열의 길이**로 발화시켜 두 사실이 모두 남게 했다.
-  - 부수: `--since`가 `--check-round-structure` 없이 조용히 무시되던 것을 loud warn으로,
-    usage의 종료 코드 표를 두 ladder로 분리 표기(같은 숫자가 반대 뜻이다).
 
 - **review-record-linkage M3 — bidirectional-link**: 결정층(ship receipt)과 내용층
   (패널 레코드)이 서로를 가리킨다. 링크는 **파생하지 않고 운반한다** — `/mccp:plan`이
@@ -139,7 +127,39 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   담아 켠다(값이 곧 사유). 배포 경계 밖(repo-root `scripts/`)에 두어 이 저장소의
   릴리스 정책이 사용자 저장소로 실려 가지 않게 한다.
 
+- `scripts/test-suite/run.js` — `--allow-codex`. 전수 러너가 자식에게
+  `MCCP_CODEX_DISABLED=1`을 **기본 강제**하고(UI2), 이 플래그로만 해제된다.
+  인정 표기는 bare · `=true` · `=1` 셋이고 그 밖의 값은 loud stderr 후 OFF다
+  (오타가 codex 를 켜는 쪽으로 접히지 않는다). `childEnv`가 export돼 그 정책이
+  간접 오라클이 아닌 직접 단언으로 검증된다. 원소에는 `codex_allowed` provenance
+  필드가 실린다 — M2 이전 5개 원소에는 부재이며 그 부재는 "비활성"이 아니라
+  "기록되지 않음"이다(`docs/ci-full-suite/m2-green.md` §4c).
+- `codex-reachability.js` — 분류 `round-cap-reached`와 새 kind `budget-spent`.
+  기존 5종에는 정직한 버킷이 없었다 — `env-policy`는 사유가
+  `MCCP_CODEX_DISABLED=1`이라 거짓을, `transport`는 예산 소진을 장애로 보고한다.
+
 ### Changed
+
+- `leadtime.js` — `audit(opts)`에 `allowGit`(기본 `true`) spawn 게이트 추가. `false`면 W3이
+  `no`가 아니라 `unavailable`이 되고 `degradations:['git-disabled']`가 산출물에 실린다.
+  **분포는 두 모드에서 동일하다** — 증인은 미짝의 분류에만 쓰인다. 순수 투영
+  `summarizeForSurface(result)`를 추가했다: 산술 없이 필드를 고르기만 하고, 경로·레코드명·
+  해시를 하나도 싣지 않으며, 두 앵커 키를 **언제나** 싣는다(부재는 `null`).
+- `leadtime.js#renderHuman` — 카운터 6개가 아니라 **공유 한 줄**로 시작한다. 100칼럼을
+  넘던 5줄을 전부 정리했다(coverage 114 · post_panel_span coverage 129 · unmatched 2×112 ·
+  헤드라인 111). `unmatched[…]`는 비-0 버킷 상위 3개 + `(+N in --json)`로 절삭하되 **`--json`은
+  무변경**이고 test가 그 5키 집합을 동결한다. backlog가 M3을 재판정 시점으로 지목해 이연한
+  impeccable HIGH 2건의 흡수다.
+- `derive/model.js` — `leadtime`을 additive top-level로 선언(`null`)하고 `validateShape`가
+  present-only로 검사한다. **선언된 `null`을 허용**하는 것이 계약의 일부다. `MODEL_VERSION`
+  은 `v1` 무변경.
+- `derive/index.js` · `derive/cli.js` · `renderer/trigger.js` — 렌더 진입점 **둘 모두**
+  `leadtimeScan`을 켠다(auto-refresh가 실사용 렌더의 대부분이다). 분포 **파일**은
+  `cmdRender`에만 배선한다 — ambient hook이 git-tracked 파일을 만지는 경로가 0개가 된다.
+- `renderer/index.js` · `sections/status-grid.js` · `renderer/html.js` — 한 줄이
+  `opts.leadtimeLine` → `renderStatusGrid` → `grid` 채널로 두 composer에 도달한다.
+  `sections` 배열에 append하지 **않는다**: `markdown.js`와 `html.js`가 정확히 10개 위치로
+  구조분해하므로 11번째 원소는 어느 쪽도 읽지 않는다(plan-review L2 패널 HIGH 흡수).
 
 - **`linkage-audit.js`의 join이 `filename_convention` → `explicit_field`**. M1의 조인은
   ship slug ↔ `plan-review-<slug>.md`였고 그 실측 일치율 27/75가 `review->receipt` 방향의
@@ -221,11 +241,67 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 
+- 투영의 zero-join 계열이 `{n:0, p50:null}`이 아니라 `null`이다 — 빈 분포를 실으면
+  "관측했더니 0"과 "관측이 없음"이 구분되지 않는다(부재 규칙 (a)의 투영 층 대우).
+
 - `receipt/write.js`가 `meta.plan_path`를 파생할 때 `fs.realpathSync.native`로 두 경로를
   정규화한다. `repoRoot`는 `git rev-parse --show-toplevel`에서, `planAbs`는 `cwd`에서 오므로
   Windows에서 한쪽이 8.3 단축명(`ADMINI~1`)을 가질 수 있고(실측), 그러면 fold가 plan을
   repo **밖**으로 보고해 키가 조용히 누락된다. 일반 `fs.realpathSync`는 단축명을 확장하지
   **않는다**(실측) — `.native`만 한다.
+
+
+- `plan-review/cli.js` — 라운드 칩 초크포인트가 `gitDir`를 받을 수 있게 됐다
+  (프로그래매틱 전용 — CLI 플래그를 만들면 셸 호출자가 캡을 우회할 수 있다).
+  그 시임이 없어 `plan-review-cli-emit.test.js`가 저장소의 살아있는 봉인을 읽고
+  9건 실패했다.
+- `dispatch-controller.test.js` — "no real fs"를 주장하면서 heartbeat mkdir로 실제
+  디렉토리를 만들어 왔다. Windows에서는 드라이브 루트의 `synthetic/` 아래에 **204개 파일을 유출**했고
+  Linux에서는 EACCES로 터졌다. `skipHeartbeat` + 생성 여부 단언으로 닫음.
+- `goal-phase-lock.test.js` S14 — mkdir 실패 술어가 `'mccp'`+`'tmp'` substring이라
+  POSIX 임시 경로 전체에 걸렸다. 사이드카 디렉토리 경로 정확 일치로 교체.
+- `history-leak-scan.test.js` F4 — case-변형 단언은 드라이브 문자 루트에서만 참이므로
+  플랫폼 가드. 기존 `variant === root` 가드는 mkdtemp 난수에 대문자가 섞이면 열렸다.
+  같은 축의 POSIX 절반(`F4b`)을 새로 두어 Linux 에서 커버리지가 0이 되지 않게 했고,
+  본문의 조용한 `return`은 `caseVariantOf`(변형을 보장하거나 시끄럽게 실패)로 대체했다.
+- `.github/workflows/test-suite-baseline.yml` — `fetch-depth: 0`(C4 before-ref) +
+  `persist-credentials: false`(GITHUB_TOKEN의 `.git/config` 평문 잔류 — security-reviewer HIGH).
+- `.claude/_meta/2026-08-31-final-harness-assessment-and-umbrella-prd.md` — meta-research
+  L3 위반 15건(`BAD_TIMESTAMP: HEAD` ×10 · `REF_NOT_FOUND` ×5). `HEAD`는 lint가 돌 때마다
+  다른 커밋을 가리키는 떠도는 단어라, 문서 자신이 이미 선언한 `d1db647`로 고정.
+- `plan-review/l1-check.js` — `CITATION_RE`가 선행 점을 표현하지 못해 dotfile 디렉토리
+  인용(`.claude/prds/…`)에 C6 오탐을 냈다. 존재 검사는 그대로라 완화가 아니다.
+
+- **review-record-linkage M4 착지 후 로컬 code-review 흡수** (같은 사이클, 별도 커밋).
+  네 축 모두 **실측 재현 후** 수정했고 각각 반증 test를 동반한다.
+  - **degradation이 호스트 절대경로를 git-tracked 레코드에 실었다.** `cmdRecord`가 원장
+    판독 실패를 적을 때 파일명만 싣겠다고 주석에 적고서 `err.message`를 이어 붙였는데,
+    `ledger.js`의 손상 에러는 `'... is not valid JSON at ' + statePath`라 절대경로가 통째로
+    들어간다. degradation은 `record.js`가 verbatim 기록하고 그 파일은 `.claude/reviews/`라
+    tracked다 — §3.12가 `meta.cwd`에 대해 sanctioned 재봉인 도구까지 만들어 닫았던 유출이
+    새 locus에서 다시 열려 있었다. 이제 에러의 **원인 코드만** 싣는다
+    (`REVIEW_ROUNDS_CORRUPT` · `REVIEW_ROUNDS_BAD_KEY`) — enum은 경로를 나르지 않는다.
+  - **`wall_clock_ms`가 음수만 방어해, 재생성이 없던 시간을 측정값으로 기록했다.** M4 자신의
+    Task 8이 하루 뒤 **같은 REVIEW_DIR**을 다시 읽어 6분짜리 게이트를 971.9분으로 적었고
+    (`360957` → `58316230`), `leadtime.js`가 그것을 라이브 분포의 최댓값으로 보고했다 — 그
+    도구는 "새 계측을 심지 않는다"고 선언하므로 걸러 낼 방법이 없다. 이제 `started-at`이
+    상한을 넘으면 `null` + degradation이다(clamp하지 않는다 — 상한으로 자르면 모르는 사실을
+    새로 만든다). 상한은 임의 knob이 아니라 `codex-policy.js`의 `MAX_SEAL_AGE_MS`와 **같은
+    관측**(게이트 1회 실행이 6시간을 넘지 않는다)이고, dep-free 계약 때문에 값을 복제하되
+    test가 두 상수의 동치를 붙든다. 해당 레코드는 재생성해 정정했다.
+  - **`classifyRoundStructure`가 모듈의 총함수 계약을 깼다.** 사유 문장을 `JSON.stringify`로
+    만들었는데 그 함수는 순환 참조 · BigInt · 던지는 `toJSON`에서 throw한다. 오늘의
+    호출자로는 도달 불가지만 이 파일은 **write 경로가 import하는** dep-free 술어 라이브러리이고,
+    `buildReviewRecord`의 never-throw를 뚫으면 `cmdRecord`의 catch가 레코드를 **아예 안 쓴다**
+    — DD4가 막으려던 표본 손실 그 자체다. 값을 직렬화하지 않고 **형태만** 말하도록 바꿨다
+    (부수 효과로 반신뢰 입력이 `by_reason` 맵의 카디널리티를 정하지 못한다).
+  - **`--check-round-structure`에서 `degraded`가 `violations`에 덮였다.** 서로를 지우는 두
+    줄(가드 + 무조건 `else if`)이 있어 순효과가 "absent가 있으면 무조건 violations"였고,
+    창 안에 파손 레코드가 있어도 exit 2가 exit 1로 접히며 요약 경고가 사라졌다. 두 상태는
+    다른 질문에 답하므로(`degraded` = 다 보지 못했다 → 위반 수는 하한) `degraded`가 이기게
+    하고, 경고는 state가 아니라 **각 배열의 길이**로 발화시켜 두 사실이 모두 남게 했다.
+  - 부수: `--since`가 `--check-round-structure` 없이 조용히 무시되던 것을 loud warn으로,
+    usage의 종료 코드 표를 두 ladder로 분리 표기(같은 숫자가 반대 뜻이다).
 
 ### Operational
 

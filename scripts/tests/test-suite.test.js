@@ -27,6 +27,8 @@ const REPORTER = path.join(REPO_ROOT, 'scripts', 'test-suite', 'reporter.mjs');
 
 const { enumerateTests, exclusionsDigest } = require('../test-suite/enumerate');
 const {
+  childEnv,
+  FORCED_POLICY_ENV,
   planChunks,
   buildSpawnArgs,
   reporterUrl,
@@ -675,4 +677,84 @@ test('(11) attribution probe — an empty file set is never complete', () => {
   });
   assert.notStrictEqual(d.attribution, 'complete');
   assert.strictEqual(d.ok, false);
+});
+
+// ── (12) ci-full-suite M2 갈래 H — 자식 env 정책 (UI2) ────────────────────────
+//
+// 이 갈래를 "갈래 H 4파일이 green이다"로만 검증하면 안 된다. 그 오라클은
+// `MCCP_CODEX_DISABLED` 강제와 ambient 봉인 격리를 **구분하지 못하고**, 계획 자신이
+// Risks 1행에서 정확히 그 혼동을 위험으로 적었다. 그래서 `childEnv`를 export하고
+// 자식에게 실제로 무엇이 실리는지를 직접 단언한다.
+
+test('(12) childEnv forces the codex-disabled policy by default (UI2)', () => {
+  const env = childEnv('/some/repo');
+  assert.strictEqual(env.MCCP_CODEX_DISABLED, '1',
+    '전수 실행은 codex 경로를 수백 회 돌리므로 기본값이 반드시 비활성이어야 한다');
+  assert.strictEqual(FORCED_POLICY_ENV.MCCP_CODEX_DISABLED, '1');
+});
+
+test('(12b) --allow-codex leaves the ambient policy alone (opt-out, UI2)', () => {
+  const saved = process.env.MCCP_CODEX_DISABLED;
+  try {
+    delete process.env.MCCP_CODEX_DISABLED;
+    const forced = childEnv('/some/repo');
+    const allowed = childEnv('/some/repo', { allowCodex: true });
+    assert.strictEqual(forced.MCCP_CODEX_DISABLED, '1', '기본값은 강제다');
+    assert.strictEqual(allowed.MCCP_CODEX_DISABLED, undefined,
+      '해제 플래그는 강제를 없앨 뿐 반대 값을 심지 않는다 — 없던 정책을 만들지 않는다');
+  } finally {
+    if (saved === undefined) delete process.env.MCCP_CODEX_DISABLED;
+    else process.env.MCCP_CODEX_DISABLED = saved;
+  }
+});
+
+test('(12c) childEnv never assigns MCCP_ROUND_LEDGER — it is operator policy', () => {
+  // `round-cap-command-body.test.js:209-212`가 게이트 command body에 대해 단언하는
+  // 불변식과 같은 것을, 그 test가 스캔하지 않는 이 러너에 대해 단언한다. 그것을
+  // 대입하면 `seal.js:207-213`이 의도적으로 만든 봉인-우선 규칙을 우회하는 조용한
+  // kill switch가 되고, 캡 강제를 지운 회귀가 스위트 전역에서 green으로 지나간다.
+  const saved = process.env.MCCP_ROUND_LEDGER;
+  try {
+    delete process.env.MCCP_ROUND_LEDGER;
+    assert.strictEqual(childEnv('/some/repo').MCCP_ROUND_LEDGER, undefined);
+    assert.strictEqual(childEnv('/some/repo', { allowCodex: true }).MCCP_ROUND_LEDGER, undefined);
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(FORCED_POLICY_ENV, 'MCCP_ROUND_LEDGER'), false,
+      '강제 목록에 이 이름이 들어오면 그 순간 불변식이 깨진다');
+  } finally {
+    if (saved === undefined) delete process.env.MCCP_ROUND_LEDGER;
+    else process.env.MCCP_ROUND_LEDGER = saved;
+  }
+});
+
+test('(12d) childEnv keeps MCCP_SUITE_REPO_ROOT — reporter.mjs consumes it', () => {
+  // M2 계획은 이 변수의 소비처가 0건이라 적었으나 실측은 반대다
+  // (`scripts/test-suite/reporter.mjs`가 repo-relative 산출의 기준점으로 읽는다).
+  // 제거했다면 redaction/attribution 경로가 조용히 깨졌을 것이므로, 그 소비를
+  // 이 단언이 고정한다 — 다음 사람이 같은 grep 실수를 반복해도 red가 먼저 난다.
+  assert.strictEqual(childEnv('/some/repo').MCCP_SUITE_REPO_ROOT, '/some/repo');
+  const reporterSrc = fs.readFileSync(REPORTER, 'utf8');
+  assert.ok(reporterSrc.indexOf('MCCP_SUITE_REPO_ROOT') !== -1,
+    'reporter가 이 변수를 더 이상 읽지 않는다면 run.js가 그것을 싣는 이유도 사라진다');
+});
+
+test('(12e) the inherited node:test channel is still severed', () => {
+  // 강제 목록을 추가하면서 기존 상속 차단이 사라지지 않았는지. 두 목록은 방향이
+  // 반대라 한 함수 안에 같이 살고, 그래서 서로를 지울 수 있다.
+  const saved = {
+    NODE_TEST_CONTEXT: process.env.NODE_TEST_CONTEXT,
+    NODE_TEST_WORKER_ID: process.env.NODE_TEST_WORKER_ID,
+  };
+  try {
+    process.env.NODE_TEST_CONTEXT = 'child-v8';
+    process.env.NODE_TEST_WORKER_ID = '1';
+    const env = childEnv('/some/repo');
+    assert.strictEqual(env.NODE_TEST_CONTEXT, undefined);
+    assert.strictEqual(env.NODE_TEST_WORKER_ID, undefined);
+  } finally {
+    Object.keys(saved).forEach((k) => {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    });
+  }
 });

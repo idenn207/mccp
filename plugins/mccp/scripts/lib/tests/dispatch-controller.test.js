@@ -165,12 +165,23 @@ test('prepareDispatch: writes pending placeholder + returns dispatches[] with DI
   } finally { rimraf(sb); }
 });
 
+// ci-full-suite M2 갈래 P — 이 test는 "no real fs"를 제목으로 주장하면서 실제로는
+// 발톱을 건드렸다. `envelopeWrite` DI는 envelope 쓰기만 가로채고, 그 뒤에
+// 이어지는 `writeHeartbeat`가 `fs.mkdirSync(dir, {recursive:true})`를 그대로 돌린다
+// (dispatch-controller.js의 heartbeat 블록). Windows에서는 `/synthetic/repo`가 현재
+// 드라이브의 루트로 해석돼 생성되므로 조용히 통과했고, Linux에서는
+// `/` 아래라 EACCES로 터졌다. 즉 플랫폼 차이가 아니라 **주장과 구현의
+// 불일치**가 한 쪽 플랫폼에서만 드러난 것이다.
+//
+// `skipHeartbeat`는 이미 존재하는 별도 축의 opt-out이다. 그것을 켜면 제목이
+// 참이 되고, 아래 마지막 단언이 그 사실을 산문이 아니라 기계로 고정한다.
 test('prepareDispatch: DI envelopeWrite captures all writes (no real fs)', () => {
   const writes = [];
   const result = controller.prepareDispatch({
     workers: [makeWorker(), makeWorker()],
     controllerSessionId: CONTROLLER_SESSION_ID,
     parentCwd: '/synthetic/repo',
+    skipHeartbeat: true,   // heartbeat만이 DI를 안 거치는 유일한 쓰기다
   }, {
     idGen: () => crypto.randomUUID(),
     nowIso: () => STATIC_STARTED_AT,
@@ -183,6 +194,17 @@ test('prepareDispatch: DI envelopeWrite captures all writes (no real fs)', () =>
   assert.strictEqual(writes[0].body.worker_exit_status, 'pending');
   assert.strictEqual(writes[1].body.worker_exit_status, 'pending');
   assert.strictEqual(result.dispatches.length, 2);
+  // 제목의 주장을 직접 단언한다. 이것 없이는 다음 사람이 DI 밖으로
+  // 새는 쓰기를 다시 들여도 (그것을 만들 수 있는 플랫폼에서는) 조용히 통과한다.
+  //
+  // 단언 전에 지운다. 회귀가 한 번 이 디렉토리를 만들면 그것은 수리 뒤에도
+  // 디스크에 남아, 고쳐진 코드가 같은 머신에서 영구히 red가 된다 — 실패가
+  // 자기 원인보다 오래 사는 형태다. 지우고 나서 묻는 것이 그 꼬리를 끊는다.
+  const syntheticRoot = path.join('/synthetic', 'repo');
+  const leaked = fs.existsSync(syntheticRoot);
+  if (leaked) rimraf(path.join('/synthetic'));
+  assert.strictEqual(leaked, false,
+    'a "no real fs" test must not create the synthetic parent it names');
 });
 
 test('prepareDispatch: idGen returning non-UUID throws loudly', () => {

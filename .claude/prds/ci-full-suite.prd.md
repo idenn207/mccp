@@ -58,8 +58,8 @@ We'll know we're right when **CI 강제 커버리지가 100%가 되고, 전수 �
 | # | 지표 | 오늘 | 축 A | 축 B/C | 어떻게 측정 | 읽는 주체 → 바꾸는 행동 |
 |---|---|---|---|---|---|---|
 | 1 | CI 강제 커버리지 | **2.7%** (10/368) | 산출이 자동화된다 | **100%** | workflow가 실행한 파일 수 / `*.test.js` 총계 | PR 체크 → 미달 시 머지 차단 |
-| 2 | 전수 실행 벽시계 | **174분** (순차 · 경합 오염 의심) | 조용한 머신 실측 1회 | A 이후 확정 | 진입점 1회 실행 | 운영자 → 임계 초과 시 shard 수 재조정 |
-| 3 | 상시 red / flaky | **1건** (green으로 관측 — 재현 미확인) | 원인이 규명된다 | **0** | 동일 커밋 3회 반복 실행 | CI → flaky는 삭제가 아니라 명시 격리 + 티켓 |
+| 2 | 전수 실행 벽시계 | **174분** (순차 · 경합 오염 의심) | 조용한 머신 실측 1회 → **충족(M1)** | **충족(Linux) — 75.5초, shard 1** | 진입점 1회 실행 | 운영자 → 임계 초과 시 shard 수 재조정 |
+| 3 | 상시 red / flaky | ~~**1건**~~ → **16파일**(M1 전수 실측 — 이전 수치는 전수를 돌려보기 전의 추정이었다) | 원인이 규명된다 → **M2가 6갈래로 분해**(H harness · P 플랫폼 · C CI 설정 · D drift · F flaky · R 자원) | **0** | 동일 커밋 3회 반복 실행 (프로토콜: `--merge-into <container> --label <axis>-r{1,2,3}`) | CI → flaky는 삭제가 아니라 명시 격리 + 티켓 |
 | 4 | 배선 절단 탐지 (음성 통제) | **미측정** | — | **1회 실증** | 의도적 배선 제거 → red 확인 | 운영자 → red가 안 나면 커버리지 100%는 허위다 |
 
 지표 2의 목표치를 지금 비워 두는 이유는 우산 PRD의 판정 기준 표와 같다 — **오늘 baseline이 없는 지표에 목표치를 지어내지 않는다.** 174분은 파일마다 프로세스를 새로 띄운 순차 합계이고, 로컬 16코어에서의 병렬 실행은 측정된 바 없다.
@@ -85,14 +85,14 @@ MVP가 이것인 이유: A 없이 C부터 하면 174분짜리 CI를 만들어 �
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | suite-entrypoint-and-baseline | 단일 명령으로 전수가 돌고 조용한 머신 벽시계가 기록된다. 174분의 구성이 파일 단위로 분해되고 상위 15개의 원인이 규명된다. flaky 1건의 재현 여부가 판정된다 | complete | `.claude/plans/ci-full-suite-m1.plan.md` |
-| 2 | runtime-reduction | 벽시계가 PR 피드백 임계 안으로 들어온다. **shard 수를 정하는 것은 이 milestone이다** — 축 C는 그 수를 *쓴다*. 수단(shard · 원인 수리 · 둘 다)과 임계값은 M1 산출이 정한다 | pending | — |
+| 2 | suite-green (정정 — 원명 `runtime-reduction`) | ~~벽시계가 PR 피드백 임계 안으로 들어온다. **shard 수를 정하는 것은 이 milestone이다**~~ → **벽시계 축은 M1 실측으로 이미 충족됐다**(Linux 전수 75.5초). shard 수는 **1**이고 그 근거는 지어낸 임계가 아니라 관측값이다. 운영자가 2026-09-02에 이 milestone의 축을 **스위트 green화**로 재지정했다 — red 16파일을 6갈래로 분해해 각각의 실제 원인을 닫는다. **종결 2026-09-03** (`/mccp:milestone-close`, verdict `done`, closure `.claude/milestone-closures/ci-full-suite-m2.md`): 16파일이 수리 8 · 가드 1 · 해소 1 · Linux 대기 6으로 전부 귀속됐고, 갈래 H는 러너 오염이 아니라 **test가 `gitDir`를 격리하지 않은 것**으로 재귀속됐다. 로컬 4회 전수에서 상시 red 0 · 신규 flaky 1(`post-edit-format-md`, 격리하지 않고 기록). **반올림하지 않은 미충족 1건**: 계획 Acceptance 산출물 2번(원소들의 `failing` 집합 동일)은 로컬에서도 Linux에서도 미충족이다(Linux 2원소가 6 대 5로 갈린다). 종결 **이후** 도착한 Linux 측정은 미충족을 늘리지 않았지만 산출물 1번의 충족이 **조건부**임을 드러냈다 — 그 측정을 컨테이너에 병합하는 순간 `redaction_ok=false`로 거짓이 된다. M3이 둘 다 회수한다 — 상세와 진단은 closure의 `## 종결 후 보정` 절 | complete | `.claude/plans/ci-full-suite-m2.plan.md` |
 | 3 | ci-enforcement | CI가 전수를 실행하고 커버리지 100%가 자동 산출되며 branch protection이 red를 머지 차단으로 만든다. 배선 절단이 red를 만드는 것이 1회 실증된다 | pending | — |
 
 ## Open Questions
 
 - [x] **조용한 머신을 어디서 확보하는가.** → **답(M1 실측): GitHub runner다.** 4코어 Linux runner가 16코어 Windows 개발 머신보다 벽시계 **19.2배** · 순차 합계 **64.8배** 빠르다(같은 Node v24.19.0). 전수가 Linux에서 **75.5초**에 끝난다. 근거: [docs/ci-full-suite/m1-baseline.md](../../docs/ci-full-suite/m1-baseline.md) §2. 아래 원문은 질문 제기 시점의 기록이다. 우산 PRD가 그대로 물려준 질문이다. 로컬 측정은 서브에이전트 경합 상태에서 나왔고 재측정에서 11배 차이가 났다. **GitHub runner 자체가 그 "조용한 머신"일 수 있다** — 그렇다면 baseline은 로컬이 아니라 CI에서 뜨는 것이 맞고, M1의 형태가 달라진다.
-- [ ] **`mkTmpRepo`의 6-spawn을 고칠 것인가 감쌀 것인가.** 48개 파일이 쓰고, 고치면 그 전부의 동작이 바뀐다. 감싸면(template repo 복사) 격리가 약해진다. 어느 쪽이든 C3 범위인지 별도 자식인지 M1 산출로 판단한다.
-- [ ] **Windows runner를 전수 matrix에 넣을 것인가.** 기존 3 workflow의 matrix가 제각각이다(ubuntu+macos · ubuntu+windows · ubuntu+windows). 전수를 2 OS로 돌리면 벽시계와 분(minute) 소모가 2배다.
+- [ ] **`mkTmpRepo`의 6-spawn을 고칠 것인가 감쌀 것인가.** 48개 파일이 쓰고, 고치면 그 전부의 동작이 바뀐다. 감싸면(template repo 복사) 격리가 약해진다. 어느 쪽이든 C3 범위인지 별도 자식인지 M1 산출로 판단한다. — **M2 기록**: 건드리지 않았다(UI8 명시 제외). 그리고 M2가 축을 벽시계에서 green으로 옮긴 이상, 이 질문의 동기였던 "로컬 루프 단축"은 더 이상 M2의 사유가 아니다 — 이 질문을 다음에 여는 주체는 별도 축이다.
+- [ ] **Windows runner를 전수 matrix에 넣을 것인가.** 기존 3 workflow의 matrix가 제각각이다(ubuntu+macos · ubuntu+windows · ubuntu+windows). 전수를 2 OS로 돌리면 벽시계와 분(minute) 소모가 2배다. — **M2가 이 질문을 다시 열었다(답하지 않는다 — M3 소유).** M1 §6은 `win ∩ linux = 2`를 근거로 matrix를 요구했으나, M2는 Windows 전용 실패의 상당수가 플랫폼이 아니라 **테스트가 `gitDir`를 격리하지 않아 저장소의 살아있는 게이트 봉인을 읽은 것**임을 실측했다. 그 갈래를 걷어낸 뒤의 교집합으로 다시 물어야 한다.
 - [x] **Node 20 하한을 유지할 것인가.** → **답(M1 실측): 유지해도 비용이 없다.** 진입점은 glob을 node에 넘기지 않고 스스로 열거하므로 Node 버전 차이가 소거됐고, Node 20은 `data.file`을 전부 실어 `attribution=complete`(6,363/6,363)다. 오히려 **node 20이 node 24보다 30% 빠르다**(순차 200.9초 대 261.8초). 근거: 같은 문서 §5. 아래 원문은 질문 제기 시점의 기록이다. CLAUDE.md §3.4가 Node 20+를 표방하고 CI가 20에 고정돼 있는데 로컬은 24다. 진입점을 어느 쪽에 맞출지가 glob 형태를 정한다.
 - [ ] **커버리지 100%의 분모는 무엇인가.** `*.test.js` 파일 수인가, test case 수인가, "CI가 실행하지 않는 파일이 0"인가. 셋의 값이 다르고 세 번째만 자동 산출이 쉽다.
 

@@ -366,11 +366,22 @@ test('S14: cmdEnter sidecar mkdir EACCES → exit 19 + lock not created', () => 
     const runId = crypto.randomUUID();
     const realMkdir = fs.mkdirSync;
     let calls = 0;
+    // ci-full-suite M2 갈래 P — 이 술어는 정확해야 한다. 이전에는
+    // `indexOf('mccp') !== -1 && indexOf('tmp') !== -1` 로 느슨하게 잡았는데, POSIX에서는
+    // 임시 저장소 자체가 `/tmp/…` 아래에 생기고 경로에 'mccp'도 들어있어
+    // **첫 번째 mkdir(lock dir)까지 함께 터졌다.** Windows는 임시 디렉토리 이름이
+    // `Temp`라 소문자 `tmp` 검사를 우연히 비껴갔고, 그래서 이 실패가 "플랫폼
+    // 차이"처럼 보였다.
+    // 실제로는 술어가 자기 fixture 경로에 걸린 것이다.
+    //
+    // 모듈이 쓰는 사이드카 경로를 헬퍼로 그대로 도출해 **그 디렉토리 하나만**
+    // 실패시킨다. 이젠 임시 경로가 어디에 있든 판정이 같다.
+    const sidecarDir = path.resolve(path.dirname(sidecarOf(cwd, runId)));
     fs.mkdirSync = function (dirPath, opts) {
       calls += 1;
       // First call is the lock dir; second call is the sidecar dir.
       // Mirror the lock-create real mkdir; fail on sidecar dir specifically.
-      if (typeof dirPath === 'string' && dirPath.indexOf('mccp') !== -1 && dirPath.indexOf('tmp') !== -1) {
+      if (typeof dirPath === 'string' && path.resolve(dirPath) === sidecarDir) {
         const err = new Error('EACCES: permission denied');
         err.code = 'EACCES';
         throw err;

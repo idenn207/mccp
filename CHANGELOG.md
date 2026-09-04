@@ -4,6 +4,72 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 > **Note on versioning**: the project ship tag (e.g. `v1.0.0`) and the inner plugin manifest (`plugins/mccp/.claude-plugin/plugin.json` — currently `1.34.4`) are intentionally decoupled. Plugin semver tracks the mccp namespace's internal API surface; project ship tags track W-VERDICT-gated milestones bundled across the repo.
 
+## [Unreleased]
+
+> 아래 항목들은 main 에 누적된 것이고 아직 어느 릴리스에도 실리지 않았다.
+> 번호는 릴리스 컷이 부여한다(우산 결정 1) — 자식 브랜치는 `plugin.json`
+> version 을 선언하지 않는다. 기계적 강제(`scripts/version-declaration-guard.js`)는
+> release-channel-separation 브랜치가 소유하며 아직 main 에 없다 — 이 브랜치에서
+> 지키는 것은 규약이지 도구가 아니다.
+
+### Added
+
+- **halt-step-recording** — `/mccp:work`가 멈춘 지점이 기록된다. `work-orchestrator.js`에
+  `record-halt`(producer)와 `last-halt`(repo-wide reader) 두 서브커맨드가 생겼고, 둘 다
+  **어떤 실패에도 exit 0**이다(UI2 — 계측이 진입을 막으면 그것은 계측이 아니라 게이트다).
+- **halt 사이트 표** — `work.md`에 상주하는 13행 전수 표(shell 11 + prose 2). 분모가
+  문서에 있고 `work-command-body.test.js`가 표 ↔ 배선을 **양방향으로** 강제해, 표를 줄여서
+  커버리지를 만족시키는 길이 막혀 있다.
+- **진입 배너** — A1 줄 바로 뒤에 직전 halt 한 줄. halt가 없으면 아무 줄도 내지 않고,
+  **읽기가 실패했을 때만** `halt 배너 생략: <사유>`를 남긴다(A1 선례의 정확한 재적용).
+  사유는 reader 자신의 접두(`[mccp:last-halt]`)를 단 줄만 채택한다 — 남의 파싱 경고를
+  집으면 부재와 실패의 구분이 무너진다.
+- **`chain_progress` present-only 3필드** — `halt_site`·`reason`·`work_unit`. 값이 있을
+  때만 키를 넣는다(§3.2 `dep_check_at` mirror). 기존 4필드 직렬화는 무변경.
+- **진전 기록 2지점** — Step 3.verify 통과와 Phase 3 도달이 `record-step --status ok`를
+  남긴다. append-only 원장에 halt 뒤로 아무것도 쌓이지 않으면 `last-halt`의 supersession
+  규칙이 **구조적으로 발동하지 못해** 배너가 이미 고쳐진 halt를 무기한 주장한다. A1 완주
+  지표와는 무관하다 — 완주의 정의도 그 producer도 건드리지 않는다(DD1이 갈라 놓은 별개
+  채널이며, 여기 쌓이는 값은 배너 신선도 판정에만 쓰인다).
+
+### Fixed
+
+- **`auto-chain.recordStep`의 침묵 catch** — 이 catch는 모듈 부재뿐 아니라 `applyLocked`의
+  실제 throw 경로(`MCCP_JOURNAL_DEGRADED_UNRECORDED`)까지 삼켰다. 동작(fall-through)은
+  그대로 두고 침묵만 없앴다. sidecar JSONL도 present-only 규칙을 따라 두 채널의 레코드
+  모양이 같아졌다.
+- **`--reason`의 control character / ANSI escape** (security-reviewer S1, HIGH) —
+  `JSON.stringify`가 저장 시 이스케이프하므로 디스크의 STATE.md는 깨지지 않지만, 소비
+  지점의 `JSON.parse`가 원문자로 되돌리고 배너는 **인용부호 없이** 출력한다. 즉 위험한
+  것은 저장이 아니라 **재생**이었다. 좁히기 순서를 `scrubAbsPaths` → `stripAnsi` →
+  C0/C1/DEL 제거 → `oneLineExcerpt`로 정하고, **reader도 자신이 읽은 레코드에 같은 좁히기를
+  다시 적용**한다 — 쓰기 시점 좁히기는 이미 디스크에 있는 레코드를 되돌리지 못한다.
+- **repo-root 봉쇄 가드** — `findRepoRoot`는 `.git` 조상이 없으면 cwd를 그대로 돌려주므로,
+  비-repo 디렉토리의 `record-halt`가 거기에 `.claude/state/STATE.md`를 새로 만들고 평범한
+  성공으로 끝났다. `.claude`/`.git` 마커가 없으면 아무것도 쓰지 않고 거부한다.
+
+- **`parseStateMd(raw, {quiet})`** — 읽기 전용 관찰자용 옵션. 두 WARNING("resetting
+  state")은 자기 상태를 쓰는 호출자에게는 옳지만 남의 worktree를 훑기만 하는 reader에게는
+  거짓이고, 그 stderr가 배너의 실패 채널로 흘러가 **halt 부재(정상)를 읽기 실패로 오보**
+  했다(실측 재현). DD1이 읽기를 저장소 전체로 넓혔으므로 한 worktree의 파손이 모든
+  worktree의 진입 배너를 오염시켰다. 기본값은 무변경이라 기존 호출자는 계속 시끄럽다.
+- **reader 재강제의 적용 범위** — `step`·`site`·`ts`·`work_unit`도 `reason`과 같은
+  좁히기를 통과한다(텍스트·`--json` 양쪽). 배너는 인용부호 없이 `echo`되고
+  `chain_progress`는 git-tracked라 PR로 유입될 수 있으므로, 한 필드만 남겨 두면 개행
+  하나로 `[mccp:work] ` 접두를 위조한 줄이 만들어진다.
+
+### Changed
+
+- `derive/sources/worktrees.js`가 `SCAN_TIMEOUT_MS`·`parseCap`을 export한다.
+  `last-halt`가 같은 순회를 하면서 리터럴을 복제하면 그 순간 drift가 시작되고,
+  `parseCap`(숫자가 아니라 정책)까지 내보내야 `MCCP_WORKTREE_SCAN_CAP`이 두 순회에
+  똑같이 먹는다. 소비처가 쓰지 않는 `DEFAULT_CAP`은 표면에 두지 않는다.
+- `work-command-body.test.js`의 커버리지 판정이 블록 단위 근사에서 **1:1 소비**로
+  바뀌었다. 초판은 "이 exit 앞 어딘가에 recorder가 있는가"만 물어서 한 블록에 recorder
+  1 + exit 3이면 뒤 두 개가 무임승차했다 — 지금 배선은 수가 맞아 red가 아니었지만, 그
+  test가 막겠다고 선언한 회귀를 정확히 놓치는 형태였다. 판정기 자신도 합성 입력으로
+  검증한다(`(c2)`).
+
 ## [1.34.4] — 2026-09-02
 
 > **§3.7**: `1.34.3 → 1.34.4` (**patch** — orchestrator-step-wiring PRD의 단일

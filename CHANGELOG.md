@@ -40,6 +40,49 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - test 3면 신규 + 2면 확장 — `leadtime-surface` · `leadtime-distribution` ·
   `renderer/tests/leadtime-line` · `derive/tests/leadtime-source` · `leadtime.test.js` M3 절.
 
+- **review-record-linkage M4 — review-round-structure**: 패널 레코드의 `## Measurement`가
+  `rounds`를 싣는다. M1이 D1으로 고정한 정의(`measurement.rounds`가 정수 ≥ 1)를 착지 후
+  레코드가 실제로 만족하고, 값의 원천은 `write.js`가 `resolution.rounds`를 파생하는 것과
+  **같은 review-rounds 원장**이라 결정층과 내용층이 같은 수를 말한다. 신규 모듈 0개 ·
+  receipt 스키마 변경 0건.
+  - **0과 null을 가른다.** 원장 파일 부재는 throw가 아니라 정수 0으로 접힌다
+    (`ledger.js`의 `read()`가 `readFileSync` 실패를 `emptyState`로 삼킨다). 그래서
+    `cmdRecord`가 `resolveStatePath` + `existsSync`로 **존재를 먼저 판정**하고 부재는
+    `null`로 싣는다 — "측정된 0회"와 "세어진 적 없음"이 구분되지 않으면 그 아래의 자격
+    판정이 구분 불가능한 0 위에 서게 된다.
+  - **D1에 3값 자격이 붙었다 (`classifyRoundStructure`)** — `present` · `not_enrolled` ·
+    `absent`. `not_enrolled`의 근거는 **caller가 쓸 수 없는 두 사실**이다: `rounds === null`
+    (파일시스템 사실)과 패널 증거 부재(`quorum === null` 또는 `responded === 0`, 둘 다
+    `decision.json`/`l2.json`에서 파생). `halt_stage`는 어떤 판정에도 쓰이지 않는다 —
+    `--halt-stage`로 들어오는 **미검증 자유 문자열**이라 자격 근거가 되면 자기신고 면제가
+    되고, 감사 종료코드를 문자열 하나로 빠져나갈 수 있었다. `hasRoundStructure` 자체는
+    한 글자도 바뀌지 않았다(바뀐 것은 정의가 아니라 그 정의를 적용할 자격).
+  - **`--rounds` 플래그는 만들지 않았다.** 값을 CLI로 받으면 측정이 자기신고가 되고,
+    `gateId`를 열면 다른 게이트의 원장을 가리켜 수를 부풀릴 수 있다(§3.13이 intent 결정에
+    CLI 표면을 주지 않은 것과 같은 논거). 이 축의 플래그는 **0개**이고 gate id는 상수다.
+  - **캡을 강제한 원장과 레코드가 읽는 원장이 어긋나면 관측한다.** 봉인 부재·만료·판독
+    불가 · gate 불일치 · decision 불일치 **세 경우 모두**가 서로 구별되는 degradation
+    문장을 낸다. 값은 바꾸지 않는다 — 어느 쪽이 옳은지 이 모듈이 알 수 없기 때문이고,
+    `write.js:52-58`의 "봉인 없음 ↔ count 비authoritative" 페어링을 레코드 층에 유지한다.
+  - **"기록 시점에 거부"는 둘로 쪼갰다.** `record.js`는 자기 산출물을 D1으로 대조해 미달을
+    **선언**하고(`### Recording degradations`), 진짜 강제는 감사 도구가 한다. 그 파일의
+    never-throw · always-exit-0 계약은 장식이 아니라 M1의 생존편향 결함을 고친 처방
+    자체이므로 계측이 게이트를 죽이게 두지 않는다. PRD 문장으로부터의 **의도된 이탈**이다.
+  - **강제의 분모는 M4 착지 경계 이후다** — `linkage-audit.js --check-round-structure
+    [--since <ref>]`. 라이브 파티션 전건을 분모로 쓰면 UI1(소급 금지) 때문에 기존 68건이
+    영구히 `absent`라서 종료 코드가 **구조적으로 0이 될 수 없다**. 경계 이전은 보고만 하고
+    강제하지 않으며, 창은 `<boundary>...HEAD`의 3-dot이고 내용은 HEAD 트리에서 읽는다
+    (커밋되지 않은 레코드가 통과 근거가 되지 않게). 배경: [docs/review-record-linkage/m4-enforcement-boundary.md](docs/review-record-linkage/m4-enforcement-boundary.md)
+  - **`--since`는 `--baseline-ref`와 같은 fail-closed ref 가드를 받는다** (implement-gate
+    security S1). 이 파일은 `--baseline-ref '--output=...'`로 임의 파일 쓰기가 **실제
+    재현된** 이력이 있고, ref를 `ref + '...HEAD'`로 결합하면 그 프리미티브가 새 플래그에서
+    되살아난다(단일 argv 토큰 `--output=/tmp/x...HEAD`를 git의 prefix matcher가 여전히
+    `--output`으로 존중한다). merge-base를 따로 해소해 SHA 두 개를 독립 argv로 넘기고,
+    ref가 argv에 나타나는 유일한 자리는 `--end-of-options` 바로 뒤다.
+  - **동결 baseline은 바이트 불변**이다. 신규 3값 카운트는 라이브 파티션에만 나타나고
+    `round_structure`는 여전히 `0/42`다 — 자격 도입이 과거를 유리하게 만들지 않는다는 것이
+    측정으로 확인된다.
+
 - **review-record-linkage M3 — bidirectional-link**: 결정층(ship receipt)과 내용층
   (패널 레코드)이 서로를 가리킨다. 링크는 **파생하지 않고 운반한다** — `/mccp:plan`이
   레코드 경로를 plan receipt에 봉인하고, `/mccp:pr`이 그 값을 ship receipt로 전파한 뒤
@@ -94,6 +137,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `codex-reachability.js` — 분류 `round-cap-reached`와 새 kind `budget-spent`.
   기존 5종에는 정직한 버킷이 없었다 — `env-policy`는 사유가
   `MCCP_CODEX_DISABLED=1`이라 거짓을, `transport`는 예산 소진을 장애로 보고한다.
+- `docs/release-channel.md` — 릴리스 채널 런북(release-channel-separation M3). 컷 절차
+  (선행조건 → 번호 → 다섯 면 한 커밋 → 가드 → 태그 → `release` fast-forward → 확인) ·
+  롤백 절차 · fast-forward 불가 처리 · 컷 트리거 · 컷 밖에서도 즉시 도달하는 잔여 ·
+  한계. **7개 절이 각각 측정됨/전사됨/미측정으로 라벨된다** — 컷 절차는 아직 한 번도
+  실행된 적이 없고 그 사실을 숨기는 것이 이 문서의 유일한 실패 모드라, 라벨의 존재를
+  검증 블록이 기계로 잡는다. 롤백 절은 M1이 실제로 실행한 것의 전사이며
+  n=1(patch 하향 1건 · major 경계 미측정) 한정을 함께 싣는다. README와 CLAUDE.md
+  §3.7은 포인터만 갖는다 — 절차는 `docs/`가 소유한다.
 
 ### Changed
 
@@ -228,6 +279,38 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   다른 커밋을 가리키는 떠도는 단어라, 문서 자신이 이미 선언한 `d1db647`로 고정.
 - `plan-review/l1-check.js` — `CITATION_RE`가 선행 점을 표현하지 못해 dotfile 디렉토리
   인용(`.claude/prds/…`)에 C6 오탐을 냈다. 존재 검사는 그대로라 완화가 아니다.
+
+- **review-record-linkage M4 착지 후 로컬 code-review 흡수** (같은 사이클, 별도 커밋).
+  네 축 모두 **실측 재현 후** 수정했고 각각 반증 test를 동반한다.
+  - **degradation이 호스트 절대경로를 git-tracked 레코드에 실었다.** `cmdRecord`가 원장
+    판독 실패를 적을 때 파일명만 싣겠다고 주석에 적고서 `err.message`를 이어 붙였는데,
+    `ledger.js`의 손상 에러는 `'... is not valid JSON at ' + statePath`라 절대경로가 통째로
+    들어간다. degradation은 `record.js`가 verbatim 기록하고 그 파일은 `.claude/reviews/`라
+    tracked다 — §3.12가 `meta.cwd`에 대해 sanctioned 재봉인 도구까지 만들어 닫았던 유출이
+    새 locus에서 다시 열려 있었다. 이제 에러의 **원인 코드만** 싣는다
+    (`REVIEW_ROUNDS_CORRUPT` · `REVIEW_ROUNDS_BAD_KEY`) — enum은 경로를 나르지 않는다.
+  - **`wall_clock_ms`가 음수만 방어해, 재생성이 없던 시간을 측정값으로 기록했다.** M4 자신의
+    Task 8이 하루 뒤 **같은 REVIEW_DIR**을 다시 읽어 6분짜리 게이트를 971.9분으로 적었고
+    (`360957` → `58316230`), `leadtime.js`가 그것을 라이브 분포의 최댓값으로 보고했다 — 그
+    도구는 "새 계측을 심지 않는다"고 선언하므로 걸러 낼 방법이 없다. 이제 `started-at`이
+    상한을 넘으면 `null` + degradation이다(clamp하지 않는다 — 상한으로 자르면 모르는 사실을
+    새로 만든다). 상한은 임의 knob이 아니라 `codex-policy.js`의 `MAX_SEAL_AGE_MS`와 **같은
+    관측**(게이트 1회 실행이 6시간을 넘지 않는다)이고, dep-free 계약 때문에 값을 복제하되
+    test가 두 상수의 동치를 붙든다. 해당 레코드는 재생성해 정정했다.
+  - **`classifyRoundStructure`가 모듈의 총함수 계약을 깼다.** 사유 문장을 `JSON.stringify`로
+    만들었는데 그 함수는 순환 참조 · BigInt · 던지는 `toJSON`에서 throw한다. 오늘의
+    호출자로는 도달 불가지만 이 파일은 **write 경로가 import하는** dep-free 술어 라이브러리이고,
+    `buildReviewRecord`의 never-throw를 뚫으면 `cmdRecord`의 catch가 레코드를 **아예 안 쓴다**
+    — DD4가 막으려던 표본 손실 그 자체다. 값을 직렬화하지 않고 **형태만** 말하도록 바꿨다
+    (부수 효과로 반신뢰 입력이 `by_reason` 맵의 카디널리티를 정하지 못한다).
+  - **`--check-round-structure`에서 `degraded`가 `violations`에 덮였다.** 서로를 지우는 두
+    줄(가드 + 무조건 `else if`)이 있어 순효과가 "absent가 있으면 무조건 violations"였고,
+    창 안에 파손 레코드가 있어도 exit 2가 exit 1로 접히며 요약 경고가 사라졌다. 두 상태는
+    다른 질문에 답하므로(`degraded` = 다 보지 못했다 → 위반 수는 하한) `degraded`가 이기게
+    하고, 경고는 state가 아니라 **각 배열의 길이**로 발화시켜 두 사실이 모두 남게 했다.
+  - 부수: `--since`가 `--check-round-structure` 없이 조용히 무시되던 것을 loud warn으로,
+    usage의 종료 코드 표를 두 ladder로 분리 표기(같은 숫자가 반대 뜻이다).
+
 ### Operational
 
 - 신규 audited escape `MCCP_PR_SKIP_LINK_EVIDENCE` (strict reason). **읽는 지점이 Phase

@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const AUDIT = path.join(__dirname, '..', 'linkage-audit.js');
 const corpus = require('../plan-review/corpus');
@@ -102,23 +102,24 @@ function mkRepo() {
   return { root: root, baseline: baseline };
 }
 
+// `spawnSync` 다 — `execFileSync` 는 성공 시 stdout 만 돌려주므로 stderr 를 볼 수 없고,
+// 이 도구의 판정 요약(VIOLATIONS/DEGRADED/VACUOUS PASS)은 전부 stderr 로 나간다. 종료
+// 코드만 보는 test 는 "어느 경고가 발화했는가" 를 단언할 수 없다(local code-review M2).
 function run(root, args) {
-  const res = { stdout: '', code: 0 };
-  try {
-    res.stdout = execFileSync(process.execPath, [AUDIT].concat(args),
-      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (err) {
-    res.stdout = (err.stdout || '').toString();
-    res.code = typeof err.status === 'number' ? err.status : 1;
-  }
-  return res;
+  const res = spawnSync(process.execPath, [AUDIT].concat(args),
+    { cwd: root, encoding: 'utf8' });
+  return {
+    stdout: res.stdout || '',
+    stderr: res.stderr || '',
+    code: typeof res.status === 'number' ? res.status : 1,
+  };
 }
 
 function runJson(root, args) {
   const r = run(root, args);
   let parsed = null;
   try { parsed = JSON.parse(r.stdout); } catch (_e) { /* leave null */ }
-  return { code: r.code, json: parsed, raw: r.stdout };
+  return { code: r.code, json: parsed, raw: r.stdout, stderr: r.stderr };
 }
 
 // ── state ladder ─────────────────────────────────────────────────────────────
@@ -696,4 +697,227 @@ test('M3 — the live partition never leaks into the frozen bytes', function () 
   assert.equal('stale_receipt_hash' in frozen.pre_baseline.linkage, false);
   assert.equal(frozen.pre_baseline.linkage.join, 'explicit_field',
     'the join label DOES change — that is the one intended frozen-byte movement');
+});
+
+// ═══ review-record-linkage M4 — 3값 집계와 경계 강제 (DD5 · DD7) ═════════════
+
+const defsM4 = require('../plan-review/linkage-defs');
+
+test('M4 — the LIVE partition reports the 3-valued round structure', function () {
+  const { root, baseline } = mkRepo();
+  const rv = path.join(root, '.claude', 'reviews');
+  // present · not_enrolled · absent 을 각각 하나씩 심는다. 셋이 다 갈리는 것을 보지
+  // 않으면 한 값을 상수로 돌려주는 구현이 통과한다.
+  fs.writeFileSync(path.join(rv, 'plan-review-present.md'),
+    panelRecord('present', { verdict: 'converged', rounds: 2, quorum: { responded: 4 } }));
+  fs.writeFileSync(path.join(rv, 'plan-review-notenrolled.md'),
+    panelRecord('notenrolled', { verdict: 'unknown', rounds: null, quorum: null }));
+  fs.writeFileSync(path.join(rv, 'plan-review-gap.md'),
+    panelRecord('gap', { verdict: 'divergent', rounds: null, quorum: { responded: 3 } }));
+  commitAt(root, '2022-06-01T00:00:00+00:00', 'three round-structure shapes');
+
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const rs = r.json.post_baseline.round_structure;
+  assert.equal(rs.counts.present, 1);
+  assert.equal(rs.counts.not_enrolled, 1);
+  // 기존 픽스처 레코드(alpha/legacy/archived)는 rounds 키가 없어 전부 absent 다.
+  assert.ok(rs.counts.absent >= 1, 'the pre-M4 corpus is absent, and that is the honest state');
+  assert.ok(Object.keys(rs.by_reason).length > 0, 'each verdict carries its reason');
+});
+
+test('M4 — the FROZEN partition never grows a round_structure 3-value block (R6)', function () {
+  const { root, baseline } = mkRepo();
+  const rv = path.join(root, '.claude', 'reviews');
+  fs.writeFileSync(path.join(rv, 'plan-review-present.md'),
+    panelRecord('present', { verdict: 'converged', rounds: 5, quorum: { responded: 4 } }));
+  commitAt(root, '2022-06-01T00:00:00+00:00', 'a post-boundary record with rounds');
+
+  const r = runJson(root, ['--json', '--baseline-ref', baseline]);
+  const frozen = r.json.pre_baseline.round_structure;
+  assert.equal(frozen.selected, 0, 'the frozen numerator must not move');
+  assert.equal(typeof frozen.counts, 'undefined',
+    'the 3-value block belongs to the LIVE partition only — a new field on the frozen ' +
+    'side moves committed bytes');
+});
+
+// ── DD7 — 경계 강제. **두 방향 모두** 걸지 않으면 경계가 fail-open 이다. ─────
+
+test('M4 DD7: an absent record BEFORE the boundary is reported, never enforced', function () {
+  const { root } = mkRepo();
+  // mkRepo 의 레코드는 전부 rounds 키가 없어 absent 다. 그 커밋들 뒤에 경계를 세운다.
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.equal(r.code, 0, 'UI1 forbids retrofitting, so a pre-boundary absent must not block');
+  assert.equal(r.json.state, 'ok');
+  assert.equal(r.json.in_scope, 0);
+  assert.ok(r.json.pre_boundary_records >= 3,
+    'they are still counted and reported — excluded from enforcement is not invisible');
+});
+
+test('M4 DD7: an absent record AFTER the boundary is a nonzero exit', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-late.md'),
+    panelRecord('late', { verdict: 'divergent', rounds: null, quorum: { responded: 3 } }));
+  commitAt(root, '2022-02-01T00:00:00+00:00', 'a post-boundary record with no round structure');
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.notEqual(r.code, 0, 'the boundary must not be fail-open');
+  assert.equal(r.code, 1, 'violations is its own exit code');
+  assert.equal(r.json.state, 'violations');
+  assert.equal(r.json.in_scope, 1);
+  assert.equal(r.json.counts.absent, 1);
+  assert.equal(r.json.absent_records[0].path, '.claude/reviews/plan-review-late.md');
+  assert.ok(r.json.absent_records[0].reason.length > 0, 'a violation names its reason');
+});
+
+test('M4 DD7: a post-boundary record WITH rounds passes, and the pass is not vacuous', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-good.md'),
+    panelRecord('good', { verdict: 'converged', rounds: 1, quorum: { responded: 4 } }));
+  commitAt(root, '2022-02-01T00:00:00+00:00', 'a post-boundary record that carries rounds');
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.state, 'ok');
+  assert.equal(r.json.in_scope, 1, 'exit 0 with in_scope 0 would prove nothing');
+  assert.equal(r.json.counts.present, 1);
+});
+
+test('M4 DD7: a post-boundary not_enrolled record passes — 0 rounds is not a gap', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-halted.md'),
+    panelRecord('halted', { verdict: 'unknown', rounds: null, quorum: null }));
+  commitAt(root, '2022-02-01T00:00:00+00:00', 'a run that halted before dispatch');
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.in_scope, 1);
+  assert.equal(r.json.counts.not_enrolled, 1);
+  assert.equal(r.json.counts.absent, 0);
+});
+
+test('M4 DD7: an unparsable post-boundary record is degraded, not a pass', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  // 패널 서명은 있는데 Measurement 펜스가 깨진 레코드.
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-broken.md'),
+    '# Plan Review Panel — broken\n\n## Measurement\n\n```json\n{ truncated\n```\n');
+  commitAt(root, '2022-02-01T00:00:00+00:00', 'a broken post-boundary record');
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.notEqual(r.code, 0, 'absence of a judgement is not a pass');
+  assert.equal(r.json.state, 'degraded');
+  assert.equal(r.code, 2, 'degraded has its own code, separate from violations');
+  assert.equal(r.json.unreadable.length, 1);
+});
+
+test('M4 DD7: a non-panel markdown file in the window is out of corpus, not a violation', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  // 접두사는 맞지만 패널 서명이 없다 — 소속 판정은 corpus.js 가 소유한다(DD1a).
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-notes.md'),
+    '# Some other document\n\nnot a panel record\n');
+  commitAt(root, '2022-02-01T00:00:00+00:00', 'a non-panel file with the panel prefix');
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.in_scope, 0, 'membership is corpus.js#parseRecord, never the filename');
+});
+
+test('M4 DD7: an unresolvable boundary is NOT exit 0', function () {
+  const { root } = mkRepo();
+  const r = runJson(root, ['--check-round-structure', '--since', 'no-such-ref-at-all', '--json']);
+  assert.equal(r.code, 3, 'a window that does not exist judges nothing, and says so');
+});
+
+// ── security S1 — the ref guard the plan did not name ────────────────────────
+//
+// 이 파일은 `--baseline-ref '--output=...'` 로 임의 파일 쓰기가 **실제 재현된** 이력이
+// 있다(:217-224). 새 플래그가 그 교훈을 물려받는지를 여기서 고정한다.
+
+test('M4 security S1: --since rejects an option-shaped ref before git ever sees it', function () {
+  const { root } = mkRepo();
+  const victim = path.join(root, 'PWNED');
+  const r = run(root, ['--check-round-structure', '--since', '--output=' + victim]);
+  assert.notEqual(r.code, 0, 'an option-shaped ref must be refused, not passed through');
+  assert.ok(!fs.existsSync(victim),
+    'git show/diff honours --output=<file> and would write it; the shape guard runs first');
+});
+
+test('M4 security S1: the ref is never concatenated into a range token', function () {
+  const AUDIT_SRC = fs.readFileSync(AUDIT, 'utf8');
+  const body = AUDIT_SRC.slice(AUDIT_SRC.indexOf('function checkRoundStructure'),
+    AUDIT_SRC.indexOf('function checkExitCode'));
+  assert.ok(body.indexOf("'...HEAD'") === -1 && body.indexOf("'..HEAD'") === -1,
+    'ref + "...HEAD" makes ONE argv token, so --output=/tmp/x...HEAD is still parsed by ' +
+    "git's prefix matcher as --output. The merge-base must be resolved separately and the " +
+    'ref must appear only immediately after --end-of-options');
+  assert.match(body, /'--end-of-options', ref, 'HEAD'/,
+    'the ref appears as its own argv token, right after --end-of-options');
+});
+
+// local code-review M2 — the two states answer DIFFERENT questions and are not mutually
+// exclusive. `violations` says "there is a breach among what I read"; `degraded` says
+// "I did not read everything", which makes the violation count a lower bound. The first
+// implementation had two lines that cancelled each other — a guard preserving `degraded`
+// followed by an `else if` that overwrote it unconditionally — so a window holding both
+// a corrupt record and a breach collapsed exit 2 into exit 1 and swallowed the DEGRADED
+// summary. Reproduced before the fix.
+test('M4 DD7: degraded beats violations, and BOTH facts still reach the operator', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, 'BOUNDARY'), 'm4\n');
+  commitAt(root, '2022-01-01T00:00:00+00:00', 'the M4 landing boundary');
+  const boundary = git(root, ['rev-parse', 'HEAD']).trim();
+
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-broken.md'),
+    '# Plan Review Panel — broken\n\n## Measurement\n\n```json\n{ truncated\n```\n');
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-late.md'),
+    panelRecord('late', { verdict: 'divergent', rounds: null, quorum: { responded: 3 } }));
+  commitAt(root, '2022-02-01T00:00:00+00:00', 'one unreadable record and one breach');
+
+  const r = runJson(root, ['--check-round-structure', '--since', boundary, '--json']);
+  assert.equal(r.json.state, 'degraded',
+    'not seeing everything outranks counting breaches among what was seen');
+  assert.equal(r.code, 2, 'the exit code must not collapse into violations');
+
+  // 두 사실이 모두 남는다 — state 는 하나만 이길 수 있으므로 배열이 정본이다.
+  assert.equal(r.json.unreadable.length, 1);
+  assert.equal(r.json.absent_records.length, 1);
+  assert.equal(r.json.counts.absent, 1);
+
+  // 그리고 경고도 둘 다 발화한다(state 가 아니라 배열 길이로 분기하므로).
+  assert.match(r.stderr, /VIOLATIONS — 1 record\(s\)/);
+  assert.match(r.stderr, /DEGRADED — 1 record\(s\)/);
+  assert.match(r.stderr, /LOWER BOUND/,
+    'the operator must be told the violation count is not final');
+});
+
+test('M4 — check exit codes are a separate table from the state ladder', function () {
+  const mod = require('../linkage-audit');
+  assert.deepEqual(mod.CHECK_EXIT_CODES,
+    { ok: 0, violations: 1, degraded: 2, unresolved: 3 });
+  assert.equal(mod.checkExitCode('nonsense-state'), 1, 'an unknown state is fail-closed');
+  assert.match(mod.DEFAULT_M4_BOUNDARY_REF, /^[0-9a-f]{40}$/,
+    'a full SHA, for the same reason DEFAULT_BASELINE_REF is one');
 });

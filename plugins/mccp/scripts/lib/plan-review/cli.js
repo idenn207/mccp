@@ -1158,6 +1158,157 @@ function emitPanelFindings(root, slug, l2) {
   }
 }
 
+// ── 라운드 원장 판독 (review-record-linkage M4 — DD2 · DD3) ──────────────────
+//
+// **I/O 는 여기다.** `record.js` 는 스스로를 "Pure and dep-free … NEVER throws" 로
+// 선언하고 그 계약의 목적은 계측이 승인을 막을 수 없게 하는 것이므로, 원장을 여는
+// 일은 그 파일이 아니라 이 서브커맨드가 한다 — `emitPanelFindings` 가 여기 있는
+// 것과 같은 배치(DD6).
+//
+// gate id 는 **상수다**. 플래그로 열면 아무 셸 호출자나 다른 게이트의 원장을
+// 가리켜 라운드 수를 부풀릴 수 있고, 이 서브커맨드는 패널 레코드만 쓴다. 값 자체를
+// 받는 `--rounds` 는 더 나쁘다 — 측정을 자기신고로 바꾼다(§3.13 이 intent 결정에
+// CLI 표면을 주지 않은 것과 같은 이유). 그래서 이 축에는 플래그가 **0개**다.
+const ROUND_LEDGER_GATE_ID = 'mccp-plan-codex';
+
+// **존재 검사가 먼저다.** 원장 파일 부재는 throw 가 아니라 정수 0 으로 접힌다 —
+// `ledger.js` 의 `read()` 가 `readFileSync` 실패를 `raw=null` 로 삼키고
+// `parseState` 가 `emptyState`(`rounds: []`) 를 돌려주므로 `count()` 가 0 이다.
+// throw 는 손상 JSON 뿐이다. 존재를 먼저 보지 않으면 "측정된 0회" 와 "애초에 세어진
+// 적 없음" 이 measurement 에서 구분되지 않고, 그 구분 불가능한 0 위에 DD5 의 자격이
+// 서게 된다.
+//
+// **security S2 — 이 판독은 `buildReviewRecord` 호출 밖의 자기 try/catch 를 갖는다.**
+// `resolveStatePath` 는 슬러그가 `SLUG_RE` 에 맞지 않으면 `REVIEW_ROUNDS_BAD_KEY` 로
+// throw 하는데(`sanitizeSlug` 는 대문자·`.`·`_` 를 허용하므로 둘은 실제로 갈린다),
+// 이것을 인자 안에서 평가하면 그 throw 를 아래 "record generation failed" catch 가
+// 삼켜 **레코드 자체가 안 써진다**. 막힌 실행일수록 표본으로 중요하다는 DD4 의 전제를
+// 정면으로 깨는 실패라, 판독 실패는 여기서 `{available:false}` 로 접고 사유를 남긴다.
+//
+// 경로를 degradation 문장에 싣지 않는다 — 이 레코드는 git-tracked 이고 호스트
+// 절대경로가 커밋되면 안 된다(`linkage-audit.js:207-210` 과 같은 규율). 파일명만 싣는다.
+//
+// **그 약속은 `basename` 을 고르는 것만으로는 지켜지지 않는다** (local code-review H1).
+// 초판은 파일명을 싣고 그 옆에 `err.message` 를 그대로 이어 붙였는데, 원장의 손상 에러는
+// `ledger.js` 가 `'round ledger is not valid JSON at ' + statePath` 로 만들므로 그 한 줄에
+// 호스트 절대경로가 통째로 들어간다. degradation 은 `record.js` 가 verbatim 기록하고 그
+// 파일은 `.claude/reviews/` 라 tracked다 — §3.12 가 `meta.cwd` 에 대해 닫았던 유출이
+// 새 locus 에서 다시 열렸다(실측 재현). 그래서 에러 객체에서 **원인 코드만** 꺼낸다.
+//
+// `code` 를 고르는 이유는 그것이 이 축에서 실제로 구별해야 할 전부이기 때문이다 —
+// `REVIEW_ROUNDS_CORRUPT`(JSON 파손) · `REVIEW_ROUNDS_SCHEMA`(스키마 불일치) ·
+// `REVIEW_ROUNDS_BAD_KEY`(슬러그가 원장 키가 아니다). 자유 문장은 경로를 나르지만
+// enum 은 나르지 않는다.
+function errCode(err) {
+  if (err && typeof err.code === 'string' && err.code) return err.code;
+  if (err && typeof err.name === 'string' && err.name) return err.name;
+  return 'unknown-error';
+}
+
+function readRoundLedgerForRecord(root, slug) {
+  const out = { ledger: null, degradations: [] };
+  let ledger;
+  try {
+    ledger = require('../review-rounds/ledger');
+  } catch (_err) {
+    return out;              // 이 빌드에 원장 축이 없다 — 필드를 아예 주입하지 않는다
+  }
+
+  let statePath = null;
+  let basename = null;
+  try {
+    basename = ledger.ledgerBasename(ROUND_LEDGER_GATE_ID, slug);
+    statePath = ledger.resolveStatePath({
+      gateId: ROUND_LEDGER_GATE_ID, decisionId: slug, cwd: root, repoRoot: root,
+    });
+  } catch (err) {
+    out.ledger = { available: false, count: null };
+    out.degradations.push('round ledger key could not be resolved for this slug (' +
+      errCode(err) + ') — rounds recorded as null, NOT ' +
+      'as zero. The record filename rule (sanitizeSlug) is more permissive than the ledger ' +
+      'key rule (SLUG_RE), so a slug can name a record and still not name a ledger');
+    return out;
+  }
+
+  let exists = false;
+  try { exists = fs.existsSync(statePath); } catch (_err) { exists = false; }
+  if (!exists) {
+    // degradation 이 아니다. 원장 파일 부재는 dispatch 이전에 멎은 실행의 정상
+    // 상태이고 DD5 의 `not_enrolled` 근거이므로, 여기서 결손이라 적으면 진짜 결손이
+    // 그 노이즈에 묻힌다. 자격 판정은 `linkage-defs` 가 소유한다.
+    out.ledger = { available: false, count: null };
+    return out;
+  }
+
+  try {
+    out.ledger = {
+      available: true,
+      count: ledger.count({
+        gateId: ROUND_LEDGER_GATE_ID, decisionId: slug, cwd: root, repoRoot: root,
+      }),
+    };
+  } catch (err) {
+    out.ledger = { available: false, count: null };
+    out.degradations.push('round ledger ' + basename + ' exists but is unreadable (' +
+      errCode(err) + ') — rounds recorded as null, NOT ' +
+      'as zero (reading a corrupt ledger as zero rounds would report a reset as a measurement)');
+  }
+  return out;
+}
+
+// ── 봉인 키 대조 (DD3 개정판) ────────────────────────────────────────────────
+//
+// 봉인(5.-1)은 `(gate, decision)` 으로 캡을 강제하고 이 레코드는 `--slug` 로 원장을
+// 찾는다. 저자가 슬러그를 override 하면 둘이 갈라져 **캡이 강제된 원장과 다른 원장을**
+// 읽는다. 봉인을 주 키로 쓰지는 않는다 — 봉인은 git dir 당 한 파일이고 `/mccp:pr` 이
+// 나중에 `mccp-pr-codex` 로 덮어쓰므로, 사후 재생성 시점의 봉인은 이 실행의 것이
+// 아니다. 그래서 주 키는 상수 gate + `--slug` 이고, 어긋남은 **관측으로 표면화**한다.
+// 값을 바꾸지 않는 이유는 어느 쪽이 옳은지 이 모듈이 알 수 없기 때문이다.
+//
+// 세 경우가 **모두** 발화하고 서로 구별되는 문장을 갖는다. 초판은 "봉인이 판독
+// 가능하고 gate 가 일치하는데 decision 만 다를 때" 로 좁혔는데, 그러면 봉인 부재 ·
+// 만료 · 판독 불가와 다른 게이트의 덮어쓰기가 전부 무표시로 지나간다 — 그런데 바로
+// 위 문단이 그 덮어쓰기를 *예상된 일* 이라 적었으므로 정작 이 관측이 쓰여야 할
+// 분기가 침묵한다. 상류 `receipt/write.js:52-58` 은 같은 상황에 대해 정확히 반대로
+// 한다 — 쓸 수 있는 봉인이 없으면 "강제가 돌지 않았으므로 옆의 count 는
+// authoritative 하지 않다" 를 `meta.round_cap: null` 로 페어링해 남긴다. 그 페어링을
+// 레코드 층에서도 유지한다.
+function compareRoundSeal(root, slug) {
+  const degradations = [];
+  let seal;
+  try {
+    seal = require('../review-rounds/seal');
+  } catch (_err) {
+    return degradations;     // 이 빌드에 봉인 축이 없다
+  }
+  let observed = null;
+  try {
+    observed = seal.readCap({ gitDir: seal.resolveGitDir(root) });
+  } catch (_err) { observed = null; }
+
+  const reason = (observed && observed.reason) ? observed.reason : 'unreadable';
+  if (reason !== 'ok') {
+    degradations.push('no usable round-cap seal for this run (reason=' + reason + ') — this ' +
+      'execution was never enrolled, so enforcement did not run and the `rounds` count ' +
+      'beside it is NOT authoritative');
+    return degradations;
+  }
+  if (observed.gateId !== ROUND_LEDGER_GATE_ID) {
+    degradations.push('the round-cap seal on disk enforces gate `' + observed.gateId +
+      '`, not `' + ROUND_LEDGER_GATE_ID + '` — a later gate (typically /mccp:pr) overwrote ' +
+      'the per-git-dir seal, so it cannot confirm which ledger this record read');
+    return degradations;
+  }
+  if (observed.decisionId !== slug) {
+    degradations.push('the round-cap seal enforced `' + observed.gateId + '__' +
+      observed.decisionId + '` but this record read `' + ROUND_LEDGER_GATE_ID + '__' + slug +
+      '` — the run overrode --slug, so the ENFORCED ledger and the MEASURED ledger are ' +
+      'different files. The value is recorded as read; which of the two is right is not ' +
+      'something this module can decide');
+  }
+  return degradations;
+}
+
 function cmdRecord(args) {
   const root = (args['repo-root'] && args['repo-root'] !== true) ? args['repo-root'] : repoRoot();
 
@@ -1207,6 +1358,12 @@ function cmdRecord(args) {
   const l2Artifact = readIf('l2.json');
   const slug = (args.slug && args.slug !== true) ? args.slug : 'unknown-decision';
 
+  // M4 — 원장 판독과 봉인 대조는 `buildReviewRecord` 호출 **밖**에서 끝난다(security S2).
+  const roundRead = readRoundLedgerForRecord(root, slug);
+  const extraDegradations = (reviewDirRejected ? [reviewDirRejected] : [])
+    .concat(roundRead.degradations)
+    .concat(compareRoundSeal(root, slug));
+
   let built;
   try {
     built = buildReviewRecord({
@@ -1226,7 +1383,8 @@ function cmdRecord(args) {
       startedAtMs: startedAtMs,
       nowMs: Date.now(),
       haltStage: (args['halt-stage'] && args['halt-stage'] !== true) ? args['halt-stage'] : null,
-      extraDegradations: reviewDirRejected ? [reviewDirRejected] : [],
+      extraDegradations: extraDegradations,
+      roundLedger: roundRead.ledger,
     });
   } catch (e) {
     // buildReviewRecord is written not to throw. If it ever does, that is a bug

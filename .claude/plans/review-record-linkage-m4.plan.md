@@ -633,3 +633,10 @@ routing mode: `auto` (implement 단계에서 유효). plan 단계는 렌더링�
 **기각·완화 0건. CRITICAL 0건이므로 MCCP-GATE-STOP 해당 없음.**
 
 S2의 등급 상향(plan R1 표의 8번은 LOW·이연이었다)을 그대로 받아들인다. 그 판정은 정규화 불일치를 traversal 축으로만 봤고, 실제 비용은 **이 마일스톤의 계측 표본 유실**이라는 다른 축이다. backlog의 해당 줄은 지우지 않고 남긴다 — 이연된 것은 두 규칙을 **하나로 통일**하는 일이고, 여기서 닫는 것은 그 불일치가 레코드를 죽이지 못하게 하는 것이다.
+
+## Milestone Closure Provenance
+- Milestone : review-record-linkage-m4
+- Verdict   : done
+- Closure   : .claude/milestone-closures/review-record-linkage-m4.md
+- sha256    : sha256:0297a52d9abe61760afb35b62b8f6da29dabd96cb5e51d2bef8d0cec4e0b925c
+- Stamped at: 2026-09-04T02:23:15.978Z

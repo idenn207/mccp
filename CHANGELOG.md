@@ -95,7 +95,64 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   기존 5종에는 정직한 버킷이 없었다 — `env-policy`는 사유가
   `MCCP_CODEX_DISABLED=1`이라 거짓을, `transport`는 예산 소진을 장애로 보고한다.
 
+- **ci-full-suite M3 — ci-enforcement (구현 착지, 라이브 미완주)**: 전수 스위트를
+  머지 차단 게이트로 승격하는 배선. 상세는
+  [`docs/ci-full-suite/m3-enforcement.md`](docs/ci-full-suite/m3-enforcement.md).
+  - `.github/workflows/test-suite.yml` — 강제 게이트. `pull_request` 좁히는 필터
+    **없이**(오늘 2.7%를 만든 실패 모드와 같은 것을 반복하지 않는다) 돌고,
+    action 셋을 SHA로 pin하며, job 이름을 **안정 리터럴**(`full test suite gate`)로
+    고정한다 — required check는 문자열로 걸리므로 그 이름이 변하면 보호가
+    조용히 풀린다.
+  - `scripts/test-suite/gate.js` — DD3의 유일 소비처. 단계 0(측정 성립 + 트리 일치)
+    → 1(스위트 green) → 2(커버리지 4조건 + 삭제 래칫, 누적) → 3(유출). 판별자는
+    stage가 아니라 **닫힌 사유 코드 열거형**이다(stage 2는 공유 칸이다).
+    단계 0이 없으면 1이 거짓말을 한다 — chunk spawn 실패가 `{exit_code: null}`을 내고
+    `foldChunks`가 `Number(null) || 0`으로 접으므로, 스위트가 **한 번도 안 돌았는데**
+    1·3단계를 통과하는 measurement가 실재한다.
+  - `scripts/test-suite/coverage.js` — 순수 커버리지 오라클. 분모는 tracked `*.test.js`
+    **파일 수**이고(OQ5 확정) 채널은 `git ls-files -z`이며 소유자는 게이트다 —
+    `measurement.files_total`에서 파생하는 것은 **금지**다(피측정자가 자기 분모를 정하면
+    열거가 무너져도 커버리지는 100%로 보인다). 머지 차단 조건은 `coverage_pct === 100`이
+    아니라 `unexplained === 0`이다.
+  - `scripts/test-suite/inputs.js` — 입력 해소 공유층. fail-closed 사유 코드 11종을
+    방출하고 격리 목록 파싱은 `exclusions.js`에 위임한다(자체 `JSON.parse` 금지 —
+    게이트가 미검증 목록으로 판정하는 경로를 닫는다).
+  - `scripts/test-suite/exclusions.js` + `.github/test-suite-exclusions.json` — DD7 검증기가
+    **소비 경로 위에** 산다. 항목마다 `reason` + `ticket` 필수이고 상한 6건.
+  - `.github/test-suite-floor.json` + 삭제 래칫 — 판정은 **merge-base와의 집합 차**이지
+    개수 비교도 tip 비교도 아니다. 그래서 커버리지가 **만족한 채로** 차단된다.
+  - `scripts/test-suite/wiring-cut.js` — 축 D 절단 셋(A 심기 · B 삭제 · 오라클 왕복)을
+    재현 가능하게 고정. 1회 이벤트로 두면 훗날 커버리지가 다시 깨져도 잡을 기계가 없다.
+  - `scripts/ci-required-checks.js` + `docs/ci-full-suite/branch-protection-runbook.md` —
+    required check drift 진단(운영자 수동, CI 미실행). 보호 미설정은 "일치"가 아니라
+    `protection_absent`다 — 통과로 접으면 진단이 아무것도 말하지 않는다.
+  - `scripts/test-suite/container-check.js` — 컨테이너 3축(`ok` · `attribution` ·
+    `redaction_ok`) 검사. **빈 컨테이너는 비영점**이다 — 아무것도 검사하지 않는 것은
+    통과가 아니다.
+  - 단위 test 5면 150건 신규/확장. 무엇보다 `wiring-cut.test.js`가 자기 단언 14종을
+    **합성 돌연변이 약 40개**에 다시 적용해 "그 단언이 실제로 잡는가"를 잰다 —
+    주석 제거 후 스캔이라 산문이 아니라 배선을 검사한다(§3.17 선례).
+  - **`/mccp:code-review` 흡수 (같은 사이클)** — 로컬 리뷰의 MEDIUM 4 · LOW 7을 전건
+    수용했다. 게이트에 실제로 영향을 준 둘: (a) `floor_value_type` — floor 키 검사가
+    `hasOwnProperty`뿐이라 `null`이 "존재"로 읽혔고, 그 한 글자가 `below_floor`와
+    `excluded_over_cap`을 **사유 코드 없이** 끄면서 게이트가 `blocked:false`를 냈다
+    (도출식 test의 `strictEqual`이 부수적으로 막고 있었을 뿐이라, fail-closed를
+    소유한다고 선언한 층이 자기 이름으로 막게 했다). (b) `JUDGE_REASONS` ·
+    `INPUT_REASONS`가 "닫힌 열거"를 선언하고 **부르는 곳이 0건**이었으며 이미
+    불완전했다 — 이 우산이 서명 실패 모드로 지목한 형태가 판정자 자신 안에서 재현된
+    것이라, 런타임 소비처(`reasons_undeclared`)와 양방향 대조 test를 함께 붙였다.
+
 ### Changed
+
+- **`.github/workflows/test-suite-baseline.yml` — 트리거 하나, OS 축 둘 (ci-full-suite M3)**.
+  `pull_request`를 뗀다(DD1) — 두 트리거를 둔 사유가 만료됐고, 남기면 같은 PR에서
+  측정과 강제가 나란히 돌아 무엇이 머지를 막는지가 흐려진다. 대신 `matrix.os`에
+  `windows-latest`가 더해지고 그 축이 **artifact 이름과 job 이름 양쪽에** 실린다 —
+  artifact 이름이 같으면 `upload-artifact@v4`가 중복을 거부해 Windows 산출물이
+  **존재 자체를 못 하고**, job 이름이 같으면 두 leg이 하나의 check 이름을 공유한다.
+  `defaults.run.shell: bash`(Windows 기본은 pwsh) · `/tmp` → `runner.temp`.
+  **이 workflow의 job 이름은 여전히 `${{ }}` 템플릿이며 그것은 의도다** —
+  측정은 머지를 막지 않으므로 required check 후보가 아니다.
 
 - `leadtime.js` — `audit(opts)`에 `allowGit`(기본 `true`) spawn 게이트 추가. `false`면 W3이
   `no`가 아니라 `unavailable`이 되고 `degradations:['git-disabled']`가 산출물에 실린다.
@@ -174,6 +231,23 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
     링크 0건"과 구별되지 않으면 그 위의 어떤 acceptance도 아무것도 반증하지 못한다.
 
 ### Security
+
+- **격리 패턴에 복잡도 상한 — fork PR이 유일한 머지 차단 체크를 태울 수 있었다
+  (ci-full-suite M3, `mccp:security-reviewer` HIGH 흡수)**. `enumerate.js#globToRegExp`가
+  `*`마다 무한 수량자를 합치지 않고 이어붙이므로 연속 `*`가 파국적 backtracking 형태가
+  된다. 실측: `"*".repeat(15)+"ZZZNOMATCH"`는 경로 하나에 8초 후에도 미종료.
+  M3의 강제 workflow가 처음으로 fork PR이 통제하는 tracked 파일 내용을 **리뷰 이전에 ·
+  `paths` 필터 없이 · 저장소의 유일한 머지 차단 체크 위에서** 그 코드에 먹인다.
+  `exclusions.js#validateExclusions`에 상한 셋을 뒀다 — `MAX_PATTERN_LENGTH=200` ·
+  `MAX_PATTERN_WILDCARDS=8` · `***` 이상 연속 금지. 표현력 손실 0(glob에서 `***`는
+  `**`와 같다). DD7·DD9의 래칫 셋은 *몇 개를* 격리하는지만 재고 *한 패턴이 얼마나
+  비싼지*는 재지 않아 이것을 막지 못했다. 컴파일러 자체의 수량자 병합은 열거 의미론을
+  바꾸는 변경이라 backlog(별도 축).
+- **`run.js`의 `--allow-codex`가 CI에서 거부된다 (ci-full-suite M3)**. `GITHUB_ACTIONS=true`
+  이면 플래그 파싱 지점에서 throw한다. 전수 회귀가 codex 경로를 타면 실제 호출이 수백 회
+  발생하고 고아 broker가 자식을 무한 재생성한다(CLAUDE.md §3.4 실측: node 519개).
+  가드를 `childEnv`가 아니라 파싱 지점에 둔 것은 의도다 — `childEnv`를 직접 부르는
+  기존 test 둘이 CI에서 붉어진다.
 
 - **back-patch에 결정 결속이 붙었다 (fail-closed, 쓰기 *이전*).** Task 4의 containment는
   `.claude/reviews/` **하위인지**만 보므로, 상류가 봉인한 경로가 다른 결정의 레코드를

@@ -2411,3 +2411,41 @@ never invokes.
 ## Codex Adversarial Review
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
+
+## Codex Implementation Review
+
+- 호출: `node plugins/mccp/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 1
+- 합치 결론: > Codex skipped per MCCP_CODEX_DISABLED=1 (봉인된 운영자 정책 — 2.5.0의 `codex-policy seal`이 `codex_disabled=true`를 기록했고 `codex-invoke.js`가 spawn 직전 short-circuit, `classification=disabled` · `blocking=false` · `durationMs=1`). 이 게이트에서 cross-model adversarial review는 발화하지 않았고, 그 사실이 receipt의 `resolution.codex_verdict='skipped'`로 봉인된다 — cross-gate dedupe는 `converged`가 아니므로 fail-closed로 닫힌 채 남는다.
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | — | — | — | Codex 미발화 — 판정할 finding 0건 |
+- Deferred to backlog: 0 → `.claude/plans/codex-findings-backlog.md`
+- Open Questions: implement-time 결정 다섯(모듈 분할 · execSync git 해소 · 사유 코드 판별자 · 주석 제거 YAML 스캔 · 중복 플래그 거부)은 L2 패널 24라운드가 이미 계획 본문에서 지목·흡수한 축이며, 이 게이트에서 cross-model 재검증은 받지 않았다 — severity LOW (계획 자신이 각 결정의 음성 통제를 test 분기로 소유한다)
+- Codex session 참조: n/a (미발화)
+
+### Security Reviewer
+
+`mccp:security-reviewer`를 **실제로 돌렸고 HIGH 1건을 그 자리에서 흡수했다.**
+
+- **HIGH — 격리 파일에서 도달 가능한 ReDoS가 유일한 머지 차단 체크를 태운다 (ACCEPT_NOW).**
+  `enumerate.js#globToRegExp`가 `*`마다 무한 수량자를 **합치지 않고** 이어붙여 연속 `*`가
+  파국적 backtracking 형태가 된다. 리뷰어 실측: `"*".repeat(15)+"ZZZNOMATCH"`는 경로 하나에
+  8초 후에도 미종료이고, 그 목록으로 `run.js --list`를 부르면 15초 후에도 살아 있었다.
+  오늘은 운영자 로컬 경로에서만 도달 가능하고 baseline은 `--exclude-from`을 넘기지 않으나,
+  **M3의 강제 workflow가 처음으로** fork PR이 통제하는 tracked 파일 내용을 리뷰 이전에 ·
+  `paths` 필터 없이 · 저장소의 **유일한 머지 차단 체크** 위에서 그 코드에 먹인다. 25자
+  pattern 한 줄이면 `timeout-minutes: 60`을 다 태우고, 머지되면 이후 **모든 PR**이 같은
+  한 시간을 지불한다. DD7·DD9의 래칫 셋은 *몇 개를* 격리하는지만 재고 *한 패턴이 얼마나
+  비싼지*는 재지 않아 이것을 막지 못한다.
+  **흡수 위치는 DD7이 소비 경로 위에 올려 둔 검증기**(`exclusions.js#validateExclusions`)이며
+  상한 셋을 뒀다 — `MAX_PATTERN_LENGTH=200` · `MAX_PATTERN_WILDCARDS=8` · `***` 이상 연속
+  금지. 표현력 손실 0(glob에서 `***`는 `**`와 같은 것을 뜻한다). 회귀 5분기를 추가했고
+  그중 하나는 **소비 경로**에서 20초 timeout으로 "평가가 아니라 거부"임을 잰다.
+- **MEDIUM — 컴파일러 자체의 수량자 병합 (DEFER_TO_BACKLOG).** 근본 처방은 인접 무한
+  수량자를 하나로 접는 것이고 그러면 상한 셋은 심층 방어로 남는다. 열거 의미론을 바꾸는
+  변경이라 384개 파일의 격리 판정이 거기 걸린다 — 별도 축으로 이연.
+- 리뷰어가 본 나머지 여섯 축(fork-PR 권한 경계 · SHA pin · secrets · 경로 traversal ·
+  명령 주입 · 산출물 유출)은 **결함 없음**으로 확인됐다. 그 축들은 DD4가 위협모델을
+  소유하고 Task 7 단언 1b가 방어 다섯을 기계로 고정한다.

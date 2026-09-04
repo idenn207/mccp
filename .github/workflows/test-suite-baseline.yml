@@ -8,13 +8,18 @@ name: test-suite baseline measurement
 # 커버리지 산출 · branch protection은 전부 M3 소유이고, 머지 차단은 이 파일이
 # 아니라 저장소 설정이 정한다.
 #
-# ── 트리거가 둘인 이유 ───────────────────────────────────────────────────────
-# GitHub은 `workflow_dispatch`를 **default branch에 있는 workflow 파일에 대해서만**
-# 받는다. 이 파일은 머지 전에는 feature branch에만 있으므로 `gh workflow run`이
-# 찾지 못한다. 그러면 DD5가 M1의 존재 이유로 든 "Node 20에서 `data.file` 귀속
-# 가용성을 실증한다"가 수단을 잃는다. 그래서 머지 전 발화 경로로 `pull_request`를
-# 둔다 — `paths`가 자기 자신과 `scripts/**`로 좁혀져 있어 여전히 전 PR 게이트가
-# 아니다. 미러 선례(`axis-k-m2-cross-platform.yml`)도 둘 다 갖는다.
+# ── 트리거가 하나인 이유 (M3 DD1) ───────────────────────────────────────────
+# 원래 `pull_request`가 함께 있었고, 그 사유는 하나뿐이었다: GitHub은
+# `workflow_dispatch`를 **default branch에 있는 workflow 파일에 대해서만** 받으므로
+# 머지 전에는 `gh workflow run`이 이 파일을 찾지 못한다는 것. 이 파일은 **이미
+# main에 있으므로 그 사유가 소멸했다.** 제거하면 강제 게이트(`test-suite.yml`)와 이
+# 파일이 같은 스위트를 중복 실행하는 일도 함께 사라진다.
+#
+# ── OS 축 (M3 DD8 · OQ3) ────────────────────────────────────────────────────
+# matrix에 `windows-latest`를 더해 Windows 원소를 1회 측정한다. 결정 규칙은 측정
+# **전에** 못박혀 있다(DD8): Windows 전용 red가 0건이면 PR 게이트는 Linux 전용으로
+# 두고 Windows는 dispatch 측정으로만 유지하고, 1건 이상이면 matrix에 넣되 벽시계가
+# Linux의 10배를 넘으면 별도 트리거로 분리한다. 규칙을 측정 후에 바꾸지 않는다(UI8).
 #
 # ── run 성공은 증거가 아니다 ─────────────────────────────────────────────────
 # `continue-on-error: true` + `if: always()`가 결합하면 `run.js`가 예외로 죽어
@@ -32,22 +37,27 @@ name: test-suite baseline measurement
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/test-suite-baseline.yml'
-      - 'scripts/**'
 
 permissions:
   contents: read
 
 jobs:
   measure:
-    name: node ${{ matrix.node }} — full-suite wall clock + per-file breakdown
-    runs-on: ubuntu-latest
+    # OS 축이 이름에 들어가야 한다 — 없으면 같은 node의 두 leg이 **동일한 check
+    # 이름**을 갖고, DD6이 "required status check는 job 이름 문자열로 걸린다"고
+    # 못박으며 Task 6 Validate도 그 이름을 판별자로 쓴다.
+    name: ${{ matrix.os }} node ${{ matrix.node }} — full-suite wall clock + per-file breakdown
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 180
+    # Windows runner 기본 셸은 pwsh이고, PRD L25가 이 저장소에서 `shell: bash`가
+    # load-bearing임을 실측했다.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node: ['20', '24']
     steps:
       # ci-full-suite M2 갈래 C — 기본 shallow 체크아웃은 `instruction-contract` lint의
@@ -74,30 +84,38 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
+      # `shell: bash`만으로는 Windows에 `/tmp`가 없다는 사실이 해결되지 않는다.
+      # `runner.temp`는 두 OS 모두에서 실재하는 경로를 준다.
       - name: Enumerate (sanity — must equal git ls-files '*.test.js')
+        env:
+          TMPDIR_ENUM: ${{ runner.temp }}
         run: |
-          node scripts/test-suite/run.js --list | sort > /tmp/enum.txt
-          git ls-files '*.test.js' | sort > /tmp/tracked.txt
-          diff /tmp/enum.txt /tmp/tracked.txt
-          echo "enumerated $(wc -l < /tmp/enum.txt) file(s)"
+          node scripts/test-suite/run.js --list | sort > "$TMPDIR_ENUM/enum.txt"
+          git ls-files '*.test.js' | sort > "$TMPDIR_ENUM/tracked.txt"
+          diff "$TMPDIR_ENUM/enum.txt" "$TMPDIR_ENUM/tracked.txt"
+          echo "enumerated $(wc -l < "$TMPDIR_ENUM/enum.txt") file(s)"
 
       # 측정이다. red는 기록되고 수리되지 않는다(UI4·UI5) — 그래서
       # continue-on-error다. 이 플래그가 없으면 스위트의 red가 dispatch를 실패로
       # 만들어 **실패 목록을 담은 artifact가 올라오지 않는다.**
       - name: Full-suite measurement
         continue-on-error: true
-        run: node scripts/test-suite/run.js --json > baseline-node${{ matrix.node }}.json
+        run: node scripts/test-suite/run.js --json > baseline-${{ matrix.os }}-node${{ matrix.node }}.json
 
       # `if: always()`가 필수다 — 위 단계가 어떻게 끝나든 산출물을 건져야 한다.
-      # artifact 이름은 계약이다: Validation의 `gh run download --name
-      # test-suite-baseline-node20`이 이 이름에 의존한다(미러 원본도 matrix 축을
-      # 이름에 넣는다).
+      #
+      # artifact 이름은 계약이고, M3 Task 6이 그 계약을 **바꾼다**: OS 축이 이름에
+      # 없으면 같은 node의 두 job이 동일 이름을 올려 `upload-artifact@v4`가 중복을
+      # 거부하고, Windows artifact가 존재 자체를 못 한다. 새 이름은
+      # `test-suite-baseline-<os>-node<n>`이다. (개명 이전에 도는 M3 Task 0의
+      # dispatch는 옛 이름 `test-suite-baseline-node20`을 그대로 쓴다 — 그 호출은
+      # 이 편집보다 앞선다.)
       - name: Upload measurement artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-suite-baseline-node${{ matrix.node }}
-          path: baseline-node${{ matrix.node }}.json
+          name: test-suite-baseline-${{ matrix.os }}-node${{ matrix.node }}
+          path: baseline-${{ matrix.os }}-node${{ matrix.node }}.json
           if-no-files-found: warn
 
       # 사람이 run 페이지에서 바로 읽을 수 있는 한 줄. 판정이 아니라 요약이다 —
@@ -106,7 +124,7 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          f=baseline-node${{ matrix.node }}.json
+          f=baseline-${{ matrix.os }}-node${{ matrix.node }}.json
           if [ -s "$f" ]; then
             node -e '
               const j = require("./" + process.argv[1]);

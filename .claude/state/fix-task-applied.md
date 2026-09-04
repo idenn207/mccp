@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: ci-full-suite-m1
+task_fingerprint: release-channel-separation-m3
 gate_id: stop-review-loop
-decision_id: ci-full-suite-m2
-created_at: 2026-09-02T08:58:45.388Z
-expires_at: 2026-09-09T08:58:45.388Z
+decision_id: release-channel-separation-m4
+created_at: 2026-09-04T05:43:12.643Z
+expires_at: 2026-09-11T05:43:12.643Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-plan-codex/ci-full-suite-m2.json
+  - .claude/receipts/mccp-plan-codex/release-channel-separation-m4.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-plan-codex/ci-full-suite-m2.json
+- .claude/receipts/mccp-plan-codex/release-channel-separation-m4.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/ci-full-suite-m2>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-plan-codex/release-channel-separation-m4>'

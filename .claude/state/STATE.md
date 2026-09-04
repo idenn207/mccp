@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: release-channel-separation-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T07:27:13.521Z
-last_event: receipt_write
-last_event_at: 2026-09-04T07:27:13.521Z
+updated_at: 2026-09-04T07:28:17.501Z
+last_event: stop_loop_pass
+last_event_at: 2026-09-04T07:28:17.501Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -47,4 +47,4 @@ release-channel-separation M4 — residual-closure. M1~M3이 명시로 이연한
 - findings registry가 전부 `finding_opened`로 남는다 — `closure_type` 플래그 부재로 정규 close 경로가 없다 (저장소 전반 부채, UI3 밖)
 
 ## Last Updated
-2026-09-04T07:27:13.521Z
+2026-09-04T07:28:17.501Z

@@ -126,7 +126,7 @@ bare `derive()`는 spawn-free 예산 위에 있으므로 축 계산 자체를 �
 ## 동결된 실측
 
 <details>
-<summary>한 줄 · 사람 출력 · 발행된 payload (축자, 2026-09-03)</summary>
+<summary>한 줄 · 사람 출력 · 발행된 payload (축자, 2026-09-04)</summary>
 
 생산 명령:
 
@@ -138,38 +138,38 @@ node plugins/mccp/scripts/lib/leadtime.js
 STATUS.md·status.html 상단에 실리는 한 줄:
 
 ```text
-리드타임 (59/72 측정) · p50: 패널 7.5min (59) · 패널→ship (조인 59): ledger 0.40d (13) · hash 0.28d (18)
+리드타임 (61/74 측정) · p50: 패널 7.5min (60) · 패널→ship (조인 61): ledger 0.41d (16) · hash 0.28d (18)
 ```
 
 `leadtime.js` 사람 출력 전문 (첫 줄이 위의 한 줄과 동일하다 — 세 면이 한 문장을 공유한다):
 
 ```text
-리드타임 (59/72 측정) · p50: 패널 7.5min (59) · 패널→ship (조인 59): ledger 0.40d (13) · hash 0.28d (18)
-  state=ok records=59 pre_measurement=13 parse_failures=0 out_of_corpus=31 read_error=false
-  coverage: 59/72 panel records measurable (counts below are a LOWER BOUND)
-  panel_span observed 59/59 measurable (missing 0)
+리드타임 (61/74 측정) · p50: 패널 7.5min (60) · 패널→ship (조인 61): ledger 0.41d (16) · hash 0.28d (18)
+  state=ok records=61 pre_measurement=13 parse_failures=0 out_of_corpus=31 read_error=false
+  coverage: 61/74 panel records measurable (counts below are a LOWER BOUND)
+  panel_span observed 60/61 measurable (missing 1)
   (state above is COMPOSITE — the worst of the loaded axes, not a single axis)
   panel_span — state=ok
-  panel_span (nearest-rank, n=59): min=0.7min p50=7.5min p90=13.0min max=427.4min
+  panel_span (nearest-rank, n=60): min=0.7min p50=7.5min p90=12.6min max=427.4min
   by_verdict:
     converged: n=5 p50=6.4min max=13.0min
-    divergent: n=51 p50=7.5min max=427.4min
+    divergent: n=52 p50=7.5min max=427.4min
     unavailable: n=1 p50=17.3min max=17.3min
     unknown: n=2 p50=1.1min max=1.3min
   by_halt_stage:
     (completed): n=36 p50=8.2min max=427.4min
     5.2b: n=1 p50=1.3min max=1.3min
     5.2c-emit: n=2 p50=1.1min max=17.3min
-    5.2e: n=20 p50=5.3min max=11.9min
+    5.2e: n=21 p50=5.3min max=11.9min
   post_panel_span — state=ok
-    coverage: eligible 59 · matched ledger_basename 13 · matched ship_plan_hash 18
-      cross: both 7 · only_ledger 6 · only_ship 11 · neither 35
-    ship receipts: 54/86 qualified (unproven-skip 6 · override-qualified 13)
-    ledger_basename (nearest-rank, n=13): min=0.05d p50=0.40d p90=0.97d max=1.74d
+    coverage: eligible 61 · matched ledger_basename 16 · matched ship_plan_hash 18
+      cross: both 7 · only_ledger 9 · only_ship 11 · neither 34
+    ship receipts: 56/88 qualified (unproven-skip 6 · override-qualified 13)
+    ledger_basename (nearest-rank, n=16): min=0.05d p50=0.41d p90=1.09d max=1.74d
     ship_plan_hash (nearest-rank, n=18): min=0.02d p50=0.28d p90=4.18d max=5.92d
     disagreement (both axes matched, n=7, over abs(anchor_delta_ms)): p50=0.00d max=0.00d
-    unmatched[ledger_basename]: 46 = anchor_absent=30 unclassified=16
-    unmatched[ship_plan_hash]: 41 = key_mismatch=23 anchor_absent=11 unclassified=7
+    unmatched[ledger_basename]: 45 = anchor_absent=30 unclassified=15
+    unmatched[ship_plan_hash]: 43 = key_mismatch=25 anchor_absent=11 unclassified=7
 ```
 
 발행된 `.claude/state/leadtime/distribution.json`:
@@ -178,24 +178,24 @@ STATUS.md·status.html 상단에 실리는 한 줄:
 {
   "coverage": {
     "counts_are_lower_bound": true,
-    "measurable": 59,
-    "panel_records": 72
+    "measurable": 61,
+    "panel_records": 74
   },
   "degradations": [],
   "panel_span": {
     "max": 25642300,
     "min": 43984,
-    "n": 59,
-    "p50": 449737,
-    "p90": 779328
+    "n": 60,
+    "p50": 447105,
+    "p90": 756525
   },
   "post_panel_span": {
     "by_anchor": {
       "ledger_basename": {
         "max": 150743189,
-        "n": 13,
-        "p50": 34325553,
-        "p90": 84090441
+        "n": 16,
+        "p50": 35050053,
+        "p90": 94558358
       },
       "ship_plan_hash": {
         "max": 511876477,
@@ -206,11 +206,11 @@ STATUS.md·status.html 상단에 실리는 한 줄:
     },
     "coverage": {
       "both": 7,
-      "eligible": 59,
-      "matched_ledger": 13,
+      "eligible": 61,
+      "matched_ledger": 16,
       "matched_ship": 18,
-      "neither": 35,
-      "only_ledger": 6,
+      "neither": 34,
+      "only_ledger": 9,
       "only_ship": 11
     },
     "disagreement": {
@@ -225,11 +225,11 @@ STATUS.md·status.html 상단에 실리는 한 줄:
         "key_mismatch": 0,
         "no_plan_path": 0,
         "not_shipped": 0,
-        "unclassified": 16
+        "unclassified": 15
       },
       "ship_plan_hash": {
         "anchor_absent": 11,
-        "key_mismatch": 23,
+        "key_mismatch": 25,
         "no_plan_path": 0,
         "not_shipped": 0,
         "unclassified": 7

@@ -34,7 +34,7 @@ If working tree is dirty AND current branch is `main`/`master`:
 [MCCP-WORK-STOP] Dirty working tree on main. Run /mccp:prp-commit first or stash, then re-invoke /mccp:work.
 ```
 
-End the response. Do NOT proceed.
+End the response. Do NOT proceed. **먼저 halt 를 기록한다** — 이 줄은 `enforcement: prose` 라 정적 test 가 볼 수 없고, 이 지시 말고는 강제하는 것이 없다: 기록 호출은 `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step detect --site 0.dirty-tree --reason "dirty working tree on the default branch" 1>/dev/null || true` 이다.
 
 ### Work-unit occupancy check (multi-session-work-loop M3 — advisory)
 
@@ -134,6 +134,49 @@ A1_LINE=$(node -e '
 if [ -n "$A1_LINE" ]; then
   echo "[mccp:work] $A1_LINE"
 fi
+
+# orchestrator-step-wiring M2 (Task 9) — 직전 halt 한 줄. A1 과 **같은 화면에서**
+# 읽는 것이 PRD 지표 4 가 지정한 소비 행동이라 여기에 붙는다. fold 규칙은 위 A1
+# 블록 verbatim 이다: 자식 프로세스 경계(`spawnSync`) + `timeout`, 빈 출력이면 줄 생략.
+#
+# **부재와 실패를 구분한다.** halt 가 없으면(정상 · 대부분의 실행) 줄을 아예 내지
+# 않는다 — 조용한 것이 맞다. 읽기가 깨졌으면 `halt 배너 생략: <사유>` 를 남긴다.
+# 구분하지 않으면 둘 중 하나를 반드시 저지른다: halt 가 없을 뿐인데 매 실행 경고를
+# 내거나(노이즈), 읽기가 깨졌는데 아무 말도 안 하거나(침묵). 위 A1 주석이 세운 근거
+# ("조용히 사라지지는 않는다")가 그대로 적용된다.
+#
+# 출력 포맷은 `work-orchestrator.js last-halt` 가 소유한다 — 여기 다시 적지 않는다.
+# 이 줄은 primary action 이 아니라 **진단 보조**이고 한 줄에 최대 5개 필드가 실려
+# 앵커 1(정보 위계 3단계)을 문자 그대로 만족하지 않는다. 숨기지 않고 적어 둔다.
+# 완화 장치는 셋이다 — 필드 순서가 위계를 따르고(step·site = 무엇이 막았나 → 시각 =
+# 지금 것인가 → reason·worktree = 세부), reason 이 배너에서 80자로 잘리고, halt 는
+# 저빈도 사건이라 이 줄이 평소에는 아예 없다. 라이브에서 상시 표시될 만큼 halt 가
+# 잦아지면 (step, site) 로 줄이고 나머지를 `/mccp:trace` 로 미루는 것이 다음 수다.
+HALT_LINE=$(node -e '
+  const { spawnSync } = require("child_process");
+  const path = require("path");
+  const r = spawnSync(process.execPath,
+    [path.join(process.argv[1], "scripts", "lib", "work-orchestrator.js"), "last-halt"],
+    { encoding: "utf8", timeout: 3000 });
+  const out = String((r && r.stdout) || "").trim();
+  if (out) { process.stdout.write(out); }
+  else {
+    // review HIGH-2 — reader 가 내지 않은 말을 reader 의 사유로 삼지 않는다. 이 순회는
+    // 남의 worktree STATE.md 를 읽으므로 그 파싱 계층의 경고가 stderr 에 섞일 수 있고,
+    // 아무 첫 줄이나 집으면 **halt 부재(정상)가 읽기 실패로 오보**된다. 사유는 reader
+    // 자신의 접두를 단 줄만 채택한다(reader 는 그 형태로만 사유를 낸다).
+    const why = (r && r.signal === "SIGTERM")
+      ? "타임아웃(3s) — worktree 순회가 길어졌을 수 있음"
+      : ((r && r.error && r.error.message)
+        || String((r && r.stderr) || "").split("\n")
+             .filter(function (l) { return l.indexOf("[mccp:last-halt]") === 0; })[0]
+        || "");
+    if (why) process.stdout.write("halt 배너 생략: " + why.slice(0, 140));
+  }
+' "${CLAUDE_PLUGIN_ROOT}" 2>/dev/null)
+if [ -n "$HALT_LINE" ]; then
+  echo "[mccp:work] $HALT_LINE"
+fi
 ```
 
 ---
@@ -163,13 +206,52 @@ Do NOT ask for confirmation. If user wants a different route they re-invoke with
 
 Generate a commit message from the feature description (`$ARGUMENTS` stripped of flag tokens). Invoke `Skill(mccp:prp-commit, "<message>")`.
 
-On failure: write `.claude/state/fix-task.md` with the failure detail and STOP. Do NOT advance to Step 2.
+On failure: write `.claude/state/fix-task.md` with the failure detail, **halt 를 기록하고**, STOP. Do NOT advance to Step 2. (`enforcement: prose` — 정적 test 가 이 지점을 볼 수 없다는 사실이 halt 사이트 표가 이 행을 남겨 두는 이유다.) 기록 호출은 `node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step commit --site 2t.commit --reason "trivial-chain commit step failed" 1>/dev/null || true` 이다.
 
 ### Step 2 — `/mccp:pr`
 
 Invoke `Skill(mccp:pr)`. Codex bypass is automatic per user memory rule when `MCCP_CODEX_DISABLED=1` (or auto-apply `MCCP_PR_SKIP_CODEX_REVIEW="<reason>"`).
 
 Goto Phase 3 (REPORT).
+
+---
+
+## Halt 사이트 표 (orchestrator-step-wiring M2)
+
+`/mccp:work` 가 멈출 수 있는 지점의 **전수**다. A1 이 하락했을 때 "어느 phase 가
+막았나" 에 답하려면 분모가 먼저 있어야 하고, 그 분모가 여기다. 각 행은
+`record-halt --site` 값과 **양방향으로** 일치해야 하며 `work-command-body.test.js`
+가 그것을 강제한다 — 표를 줄여서 커버리지를 만족시키는 길은 막혀 있다(Task 8 (d)(h)).
+
+`enforcement` 열이 강제 수단을 말한다. `prose` 2건은 fenced bash 가 아니라 산문
+지시라 정적 test 가 볼 수 없다. **표에서 빼면 커버리지가 거짓으로 100% 가 되므로**
+남겨서 분모에 포함하고, 강제 수단이 다르다는 사실을 표 자신이 말하게 한다
+(§3.17 evidence-debt 래칫과 같은 형태 — 부채를 숨기지 않고 열거해서 갚게 만든다).
+
+| site | step | 위치 | enforcement |
+|---|---|---|---|
+| `0.dirty-tree` | `detect` | Phase 0 working tree check | **prose** |
+| `2t.commit` | `commit` | Phase 2.T Step 1 실패 | **prose** |
+| `3.preflight` | `implement` | `next-step` HALT | shell |
+| `3.route.fleet` | `implement` | fleet 예약 미commit | shell |
+| `3.route.single` | `implement` | 단일 worker 예약 미commit | shell |
+| `3.gate.no-return` | `implement` | Workflow 결과 회수 실패 | shell |
+| `3.gate.args` | `implement` | reconcile args 재생성 실패 | shell |
+| `3.gate.verdict` | `implement` | reconcile verdict != ok | shell |
+| `3.wp.no-return` | `implement` | fleet 결과 회수 실패 | shell |
+| `3.wp.collect` | `implement` | worktree collect 실패 | shell |
+| `3.wp.verdict` | `implement` | fleet verdict != ok | shell |
+| `3.merge` | `implement` | merge-apply 실패 | shell |
+| `3.verify` | `verify` | merged-verify block | shell |
+
+기록은 **관측이지 게이트가 아니다**. recorder 는 어떤 실패에도 exit 0 이고, 모든
+halt 분기는 recorder **뒤에** 명시 `exit` 로 끝난다 — recorder 가 분기의 마지막
+문장이면 그 분기가 exit 0 을 물려받아 **halt 가 통과로 읽힌다**(DD5, Task 8 (c)).
+
+기록의 반대편도 배선돼 있다 — Step 3.verify 통과와 Phase 3 도달이 `record-step` 으로
+**진전**을 남긴다. 그것이 없으면 append-only 원장에 halt 뒤로 아무것도 쌓이지 않아
+`last-halt` 의 supersession 규칙이 발동하지 못하고 배너가 고쳐진 halt 를 무기한
+주장한다(M2 review HIGH-1).
 
 ---
 
@@ -207,6 +289,7 @@ HALT=$(echo "$NS" | node -e 'try{const j=JSON.parse(require("fs").readFileSync(0
 if [ "$HALT" = "1" ]; then
   echo "[mccp:work] HALT at implement step. Writing .claude/state/fix-task.md and stopping."
   # write fix-task.md with the JSON reasons[]
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.preflight --reason "next-step reported HALT before implement" 1>/dev/null || true
   exit 13
 fi
 ```
@@ -492,6 +575,7 @@ if [ -f "$GITDIR/dispatch-fleet-reservation.json" ]; then
       echo "[MCCP-GATE-STOP] runaway reservation $RES_ID could not be committed after 3 attempts" 1>&2
       echo "  (actual=$ACTUAL_N would launch). Launching now would under-count the cap." 1>&2
       echo "  Token kept at $GITDIR/dispatch-fleet-reservation.json — inspect .claude/state/orchestration-runaway.json{,.lock}" 1>&2
+      node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.route.fleet --reason "fleet reservation could not be committed after 3 attempts" 1>/dev/null || true
       exit 1
     fi
   else
@@ -550,6 +634,7 @@ else
         # un-spawns nothing (plan.md's fan-out cannot halt — hence its debt marker).
         echo "[MCCP-GATE-STOP] 단일 worker 예약 $SR_ID 를 3회 시도에도 commit하지 못했다." 1>&2
         echo "  지금 launch하면 cap이 그 worker를 영영 놓친다. inspect .claude/state/orchestration-runaway.json{,.lock}" 1>&2
+        node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.route.single --reason "single-worker reservation could not be committed after 3 attempts" 1>/dev/null || true
         exit 1
       fi
       echo "[mccp:work] 단일 worker 예약 commit (route=$ROUTE actual=1)" 1>&2
@@ -628,6 +713,7 @@ if [ -f "$GITDIR/dispatch-prepare.json" ]; then
   if [ -f "$GITDIR/dispatch-workflow-started.json" ] && [ ! -f "$GITDIR/dispatch-workflow-return.json" ]; then
     echo "[MCCP-WORKFLOW-HALT] Workflow started but no return recovered — fail-closed (Codex F1). No Task fallback." 1>&2
     # write fix-task.md; cleanup 지시(envelope 점검, resumeFromRunId 재개)
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.gate.no-return --reason "Workflow started but no return recovered - fail-closed, no Task fallback" 1>/dev/null || true
     exit 13
   fi
   # reconcile 입력(args)은 prepare 파생물이다. Step 3.prep의 emit이 드문 fs 오류로
@@ -640,7 +726,7 @@ if [ -f "$GITDIR/dispatch-prepare.json" ]; then
     node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" emit-workflow-args \
       --prepare-file "$GITDIR/dispatch-prepare.json" \
       > "$GITDIR/dispatch-workflow-args.json" 2> "$GITDIR/dispatch-workflow-args.stderr" \
-      || { echo "[MCCP-RECONCILE-HALT] reconcile args 재생성 실패 — prepare 산출물 손상(worker 결과와 무관). fix-task 후 재개." 1>&2; rm -f "$GITDIR/dispatch-workflow-args.json"; exit 13; }
+      || { echo "[MCCP-RECONCILE-HALT] reconcile args 재생성 실패 — prepare 산출물 손상(worker 결과와 무관). fix-task 후 재개." 1>&2; rm -f "$GITDIR/dispatch-workflow-args.json"; node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.gate.args --reason "reconcile args regeneration failed - prepare artifact damaged" 1>/dev/null || true; exit 13; }
   fi
   ENV_ABS=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).envelopePath)' "$GITDIR/dispatch-prepare.json")
   RECON_ARGS=(reconcile --args-file "$GITDIR/dispatch-workflow-args.json" --envelope "$ENV_ABS")
@@ -656,6 +742,7 @@ if [ -f "$GITDIR/dispatch-prepare.json" ]; then
   if [ "$VERDICT" != "ok" ]; then
     echo "[mccp:work] HALT: implement reconcile verdict=$VERDICT. Writing .claude/state/fix-task.md and stopping."
     # write fix-task.md with the RECON json (verdict + mismatches + invariantViolations + unanchored)
+    node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.gate.verdict --reason "implement reconcile verdict was not ok" 1>/dev/null || true
     exit 13
   fi
 fi
@@ -713,6 +800,7 @@ GITDIR=$(git rev-parse --git-path mccp/tmp)
 if [ -f "$GITDIR/dispatch-workflow-started.json" ] && [ ! -d "$GITDIR/dispatch-fleet-results" ]; then
   echo "[MCCP-WORKFLOW-HALT] fleet started but no results recovered — fail-closed (Codex F1). No fallback." 1>&2
   # write fix-task.md; cleanup(resumeFromRunId 재개) 지시
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.wp.no-return --reason "fleet started but no results recovered - fail-closed, no fallback" 1>/dev/null || true
   exit 13
 fi
 # dispatchId 목록은 fleet args에서. collect-worktrees가 map을 dispatch-fleet-worktrees.json에 쓴다.
@@ -721,7 +809,7 @@ node -e 'const a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
 node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" collect-worktrees \
   --dispatch-ids-file "$GITDIR/dispatch-fleet-ids.json" \
   --out "$GITDIR/dispatch-fleet-worktrees.json" > "$GITDIR/dispatch-fleet-collect.json" \
-  || { echo "[MCCP-COLLECT-HALT] worktree collect 실패(missing/ambiguous dispatchId) — lost worker fail-closed. fix-task 후 재개." 1>&2; exit 13; }
+  || { echo "[MCCP-COLLECT-HALT] worktree collect 실패(missing/ambiguous dispatchId) — lost worker fail-closed. fix-task 후 재개." 1>&2; node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.wp.collect --reason "worktree collect failed - missing or ambiguous dispatchId" 1>/dev/null || true; exit 13; }
 ```
 
 **(gate SECOND — verdict BEFORE merge, Codex F1)** N-way reconcile → `mergeVerdicts` (worker 실제-diff subset F2 포함). **집계 판정을 merge-back 전에, 격리 worktree 결과만으로** 실행 — 이 시점 parent는 여전히 clean → 어떤 verdict든 부분 적용 0:
@@ -740,6 +828,7 @@ echo "[mccp:work] fleet reconcile verdict=$VERDICT"
 if [ "$VERDICT" != "ok" ]; then
   echo "[mccp:work] HALT: fleet verdict=$VERDICT — parent worktree still clean(부분 적용 0). fix-task.md 작성 후 종료."
   # write fix-task.md with RECON(verdict + perWorker + invariantViolations + unanchored + partitionEscapes + mismatches)
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.wp.verdict --reason "fleet reconcile verdict was not ok - parent worktree still clean" 1>/dev/null || true
   exit 13
 fi
 ```
@@ -753,7 +842,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/dispatch-cli.js" merge-apply \
   --worktree-map "$GITDIR/dispatch-fleet-worktrees.json" \
   --partitions-file "$GITDIR/dispatch-fleet-partitions.json" \
   --patches-out "$GITDIR/dispatch-fleet-patches.json" > "$GITDIR/dispatch-fleet-mergeapply.json" \
-  || { echo "[MCCP-MERGE-HALT] merge-apply 실패(collect/escape/pre-apply-dirty/conflict) — parent 미오염(자체 rollback). fix-task 후 종료." 1>&2; exit 13; }
+  || { echo "[MCCP-MERGE-HALT] merge-apply 실패(collect/escape/pre-apply-dirty/conflict) — parent 미오염(자체 rollback). fix-task 후 종료." 1>&2; node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step implement --site 3.merge --reason "merge-apply failed - collect, escape, pre-apply-dirty or conflict" 1>/dev/null || true; exit 13; }
 ```
 
 > **F4 (Codex R1) — 광범위 `git checkout --`/`git clean` 절대 금지**: /mccp:work는 main 밖 dirty feature branch를 허용하므로 광범위 복원은 사용자의 기존 uncommitted 변경·untracked 파일을 파괴(data loss)한다. rollback은 **기록된 patch만** `git apply -R`로 역적용한다(`rollback-apply` — Step 3.verify HALT 경로에서 사용). merge-apply의 pre-apply clean assert가 사용자 사전 dirty를 먼저 감지해 HALT하므로 apply-후-충돌 자체가 드물다.
@@ -822,6 +911,7 @@ if [ "$MV_BLOCK" = "1" ]; then
   fi
   # 단일/인라인 경로: worker가 parent를 직접 편집 — 변경은 uncommitted로 **보존**(auto-rollback 안 함; 사용자가 cross-cut 회귀를 working tree에서 수정 후 재실행. 광범위 rollback은 F4 data-loss).
   # write .claude/state/fix-task.md with $MV(verdict+reason) + $GITDIR/mv-codex.stderr excerpt
+  node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-halt --step verify --site 3.verify --reason "aggregate merged-verify blocked the commit step" 1>/dev/null || true
   exit 13
 fi
 
@@ -829,6 +919,13 @@ fi
 node "${CLAUDE_PLUGIN_ROOT}/scripts/receipt/cli.js" write \
   --gate mccp-implement-verify --decision "$DECISION_SLUG" --plan "$PLAN_PATH" \
   --merged-verify-verdict "$MV_VERDICT" --merged-verify-rounds "$MV_ROUNDS" --quiet
+# M2 review HIGH-1 — halt 원장에 **진전**을 기록한다. `chain_progress` 는 append-only 이고
+# 해소 상태를 쓰는 경로가 없어서, halt 뒤에 아무것도 쌓이지 않으면 `last-halt` 의
+# supersession 규칙(마지막 항목이 halted 일 때만 주장)이 구조적으로 발동하지 못하고
+# 배너가 고쳐진 halt 를 무기한 재생한다. 여기가 implement 축의 진전 지점이다 —
+# 3.preflight·3.gate.*·3.wp.*·3.merge·3.verify 가 전부 이 한 줄로 지나간 것이 된다.
+# 재진입만으로는 기록되지 않는다(실제로 verify 를 통과해야 도달한다).
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-step --step implement --status ok 1>/dev/null || true
 echo "[mccp:work] mccp-implement-verify receipt 기록 (verdict=$MV_VERDICT rounds=$MV_ROUNDS) → Step 4"
 ```
 
@@ -848,6 +945,22 @@ Goto Phase 3 (REPORT).
 ---
 
 ## Phase 3 — REPORT
+
+두 경로(Phase 2.T Step 2 · Phase 2.F Step 5)가 모두 여기로 온다. 요약을 내기 전에
+**완주를 halt 원장에 기록**한다 (M2 review HIGH-1). `chain_progress` 에는 해소를 쓰는
+경로가 없어서 halt 뒤에 아무것도 쌓이지 않으면 `last-halt` 가 이미 지나간 halt 를
+무기한 주장한다 — Step 3.verify 의 진전 기록이 implement 축을 닫고, 이 줄이 나머지
+축(`0.dirty-tree`·`2t.commit`)까지 닫는다. 체인이 halt 없이 끝까지 왔다는 사실만
+기록하므로 재진입이나 중도 종료로는 도달하지 않는다.
+
+**A1 완주 지표와는 무관하다.** 완주의 정의(PR 번호 생성 시점)도 그 producer도
+건드리지 않는다 — A1 은 `msw-events` 공유 corpus 에서 집계되고 `chain_progress` 는
+DD1 이 명시적으로 갈라 놓은 별개 채널이다. 여기 쌓이는 것은 배너의 신선도 판정에만
+쓰인다.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/work-orchestrator.js" record-step --step pr --status ok 1>/dev/null || true
+```
 
 Print a summary to the user:
 

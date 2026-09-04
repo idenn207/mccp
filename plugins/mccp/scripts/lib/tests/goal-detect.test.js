@@ -464,6 +464,53 @@ test('S11g: plan cell escaping the repo under every base → path-traversal', ()
   });
 });
 
+// === S11j-l: multi-span plan cells (the shape live PRD rows actually use) ===
+//
+// `<plan>` · 결과 `<report>` is the dominant cell shape in this repo, and the
+// whole-cell fence cannot match it — the backticks reached path resolution and
+// the row reported plan-missing for a plan that exists (measured live on
+// orchestrator-step-wiring M2, 2026-09-04).
+
+test('S11j: `<plan>` · 결과 `<report>` cell resolves to the plan, not the report', () => {
+  withTempDir((dir) => {
+    // Both files exist on purpose: a parser that took the LAST span would also
+    // say ok, so the assertion that carries weight is WHICH file it named.
+    const reportDir = path.join(dir, '.claude', 'PRPs', 'reports');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(path.join(reportDir, 'm2-report.md'), '# report\n', 'utf8');
+    const result = detectNested(
+      dir,
+      '`.claude/plans/m2.plan.md` · 결과 `.claude/PRPs/reports/m2-report.md`'
+    );
+    assert.strictEqual(result.reason, 'ok');
+    assert.strictEqual(result.goal_signal, true);
+    assert.strictEqual(result.signal_ref.plan, '.claude/plans/m2.plan.md');
+  });
+});
+
+test('S11k: a markdown link still outranks a trailing inline-code span', () => {
+  withTempDir((dir) => {
+    fs.mkdirSync(path.join(dir, '.claude', 'plans'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude', 'plans', 'linked.plan.md'), '# linked\n', 'utf8');
+    const result = detectNested(
+      dir,
+      '[plan](.claude/plans/linked.plan.md) · 결과 `.claude/plans/m2.plan.md`'
+    );
+    assert.strictEqual(result.reason, 'ok');
+    assert.strictEqual(result.signal_ref.plan, '.claude/plans/linked.plan.md');
+  });
+});
+
+test('S11l: a multi-span cell whose first span is an em-dash stays plan-missing', () => {
+  withTempDir((dir) => {
+    // Span-taking must not manufacture a hit out of a placeholder: the em-dash
+    // is rejected and the cell falls through unresolved, exactly as before.
+    const result = detectNested(dir, '`—` · 결과 `.claude/plans/m2.plan.md`');
+    assert.strictEqual(result.goal_signal, false);
+    assert.strictEqual(result.reason, 'plan-missing');
+  });
+});
+
 // === bonus: availability=unknown + ok-eligible row → reason=unknown-default ===
 
 test('Bonus: availability=unknown + eligible row → goal_signal=false + reason=unknown-default', () => {

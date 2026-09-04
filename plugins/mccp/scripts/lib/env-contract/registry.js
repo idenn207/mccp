@@ -179,7 +179,7 @@ const RAW = [
   // ── orchestration — work 격리/병렬/merge · plan fan-out · runaway · dispatch ─
   ['MCCP_WORK_ISOLATE_IMPLEMENT', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-preview.js:78', 'implement worktree 격리.'],
   ['MCCP_WORK_IMPLEMENT_WORKFLOW', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/route.js:68', 'Workflow 런타임 사용.'],
-  ['MCCP_WORK_IMPLEMENT_PARALLEL', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/commands/work.md:239', '병렬 implement 허용.'],
+  ['MCCP_WORK_IMPLEMENT_PARALLEL', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/commands/work.md:322', '병렬 implement 허용.'],
   ['MCCP_WORK_PARALLEL_MAX', 'int', null, '4', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:120', '동시 worker 상한.'],
   ['MCCP_WORK_PARALLEL_BUDGET', 'int', null, '150000', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:121', '병렬 최소 토큰 예산.'],
   ['MCCP_WORK_PARALLEL_AUTODISABLE_TIER', 'list', null, '', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:122', '병렬 자동 해제 tier.', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js#allowed'],

@@ -316,3 +316,30 @@
 }
 ```
 
+### MCCP_LEADTIME_GIT
+
+**종류** `bool` — **값** `on` · `off` — **기본값** `on`
+
+**한 줄** 리드타임 git 증인 spawn.
+
+**소비처** `plugins/mccp/scripts/lib/leadtime-derive.js:96`
+
+**극성** 미설정이면 **켜져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
+
+**끄면 사라지는 것은 축이 아니라 증인이다.** `off` 는 리드타임 축을 끄지 않는다. 백분위(`panel_span` · `post_panel_span`)와 커버리지는 **그대로** 산출되고, 빠지는 것은 미짝 레코드를 *분류*할 때만 쓰이는 git 증인뿐이다. 대가는 `not_shipped` 가 도달 불가가 되어 그 행이 `unclassified` 로 떨어지는 것이다. 축 자체를 끄는 토글이 아니라는 점이 요점이다 — 축을 끄면 "커버리지 없는 값을 내지 않는다"가 지키려는 관측 자체를 잃는다.
+
+**끈 것은 조용히 꺼지지 않는다.** `off` 로 돈 산출물의 `degradations` 에 `git-disabled` 가 실린다. `.claude/state/leadtime/distribution.json` 이나 `--json` 출력에서 그 값을 보면, `unclassified` 증가는 코퍼스의 성질이 아니라 **이 토글의 결과**로 읽어야 한다. 그 신호가 없는데 `unclassified` 가 늘었다면 그것은 진짜 코퍼스 변화다.
+
+**표면에도 뜬다.** 파일에만 실으면 약속이 절반만 참이다 — 대시보드를 보는 운영자는 레버를 당긴 사실을 볼 수 없다. STATUS.md · status.html · `leadtime.js` 사람 출력의 한 줄 **바로 아래 문단**에 `관측 축소: git-disabled` 가 붙는다(`손상` 이 아니다 — 운영자가 줄인 관측을 손상으로 적으면 반대 방향의 거짓이 된다). 한 줄 자체는 토글 양쪽에서 동일하다: 꺼진 것은 증인이지 분포가 아니기 때문이다.
+
+**언제 끄는가** 렌더 경로의 git spawn 비용이 문제일 때다. 실측(이 저장소): `derive(worktreeScan:true)` 2371ms 대 `audit()` 371ms 로 렌더 경로에 약 16% 추가된다. M3 까지는 `allowGit: true` 가 하드코딩돼 이 레버 자체가 없었고, 되돌릴 수단이 없다는 것이 M4 가 고친 결함이다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_LEADTIME_GIT": "off"
+  }
+}
+```

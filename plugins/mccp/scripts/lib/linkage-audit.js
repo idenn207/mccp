@@ -88,6 +88,34 @@ const DEFAULT_BASELINE_REF = '647dfecba75eecd9287ee538ca5f7056c7ba71da';
 // git tree 경로는 항상 POSIX 다. 작업 트리 스캔(진단용)에만 플랫폼 구분자가
 // 필요하므로, 정본은 POSIX 로 두고 필요한 쪽에서 변환한다 — 반대로 하면 Windows
 // 에서 `tree.has()` 가 영원히 거짓이 되어 코퍼스가 통째로 비어 보인다.
+// DD7 — **강제**의 경계 ref. 위 `DEFAULT_BASELINE_REF` 와는 다른 질문에 답한다:
+// 저것은 "동결 baseline 이 어디까지인가", 이것은 "어디부터 라운드 구조를 요구하는가".
+//
+// 지표 3 의 분모는 PRD 가 이미 "**착지 후** 발행분" 이라 정해 뒀다. 없던 것은 그
+// "착지" 를 기계가 아는 방법이고, M1 이 `--baseline-ref` 로 같은 장치를 이미 갖고
+// 있으므로 그 모양을 그대로 쓴다. 라이브 파티션 전건을 분모로 쓰면 UI1(소급 금지)
+// 때문에 기존 레코드가 영구히 `absent` 라서 종료 코드가 **절대 0 이 될 수 없다** —
+// "absent 가 있으면 비영점" 과 "착지 후 exit 0" 이 동시에 참일 수 없었다.
+//
+// 값은 M4 구현 시점의 `origin/main` tip 이다. 전체 SHA 인 이유는 `DEFAULT_BASELINE_REF`
+// 와 같다(축약은 ambiguous 해질 수 있고 그 실패가 `unresolved` 로 나타난다).
+//
+// **알려진 한계**: SHA 경계는 "M4 를 아는 코드가 생산했는가" 를 정확히 표현하지
+// 못한다. 이 커밋 이후에 머지되는 **병렬 브랜치**의 레코드는 M4 이전 코드가 만들었어도
+// 경계 이후로 잡힌다. 그때의 정답은 이 상수를 앞으로 미는 것이 아니라 `--since` 로
+// 그 사이클의 경계를 주는 것이다 — 상수는 기본값이지 유일한 값이 아니다.
+const DEFAULT_M4_BOUNDARY_REF = '2cb173c61b60d8569004de6789dfa1ecadb82b99';
+
+// `--check-round-structure` 의 종료 코드. `STATE_EXIT_CODES` 와 **분리한다** — 저것은
+// "코퍼스를 얼마나 읽었는가", 이것은 "경계 이후 레코드가 D1 을 만족하는가" 로 서로
+// 다른 질문이고, 같은 표를 나눠 쓰면 한쪽 의미가 바뀔 때 다른 쪽이 조용히 따라간다.
+const CHECK_EXIT_CODES = Object.freeze({
+  ok: 0,
+  violations: 1,        // 경계 이후 레코드에 absent 가 있다 — 이 도구의 본래 목적
+  degraded: 2,          // 판정 대상을 다 읽지 못했다 — 통과시키면 fail-open 이다
+  unresolved: 3,        // 경계 ref 자체가 해소되지 않았다
+});
+
 const SHIP_RECEIPT_SUBDIR = '.claude/receipts/mccp-pr-codex';
 
 // 비재귀 2경로. corpus.js REVIEW_SUBDIRS 와 동일 — 여기서 좁히면 두 도구의 소속
@@ -613,6 +641,25 @@ function aggregate(input) {
     post.head_ships = liveShips.length;
     post.head_records = liveRecords.length;
 
+    // review-record-linkage M4 (DD5) — D1 자격 3값 집계. **보고**이지 강제가 아니다.
+    // 강제는 `--check-round-structure` 가 하고 그 분모는 M4 착지 경계 이후다(DD7).
+    // 동결 파티션의 `round_structure` 는 한 줄도 건드리지 않는다 — 신규 카운트는
+    // 라이브에만 나타나야 동결 baseline 이 움직이지 않는다(R6).
+    const roundCounts = { present: 0, not_enrolled: 0, absent: 0 };
+    const roundReasons = {};
+    liveRecords.forEach(function (rec) {
+      const c = defs.classifyRoundStructure(rec.parsed.measurement);
+      roundCounts[c.verdict] = (roundCounts[c.verdict] || 0) + 1;
+      roundReasons[c.reason] = (roundReasons[c.reason] || 0) + 1;
+    });
+    post.round_structure = {
+      definition: 'measurement.rounds is an integer >= 1 (D1); eligibility is 3-valued (DD5)',
+      counts: roundCounts,
+      by_reason: roundReasons,
+      note: 'REPORT only — the enforced denominator is the M4 landing boundary, not this ' +
+        'partition (DD7). Run --check-round-structure for the enforcing view.',
+    };
+
     const liveEligibility = { eligible: 0, not_eligible: 0, undecidable: 0 };
     const liveEligibilityReasons = {};
     const liveEligible = [];
@@ -650,6 +697,119 @@ function aggregate(input) {
   if (totalCorpus === 0) result.state = 'blind';   // blind 가 degraded 를 이긴다
 
   return result;
+}
+
+// ── 경계 검사 (review-record-linkage M4 — DD4의 2번 · DD7) ──────────────────
+//
+// DD4 는 "미달 형식은 기록 시점에 거부" 를 둘로 나눴다. 기록 시점은 레코드가 자기
+// 비적합을 **선언**하는 것(`record.js`)이고, **강제**는 여기다 — 감사 도구는 게이트가
+// 아니므로 진짜로 막아도 계측이 승인을 죽이지 않고, plan 의 `## Validation` 에
+// 걸리므로 실효가 있다.
+//
+// ── ref 취급 (security S1) ──────────────────────────────────────────────────
+//
+// 이 파일은 `--baseline-ref '--output=...'` 로 임의 파일 쓰기가 **실제 재현된** 이력이
+// 있다(:217-224). 그 교훈을 새 플래그에서 되풀이하지 않기 위해 두 겹을 그대로 쓴다:
+//   1. `main()` 이 파싱 시점에 `isSafeRef` 로 fail-closed 검증한다.
+//   2. ref 는 **절대 다른 문자열과 결합하지 않는다**. `ref + '...HEAD'` 같은 단일 토큰은
+//      `--output=/tmp/x...HEAD` 를 만들고 git 의 prefix-match 옵션 파서가 그것을 여전히
+//      `--output` 으로 존중한다. 그래서 merge-base 를 **따로** 구해 SHA 로 바꾼 뒤,
+//      그 SHA 두 개를 각각 독립 argv 로 넘긴다. ref 가 argv 에 나타나는 유일한 자리는
+//      `--end-of-options` 바로 뒤다.
+//
+// 방향은 3-dot(merge-base) 의미다. 2-dot 트리 diff 를 쓰면 경계 ref 가 HEAD 의 조상이
+// 아닐 때(브랜치 작업 중이 정확히 그렇다) 상대편이 추가한 파일이 이쪽에서 "삭제" 로,
+// 상대편이 고친 파일이 "수정" 으로 잡혀 남의 레코드가 이 분모에 들어온다.
+function checkRoundStructure(opts) {
+  const o = opts || {};
+  const root = o.repoRoot || process.cwd();
+  const ref = o.sinceRef || DEFAULT_M4_BOUNDARY_REF;
+  const out = {
+    schema_version: 1,
+    since_ref: ref,
+    merge_base: null,
+    state: 'ok',
+    in_scope: 0,
+    counts: { present: 0, not_enrolled: 0, absent: 0 },
+    absent_records: [],
+    unreadable: [],
+    pre_boundary_records: null,
+  };
+
+  const mb = git(root, ['merge-base', '--end-of-options', ref, 'HEAD']);
+  if (!mb.ok || !mb.out.trim()) {
+    out.state = 'unresolved';
+    out.reason = 'the boundary ref did not resolve against HEAD — the enforcement window ' +
+      'does not exist, so no record is judged. This is NOT ok/exit 0.';
+    return out;
+  }
+  out.merge_base = mb.out.trim();
+
+  const d = git(root, ['diff', '--name-only', '--diff-filter=AM',
+    '--end-of-options', out.merge_base, 'HEAD']);
+  if (!d.ok) {
+    out.state = 'unresolved';
+    out.reason = 'git diff over the enforcement window failed — scope unknown, NOT zero';
+    return out;
+  }
+
+  const isPanelPath = function (rel) {
+    for (let i = 0; i < REVIEW_SUBDIRS.length; i++) {
+      const base = underDirNonRecursive(rel, REVIEW_SUBDIRS[i], '.md');
+      if (base !== null && base.indexOf(REVIEW_NAME_PREFIX) === 0) return true;
+    }
+    return false;
+  };
+
+  const candidates = d.out.split(/\r?\n/).filter(Boolean).filter(isPanelPath).sort();
+
+  candidates.forEach(function (rel) {
+    const r = gitRev(root, ['show'], 'HEAD:' + rel);
+    if (!r.ok) { out.state = 'degraded'; out.unreadable.push(rel); return; }
+    let parsed;
+    try { parsed = corpus.parseRecord(r.out); }
+    catch (_err) { parsed = { kind: 'parse_failure', measurement: null }; }
+    if (parsed.kind === 'parse_failure') { out.state = 'degraded'; out.unreadable.push(rel); return; }
+    // 다른 생산자의 파일은 결손이 아니라 코퍼스 밖이다 — 소속 판정은 `corpus.js` 가
+    // 소유하고(M1 DD1a) 이 도구는 그 판정을 그대로 받는다.
+    if (parsed.kind === 'out_of_corpus') return;
+    out.in_scope += 1;
+    const c = defs.classifyRoundStructure(parsed.measurement);
+    out.counts[c.verdict] = (out.counts[c.verdict] || 0) + 1;
+    if (c.verdict === 'absent') out.absent_records.push({ path: rel, reason: c.reason });
+  });
+
+  // 경계 **이전** 레코드는 보고만 한다(DD7) — 목표를 갖지 않는 구간이다.
+  const headTree = baselineTree(root, 'HEAD');
+  if (headTree instanceof Set) {
+    let total = 0;
+    REVIEW_SUBDIRS.forEach(function (sub) {
+      (corpusPathsInTree(headTree, sub, '.md') || []).forEach(function (rel) {
+        if (isPanelPath(rel)) total += 1;
+      });
+    });
+    out.pre_boundary_records = Math.max(0, total - candidates.length);
+  }
+
+  // **`degraded` 가 이긴다** (local code-review M2). 초판은 이 자리에 서로를 지우는 두
+  // 줄을 뒀다 — 앞줄이 `state !== 'degraded'` 로 degraded 를 보호하고 뒷줄의 `else if` 가
+  // 같은 조건을 무조건 덮어써서, 순효과는 "absent 가 있으면 무조건 violations" 였다.
+  // 의도(앞줄)와 동작(뒷줄)이 반대라 어느 쪽이 정본인지 코드가 말하지 못했다.
+  //
+  // 정본은 `degraded` 다. 두 상태가 답하는 질문이 다르기 때문이다 — `violations` 는
+  // "본 것 중에 위반이 있다", `degraded` 는 "**다 보지 못했다**" 이고, 후자가 성립하면
+  // 전자의 카운트는 하한일 뿐이다. 판정 부재를 위반 개수로 갈음하면 창 안의 파손이
+  // 위반 하나에 가려 exit 2 가 exit 1 로 접힌다.
+  //
+  // 두 사실 모두 소비자에게 남는다: `absent_records` 와 `unreadable` 은 state 와 무관하게
+  // 각자 실리고, `main()` 의 경고도 state 가 아니라 그 두 배열의 길이로 발화한다.
+  if (out.absent_records.length > 0 && out.state !== 'degraded') out.state = 'violations';
+  return out;
+}
+
+function checkExitCode(state) {
+  const code = CHECK_EXIT_CODES[state];
+  return typeof code === 'number' ? code : 1;     // 미지 state → 비영점 (fail-closed)
 }
 
 // ── frozen projection ────────────────────────────────────────────────────────
@@ -740,6 +900,11 @@ function renderHuman(r) {
     (lp.reason ? ' (' + lp.reason + ')' : ''));
   if (lp.linkage) {
     L.push('    head: ships=' + lp.head_ships + ' records=' + lp.head_records);
+    if (lp.round_structure) {
+      const rc = lp.round_structure.counts;
+      L.push('    round_structure (REPORT; enforcement is --check-round-structure): present=' +
+        rc.present + ' not_enrolled=' + rc.not_enrolled + ' absent=' + rc.absent);
+    }
     L.push('    linkage: receipt->review=' + lp.linkage.receipt_to_review +
       ' review->receipt=' + lp.linkage.review_to_receipt +
       ' bidirectional=' + lp.linkage.bidirectional +
@@ -756,6 +921,7 @@ function renderHuman(r) {
 function printUsage() {
   process.stdout.write([
     'Usage: node plugins/mccp/scripts/lib/linkage-audit.js [--json|--frozen-only] [--repo-root <path>] [--baseline-ref <ref>]',
+    '       node plugins/mccp/scripts/lib/linkage-audit.js --check-round-structure [--since <ref>] [--json] [--repo-root <path>]',
     '',
     'Read-only, LLM-free baseline for the ship-receipt <-> plan-review-record linkage.',
     'Counts only — it holds no thresholds and makes no judgement.',
@@ -766,7 +932,19 @@ function printUsage() {
     '                  move when the working tree does.',
     '  --json          full output, including the mutable post_baseline diagnostic.',
     '',
-    'Exit: 0 ok · 1 degraded · 2 blind (zero records) · 3 unresolved (baseline ref).',
+    '  --check-round-structure',
+    '                  ENFORCING view (DD7). Judges only the panel records added or',
+    '                  modified in <boundary>...HEAD and exits nonzero when any of them',
+    '                  is D1-absent. Records at or before the boundary are reported,',
+    '                  never enforced — UI1 forbids retrofitting them.',
+    '  --since <ref>   boundary for --check-round-structure (default: the pinned M4',
+    '                  landing boundary). Same safe-ref shape rule as --baseline-ref.',
+    '                  Ignored without --check-round-structure.',
+    '',
+    'Exit (audit):     0 ok · 1 degraded · 2 blind (zero records) · 3 unresolved (baseline ref).',
+    'Exit (--check-round-structure): 0 ok · 1 violations · 2 degraded · 3 unresolved (boundary',
+    '                  ref). The two ladders are SEPARATE tables and answer different',
+    '                  questions — 1 and 2 mean the opposite things between them.',
     '',
   ].join('\n'));
 }
@@ -776,6 +954,9 @@ function main(argv) {
   let frozen = false;
   let repoRoot = null;
   let ref = DEFAULT_BASELINE_REF;
+  let checkRounds = false;
+  let sinceRef = DEFAULT_M4_BOUNDARY_REF;
+  let sinceGiven = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') asJson = true;
@@ -795,12 +976,73 @@ function main(argv) {
         process.exit(1);
       }
     }
+    else if (a === '--check-round-structure') checkRounds = true;
+    else if (a === '--since') {
+      sinceRef = argv[++i];
+      sinceGiven = true;
+      if (!sinceRef) { warn('--since requires a ref'); process.exit(1); }
+      // security S1 — same fail-CLOSED shape rule as --baseline-ref, and for the same
+      // measured reason: a leading "-" is parsed by git as an option and
+      // `git show --output=<file>` writes to disk. The ref is additionally never
+      // concatenated into a range token (see checkRoundStructure).
+      if (!isSafeRef(sinceRef)) {
+        warn('--since "' + sinceRef + '" is not a safe ref shape (must start with an ' +
+          'alphanumeric and contain only [0-9A-Za-z._/-]).');
+        process.exit(1);
+      }
+    }
     else if (a === '-h' || a === '--help') { printUsage(); process.exit(0); }
     else warn('unknown argument "' + a + '" (ignored — loud fail-open).');
   }
   if (!repoRoot) {
     const r = git(process.cwd(), ['rev-parse', '--show-toplevel']);
     repoRoot = r.ok ? r.out.trim() : process.cwd();
+  }
+
+  // `--since` 는 `--check-round-structure` 전용이다. 조용히 무시하면 서브커맨드 이름을
+  // 오타 낸 호출(그 오타는 unknown-argument 로 loud fail-open 된다)이 `--since` 만 남긴
+  // 채 전체 감사를 돌리고, 호출자는 자기가 경계 검사를 돌렸다고 믿는다.
+  if (sinceGiven && !checkRounds) {
+    warn('--since was given without --check-round-structure and has NO effect — the ' +
+      'boundary window only exists for that check. Did a flag name get mistyped?');
+  }
+
+  if (checkRounds) {
+    const chk = checkRoundStructure({ repoRoot: repoRoot, sinceRef: sinceRef });
+    if (asJson) process.stdout.write(JSON.stringify(chk, null, 2) + '\n');
+    else {
+      process.stdout.write('round-structure check — state=' + chk.state +
+        ' since=' + chk.since_ref + ' (merge-base ' + (chk.merge_base || 'unresolved') + ')\n' +
+        '  in_scope=' + chk.in_scope + ' present=' + chk.counts.present +
+        ' not_enrolled=' + chk.counts.not_enrolled + ' absent=' + chk.counts.absent + '\n' +
+        '  before the boundary (reported, NOT enforced): ' +
+        (chk.pre_boundary_records === null ? 'unknown' : chk.pre_boundary_records) + '\n');
+    }
+    if (chk.in_scope === 0 && chk.state === 'ok') {
+      warn('VACUOUS PASS — no panel record was added or modified in the enforcement window, ' +
+        'so exit 0 means "nothing to judge", not "every record carries rounds". The window ' +
+        'is <' + chk.since_ref + '>...HEAD and it reads the HEAD tree, so an uncommitted ' +
+        'record is not yet in scope.');
+    }
+    chk.unreadable.forEach(function (f) { warn('  unreadable in the enforcement window: ' + f); });
+    chk.absent_records.forEach(function (a) {
+      warn('  D1 ABSENT: ' + a.path + ' — ' + a.reason);
+    });
+    // 경고는 `state` 가 아니라 **각 배열의 길이**로 발화한다. state 는 하나만 이길 수
+    // 있으므로(위 M2 주석), state 로 분기하면 degraded 가 이긴 실행에서 위반 요약이
+    // 사라지고 그 반대도 마찬가지다. 두 사실은 배타적이지 않다.
+    if (chk.absent_records.length > 0) {
+      warn('VIOLATIONS — ' + chk.absent_records.length + ' record(s) landed after the M4 ' +
+        'boundary without a round structure. Regenerate them with a build that carries the ' +
+        'axis, or state the boundary explicitly with --since.');
+    }
+    if (chk.unreadable.length > 0) {
+      warn('DEGRADED — ' + chk.unreadable.length + ' record(s) in the window could not be ' +
+        'read or parsed. Absence of a judgement is not a pass, and the violation count ' +
+        'beside it is a LOWER BOUND.');
+    }
+    if (chk.state === 'unresolved') warn('UNRESOLVED — ' + chk.reason);
+    process.exit(checkExitCode(chk.state));
   }
 
   const result = audit({ repoRoot: repoRoot, baselineRef: ref });
@@ -853,6 +1095,10 @@ module.exports = {
   DEFAULT_BASELINE_REF: DEFAULT_BASELINE_REF,
   STATE_EXIT_CODES: STATE_EXIT_CODES,
   exitCodeForState: exitCodeForState,
+  checkRoundStructure: checkRoundStructure,
+  checkExitCode: checkExitCode,
+  DEFAULT_M4_BOUNDARY_REF: DEFAULT_M4_BOUNDARY_REF,
+  CHECK_EXIT_CODES: CHECK_EXIT_CODES,
 };
 
 if (require.main === module) main(process.argv.slice(2));

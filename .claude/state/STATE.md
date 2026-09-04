@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: release-channel-separation-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T01:41:50.802Z
+updated_at: 2026-09-04T05:43:12.771Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-04T01:41:50.802Z
+last_event_at: 2026-09-04T05:43:12.771Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,7 +12,7 @@ chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/170
 dep_check_at: 2026-09-03T04:13:06.520Z
 escalate_pending: true
-escalate_pending_decision_id: release-channel-separation-m1
+escalate_pending_decision_id: release-channel-separation-m4
 ---
 ## Goal
 release-channel-separation M3 — release-runbook. 구현·검증 완료, /mccp:code-review HIGH 2건 수용 반영 후 커밋. 다음은 PR.
@@ -46,4 +46,4 @@ release-channel-separation M3 — release-runbook. 구현·검증 완료, /mccp:
 - M1 잔여: santa-review receipt divergent 봉인 → escalate_pending 유지
 
 ## Last Updated
-2026-09-04T01:41:50.802Z
+2026-09-04T05:43:12.771Z

@@ -76,7 +76,34 @@ invariant MEDIUM이 지적한 그대로). 9는 시작 시점 SHA
 커밋 전에는 `git diff origin/main...HEAD`가 이 세 검사에 대해 대상 0건이라 자동 통과하며,
 그중 15는 이 저장소의 **유일한 절대경로 유출 탐지기**다. 커밋 후 재실행 결과:
 
-<!-- POST-COMMIT-14-16 -->
+커밋 `82535d0` 이후 (`git rev-list --count origin/main..HEAD` = **4**, 대상 0건 아님):
+
+| # | 검사 | 결과 |
+|---|---|---|
+| 14 | 삭제 0건 (§3.5.1) | **ok: 0건** |
+| 15 | 절대경로 유출 | **이 커밋이 추가한 줄 중 0건** — 아래 정정 |
+| 16 | 번호 선언 없음 | **ok: `plugin.json` 무변경** |
+
+**검사 15는 원본 형태로는 이 브랜치에서 판별력이 없다.** plan의 명령은 diff에 포함된
+**파일 전체**를 grep하므로, `.claude/plans/codex-findings-backlog.md`를 건드리는 순간 그
+원장이 과거 finding의 증거로 **인용해 둔** 절대경로 20여 행이 전부 hit한다(예: `:67`
+"tracked plan 산출물이 운영자 홈 절대경로를 담는다" · `:1152` worktree 앵커 실측). 즉
+올바른 상태에서도 붉다 — 이번 사이클의 L2가 검사 4·10에서 지적한 것과 **같은 부류**의
+공허한 게이트다.
+
+판별력 있는 형태는 **이번 커밋이 추가한 줄만** 보는 것이다:
+
+```
+git show 82535d0 --unified=0 | grep '^+' | grep -v '^+++' \
+  | grep -cE 'C:\\+Users|/Users/|_project|\.worktrees|nvm4w'
+→ 0
+```
+
+추가 라인 기준 **0건**이다. 부수 관측 하나: 명령이 `.claude/state/fix-task.md`에
+`No such file or directory`를 낸다. 그 파일은 이 브랜치의 선행 커밋 `8a95d8b`가 건드려
+diff 범위에 들어 있지만 working tree에서는 삭제된 상태라(이번 사이클 이전 상태, UI3 밖)
+grep이 열 수 없다 — 유출이 아니라 검사 명령이 삭제 파일을 다루지 않는 것이다. 이 두 결함
+(파일 전수 스캔 · 삭제 파일 미처리)은 backlog가 이어받을 축이다.
 
 ### Design Grounding
 

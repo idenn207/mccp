@@ -94,6 +94,84 @@ const ROUND_STRUCTURE_CONTROLS = Object.freeze([
   }),
 ]);
 
+// ── D1 자격 — 3값 (review-record-linkage M4, DD5) ────────────────────────────
+//
+// `hasRoundStructure`는 술어이지 자격이 아니다. dispatch 이전에 멎은 실행은 리뷰
+// 라운드가 실제로 0회이고, 그런 레코드에 "라운드 구조 미보유"라고 적는 것은 범주
+// 오류다 — 구조는 있고 그 값이 없다. 그래서 D2와 같은 모양의 3값을 둔다.
+//
+// **`halt_stage`는 읽지 않는다.** 초안은 그것을 면제 근거로 삼았는데, 그 값은
+// `cli.js`가 `--halt-stage`로 받아 trim만 하는 **caller 자유 문자열**이라 자격이
+// 자기신고가 된다 — DD2가 `--rounds` 플래그를 거부한 바로 그 이유가 이 축에서
+// 열려 있었고, DD4가 유일한 강제 지점으로 지목한 감사 종료코드를 문자열 하나로
+// 빠져나갈 수 있었다. 그래서 근거를 **caller가 쓸 수 없는 두 사실**로 교체했다:
+//
+//   (a) `rounds === null`  — 원장 파일이 **존재하지 않았다**는 파일시스템 사실.
+//       `cmdRecord`가 `resolveStatePath` + `existsSync`로 판정해 주입한다. 세어진
+//       0회(`rounds === 0`)와 세어진 적 없음(`null`)은 다른 사실이므로 여기서도
+//       다르게 취급된다 — `0`은 `absent`다.
+//   (b) 패널 증거 부재 — `quorum === null`(decision·l2 둘 다 판독 불가) 또는
+//       `quorum.responded === 0`(아무도 응답하지 않았다). 두 값 모두 `record.js`가
+//       `decision.json`/`l2.json`에서 파생하므로 CLI 표면이 없다.
+//
+// `responded`가 `null`인 경우는 "비었다"가 아니라 "읽지 못했다"이므로 면제하지
+// 않는다 — 강제되는 쪽(`absent`)으로 접는 것이 fail-closed 방향이다.
+//
+// 이것이 분모 게이밍이 아니라는 근거는 측정 가능하다: 과거 레코드에는 `rounds`
+// 키 자체가 없어 전건 `absent`이므로, 이 자격을 도입해도 동결 baseline은 움직이지
+// 않는다. 자격이 값을 올려 주는 대상은 오직 착지 후 레코드뿐이다.
+const ROUND_STRUCTURE_VERDICTS = Object.freeze(['present', 'not_enrolled', 'absent']);
+
+function classifyRoundStructure(measurement) {
+  const m = obj(measurement);
+  if (m === null) {
+    return { verdict: 'absent', reason: 'record has no readable ## Measurement object' };
+  }
+  if (hasRoundStructure(m)) {
+    return {
+      verdict: 'present',
+      reason: 'measurement.rounds is an integer >= 1 (' + m.rounds + ')',
+    };
+  }
+  if (!Object.prototype.hasOwnProperty.call(m, 'rounds')) {
+    return {
+      verdict: 'absent',
+      reason: 'measurement carries no `rounds` key at all — this record was produced by a ' +
+        'build with no round axis, which is absence of the field, not a measured value',
+    };
+  }
+  if (m.rounds === null) {
+    const q = obj(m.quorum);
+    if (q === null) {
+      return {
+        verdict: 'not_enrolled',
+        reason: 'measurement.rounds is null (no round ledger existed) and the record carries ' +
+          'no readable quorum — the run halted before any panel evidence was produced, so ' +
+          'there was no review round to count',
+      };
+    }
+    if (q.responded === 0) {
+      return {
+        verdict: 'not_enrolled',
+        reason: 'measurement.rounds is null (no round ledger existed) and quorum.responded is 0 ' +
+          '— no reviewer answered, so there was no review round to count',
+      };
+    }
+    return {
+      verdict: 'absent',
+      reason: 'measurement.rounds is null but the record carries panel evidence ' +
+        '(quorum.responded=' + describe(q.responded) + ') — a run that reviewed and ' +
+        'could not say how many rounds it spent is a measurement gap, not an exemption',
+    };
+  }
+  return {
+    verdict: 'absent',
+    reason: 'measurement.rounds is ' + describe(m.rounds) +
+      ', which is not an integer >= 1 (D1 requires an integer; 0 means a ledger existed and ' +
+      'counted nothing, and a string or float is not a count)',
+  };
+}
+
 // ── D2 — 리뷰 대상 ship ──────────────────────────────────────────────────────
 //
 // 3값이다. 과거 코퍼스에서는 전건 `undecidable`이고, 그것이 결함이 아니라
@@ -200,8 +278,34 @@ function obj(v) {
   return (v !== null && typeof v === 'object' && !Array.isArray(v)) ? v : null;
 }
 
+// 사유 문장에 값을 싣기 위한 **총** 요약기 (local code-review M1).
+//
+// `JSON.stringify`를 쓰면 안 된다 — 이 모듈 헤더가 "모든 함수는 총함수다"를 계약으로
+// 선언하는데 그 함수는 세 형태에서 throw한다: 순환 참조 · BigInt · `toJSON`이 던지는
+// 객체. 오늘의 호출자(`record.js`가 만든 값 · `JSON.parse` 결과)로는 도달 불가지만,
+// 이 파일은 **write 경로가 import하는 공개 술어 라이브러리**다. `buildReviewRecord`는
+// never-throw를 선언하고 `cmdRecord`의 catch가 그 throw를 삼켜 레코드를 아예 안 쓰므로,
+// 도달하는 날의 대가는 DD4가 막으려던 바로 그 표본 손실이다.
+//
+// 그래서 값을 직렬화하지 않고 **형태만** 말한다. 사유 문장에 필요한 것은 "왜 정수가
+// 아닌가"이지 그 값의 내용이 아니고, 내용을 싣지 않으면 반신뢰 입력이 감사 출력의
+// 크기를 정하지도 못한다(`by_reason` 맵의 키 카디널리티도 유한해진다).
+function describe(v) {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (Array.isArray(v)) return 'an array';
+  const t = typeof v;
+  if (t === 'number' || t === 'boolean') return String(v);
+  if (t === 'bigint') return 'a bigint';
+  if (t === 'string') return 'a string';
+  if (t === 'object') return 'an object';
+  return 'a ' + t;
+}
+
 module.exports = {
   hasRoundStructure: hasRoundStructure,
+  classifyRoundStructure: classifyRoundStructure,
+  ROUND_STRUCTURE_VERDICTS: ROUND_STRUCTURE_VERDICTS,
   ROUND_STRUCTURE_CONTROLS: ROUND_STRUCTURE_CONTROLS,
   classifyShipEligibility: classifyShipEligibility,
   classifyLink: classifyLink,

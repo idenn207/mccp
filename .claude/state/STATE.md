@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: release-channel-separation-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T07:08:22.459Z
+updated_at: 2026-09-04T07:27:13.521Z
 last_event: receipt_write
-last_event_at: 2026-09-04T07:08:22.459Z
+last_event_at: 2026-09-04T07:27:13.521Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -31,13 +31,13 @@ release-channel-separation M4 — residual-closure. M1~M3이 명시로 이연한
 - **R4 재측정(읽기 전용)** — 브랜치 보호는 `release`뿐 아니라 `main`도 404. M3은 `release`만 쟀다. 원격 ref 무이동 확인(`647dfec` 시작=종료)
 
 ## In Progress
-Validation 1~13 마무리 + 보고서 전사. 커밋 후 14~16(삭제·절대경로·번호 선언) 재실행.
+
 
 ## Next Step
-/mccp:pr — 승인 receipt 부재라 cross-gate dedupe 미개방, PR-Codex가 실제 발화한다. 진입 직전 `git diff --diff-filter=D` 재확인(§3.5.1) + `node scripts/version-declaration-guard.js`(§3.7 확인 지점 2)
+/mccp:pr (수동) — Phase 7 auto-chain이 exit 13으로 멈췄다(cost-catastrophic 548.68 >= 500). 진입 전 `git diff --diff-filter=D --name-only origin/main...HEAD`(§3.5.1) + `node scripts/version-declaration-guard.js`(§3.7 확인 지점 2). PR 본문에 보고서의 ## Gate Deviation을 인용할 것.
 
 ## Last Decision
-R5(santa escalation)의 처리를 plan이 지시한 방식에서 바꿨다. plan Task 10은 santa receipt의 `review_proof`가 담은 지적을 backlog와 대조하라고 했는데, 실측하면 `review_proof`에는 지적이 하나도 없다 — 399바이트에 `layers`·`quorum`·`perspectives:[{A},{B}]`·`dispatch_evidence`뿐이고, 그 evidence가 가리키는 `.claude/reviews/santa-review-release-channel-separation-m1.md`도 20줄 라운드 요약표(R0 NAUGHTY·R1 NAUGHTY·R2 NICE)라 개별 지적을 열거하지 않는다. 즉 대조의 한쪽 항이 실재하지 않으므로 plan이 전제한 기계 대조는 성립할 수 없다. 지적 원문이 남은 유일한 곳은 backlog이고 그것은 게이트가 당시 기계로 적재한 것이다 — santa R0 5행·R1 3행·R2 9행으로 plan이 적은 4/2/3보다 많다. 별도로, `escalate_pending`은 내 판단이 아니라 이번 implement receipt write가 기계로 clear했다(`[mccp:escalate] cleared … subsequent clean receipt`). 그래서 이 항목은 "리뷰를 통과했다"가 아니라 **"지적이 원장으로 이관됐고, 승인 필드는 후속 clean receipt가 소유한다"**로 기록한다. M1 santa receipt의 `divergent` 봉인 자체는 그대로 남아 있다.
+구현·Validation·커밋을 완료하고 Phase 7 auto-chain에서 멈췄다. auto-chain check --next-step commit이 exit 13(should_abort)을 냈고 사유는 단일하다 — cost-telemetry: cost_usd=548.678179가 catastrophic ceiling 500을 넘었다. 커밋 자체는 그 판정 이전에 이미 완료됐으므로(3커밋: 82535d0 구현 · 30782f8 검사 14-16 전사 · 203ed0a 검사 15 자기매치 정정) 손실은 없고, 멈춘 것은 PR 단계다. STATE.md의 chain_aborted는 **건드리지 않았다** — §3.2대로 그 플래그는 cost 채널(ecc-context-monitor)이 abort_owner="cost"와 함께 소유하며, auto-chain은 텔레메트리를 읽었을 뿐 그 플래그를 세우지 않았다. 내가 대신 세우면 소유권을 참칭하고 decay 규칙 밖의 상태를 만든다.
 
 ## Open Questions
 - santa `review_proof`가 지적을 열거하지 않아 escalation 해소를 기계로 대조할 수 없다 — 원장(backlog)만이 유일한 지적 원문 보관처다 (backlog 이연, L2 security LOW가 같은 축을 지적)
@@ -47,4 +47,4 @@ R5(santa escalation)의 처리를 plan이 지시한 방식에서 바꿨다. plan
 - findings registry가 전부 `finding_opened`로 남는다 — `closure_type` 플래그 부재로 정규 close 경로가 없다 (저장소 전반 부채, UI3 밖)
 
 ## Last Updated
-2026-09-04T07:08:22.459Z
+2026-09-04T07:27:13.521Z

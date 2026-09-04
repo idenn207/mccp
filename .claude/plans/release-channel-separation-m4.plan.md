@@ -369,18 +369,18 @@ git diff --name-only origin/main...HEAD | grep -x "plugins/mccp/.claude-plugin/p
 
 ## Acceptance
 
-- [ ] All tasks complete
-- [ ] Validation 1~13 전건 exit 0, 그리고 **커밋 후** 14~16 재실행 결과를 보고서에 전사
-- [ ] Patterns mirrored, not reinvented — 새 가드가 `version-declaration-guard.js`의 구조를
+- [x] All tasks complete
+- [x] Validation 1~13 전건 exit 0, 그리고 **커밋 후** 14~16 재실행 결과를 보고서에 전사
+- [x] Patterns mirrored, not reinvented — 새 가드가 `version-declaration-guard.js`의 구조를
       따르고, 파생이 `i18n-surface.test.js`가 이미 세운 원칙을 확장한다
-- [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동):
+- [x] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동):
       **`node plugins/mccp/scripts/derive/cli.js render`를 1회 돌려 `.claude/cache/status.html`의
       footer가 `plugin.json`의 번호를 실제로 담고, `.claude/cache/STATUS.md`의 마지막 줄이
       같은 번호와 `derive-only`·`LLM-free`를 함께 담는 것을 확인한다.** 두 파일의 해당
       줄을 보고서에 전사한다 — test는 stub 모델로 돌므로 실제 derive 산출물에서 require가
       해소되는지는 그것만 증명한다
-- [ ] 채널 좌표가 시작 시점과 동일 (UI4 — 원격 ref 무이동)
-- [ ] `plugins/mccp/.claude-plugin/plugin.json` diff 0줄 (우산 결정 1)
+- [x] 채널 좌표가 시작 시점과 동일 (UI4 — 원격 ref 무이동)
+- [x] `plugins/mccp/.claude-plugin/plugin.json` diff 0줄 (우산 결정 1)
 
 ## Design Critique
 
@@ -550,3 +550,11 @@ backlog에 증거와 함께 남긴다. 보상 검사는 `i18n-surface.test.js`�
 그 둘이 함께여야 S1의 잔여가 관측 가능한 상태로 남는다.
 
 **미흡수 이연**: S3 · S6 · S1의 (2)축 → `.claude/plans/codex-findings-backlog.md` (Task 13).
+
+## Milestone Closure Provenance
+
+- Milestone : 4-residual-closure
+- Verdict   : done
+- Closure   : .claude/milestone-closures/4-residual-closure.md
+- sha256    : sha256:12b00aa1bc8da6ec80704d519a24903a00aa195334a52f3e6b865e1481d1b8a4
+- Stamped at: 2026-09-04T08:00:33.341Z

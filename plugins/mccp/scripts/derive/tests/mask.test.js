@@ -7,6 +7,30 @@ const { derive } = require('../index');
 const { maskModel, applyPathMask, maskPath, scrubAbsPaths } = require('../mask');
 const { tmpRepo, cleanup, gitInit, writeJson } = require('./helpers');
 
+// ci-full-suite M2 갈래 P — 유출 좌표 산출기. 모델을 재귀로 걸으며 `needle`을
+// 포함하는 문자열 값의 **경로**를 모은다. 단언 실패 메시지에만 쓰이므로
+// 산출물에 영향을 주지 않는다. 상한 20건 — 전부 찍으면 CI 로그가 묻힌다.
+function findLeaks(node, needle, trail, out) {
+  out = out || [];
+  if (out.length >= 20) return out;
+  if (typeof node === 'string') {
+    if (node.indexOf(needle) !== -1) {
+      out.push({ at: trail.join('.') || '(root)', value: node.slice(0, 200) });
+    }
+    return out;
+  }
+  if (Array.isArray(node)) {
+    node.forEach(function (v, i) { findLeaks(v, needle, trail.concat('[' + i + ']'), out); });
+    return out;
+  }
+  if (node && typeof node === 'object') {
+    Object.keys(node).forEach(function (k) {
+      findLeaks(node[k], needle, trail.concat(k), out);
+    });
+  }
+  return out;
+}
+
 function writeAReceipt(root) {
   const p = path.join(root, '.claude', 'receipts', 'mccp-plan-codex', 'r.json');
   writeJson(p, {
@@ -40,8 +64,20 @@ test('mask: default derive emits masked model (Codex F2 absorption)', () => {
     assert.strictEqual(m.repo_root, '<repo>');
     const json = JSON.stringify(m);
     // Should not contain the absolute tmp path
-    assert.ok(json.indexOf(root) === -1,
-      'masked output should not contain absolute repo path; found: ' + root);
+    // ci-full-suite M2 갈래 P — 이 실패는 Linux 에서만 관측됐고(M1 baseline),
+    // 기존 메시지는 "샌다"까지만 말하고 **어느 필드가** 새는지는 말하지 않아,
+    // 재현 불가한 플랫폼에서 수리 지점을 지목할 수 없었다.
+    // `mask.js` 의 `applyPathMask` 는 소스별 `pathKeys` 화이트리스트만 마스킹하므로,
+    // 목록 밖 필드가 절대경로를 담으면 아무것도 잡지 않는다(security-reviewer S3).
+    // 그 구조적 백스톱은 backlog 로 이연했고, 여기서는 최소한 좌표를 낸다.
+    //
+    // 좌표 산출은 **실패했을 때만** 한다. `assert.ok(cond, msg)` 의 `msg` 는 인자라
+    // 통과할 때도 매번 평가되고, 그러면 green 경로가 모델 전수 순회 +
+    // `JSON.stringify` 를 값 없이 지불한다.
+    if (json.indexOf(root) !== -1) {
+      assert.fail('masked output should not contain absolute repo path; found: ' + root +
+        '\n  leaking paths: ' + JSON.stringify(findLeaks(m, root, []), null, 2));
+    }
   } finally {
     cleanup(root);
   }

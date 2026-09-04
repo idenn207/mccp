@@ -84,6 +84,17 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   담아 켠다(값이 곧 사유). 배포 경계 밖(repo-root `scripts/`)에 두어 이 저장소의
   릴리스 정책이 사용자 저장소로 실려 가지 않게 한다.
 
+- `scripts/test-suite/run.js` — `--allow-codex`. 전수 러너가 자식에게
+  `MCCP_CODEX_DISABLED=1`을 **기본 강제**하고(UI2), 이 플래그로만 해제된다.
+  인정 표기는 bare · `=true` · `=1` 셋이고 그 밖의 값은 loud stderr 후 OFF다
+  (오타가 codex 를 켜는 쪽으로 접히지 않는다). `childEnv`가 export돼 그 정책이
+  간접 오라클이 아닌 직접 단언으로 검증된다. 원소에는 `codex_allowed` provenance
+  필드가 실린다 — M2 이전 5개 원소에는 부재이며 그 부재는 "비활성"이 아니라
+  "기록되지 않음"이다(`docs/ci-full-suite/m2-green.md` §4c).
+- `codex-reachability.js` — 분류 `round-cap-reached`와 새 kind `budget-spent`.
+  기존 5종에는 정직한 버킷이 없었다 — `env-policy`는 사유가
+  `MCCP_CODEX_DISABLED=1`이라 거짓을, `transport`는 예산 소진을 장애로 보고한다.
+
 ### Changed
 
 - `leadtime.js` — `audit(opts)`에 `allowGit`(기본 `true`) spawn 게이트 추가. `false`면 W3이
@@ -196,6 +207,27 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   repo **밖**으로 보고해 키가 조용히 누락된다. 일반 `fs.realpathSync`는 단축명을 확장하지
   **않는다**(실측) — `.native`만 한다.
 
+
+- `plan-review/cli.js` — 라운드 칩 초크포인트가 `gitDir`를 받을 수 있게 됐다
+  (프로그래매틱 전용 — CLI 플래그를 만들면 셸 호출자가 캡을 우회할 수 있다).
+  그 시임이 없어 `plan-review-cli-emit.test.js`가 저장소의 살아있는 봉인을 읽고
+  9건 실패했다.
+- `dispatch-controller.test.js` — "no real fs"를 주장하면서 heartbeat mkdir로 실제
+  디렉토리를 만들어 왔다. Windows에서는 드라이브 루트의 `synthetic/` 아래에 **204개 파일을 유출**했고
+  Linux에서는 EACCES로 터졌다. `skipHeartbeat` + 생성 여부 단언으로 닫음.
+- `goal-phase-lock.test.js` S14 — mkdir 실패 술어가 `'mccp'`+`'tmp'` substring이라
+  POSIX 임시 경로 전체에 걸렸다. 사이드카 디렉토리 경로 정확 일치로 교체.
+- `history-leak-scan.test.js` F4 — case-변형 단언은 드라이브 문자 루트에서만 참이므로
+  플랫폼 가드. 기존 `variant === root` 가드는 mkdtemp 난수에 대문자가 섞이면 열렸다.
+  같은 축의 POSIX 절반(`F4b`)을 새로 두어 Linux 에서 커버리지가 0이 되지 않게 했고,
+  본문의 조용한 `return`은 `caseVariantOf`(변형을 보장하거나 시끄럽게 실패)로 대체했다.
+- `.github/workflows/test-suite-baseline.yml` — `fetch-depth: 0`(C4 before-ref) +
+  `persist-credentials: false`(GITHUB_TOKEN의 `.git/config` 평문 잔류 — security-reviewer HIGH).
+- `.claude/_meta/2026-08-31-final-harness-assessment-and-umbrella-prd.md` — meta-research
+  L3 위반 15건(`BAD_TIMESTAMP: HEAD` ×10 · `REF_NOT_FOUND` ×5). `HEAD`는 lint가 돌 때마다
+  다른 커밋을 가리키는 떠도는 단어라, 문서 자신이 이미 선언한 `d1db647`로 고정.
+- `plan-review/l1-check.js` — `CITATION_RE`가 선행 점을 표현하지 못해 dotfile 디렉토리
+  인용(`.claude/prds/…`)에 C6 오탐을 냈다. 존재 검사는 그대로라 완화가 아니다.
 ### Operational
 
 - 신규 audited escape `MCCP_PR_SKIP_LINK_EVIDENCE` (strict reason). **읽는 지점이 Phase

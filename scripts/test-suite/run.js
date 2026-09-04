@@ -420,9 +420,42 @@ function gitSha(cwd) {
 // 실행되는 것이 정상 경로다(Task 4-(9)) — 상속을 끊는 것이 맞다.
 const INHERITED_TEST_CONTEXT_KEYS = ['NODE_TEST_CONTEXT', 'NODE_TEST_WORKER_ID'];
 
-function childEnv(cwd) {
+// ci-full-suite M2 갈래 H — 자식에게 **강제하는** 정책. 상속을 끊는
+// `INHERITED_TEST_CONTEXT_KEYS`와 방향이 반대라 목록을 나눈다.
+//
+// `MCCP_CODEX_DISABLED=1` — CLAUDE.md §3.4가 전수 실행에 이것을 요구하고,
+// M1 §11이 그 대가를 실측했다 — 중단된 재측정에서 orphan node 289개
+// (codex broker 146+143)가 쌓여 셸이 `fork: Resource temporarily unavailable`에
+// 도달했다. 전수 스위트는 codex 경로를 타는 test를 수백 회 돌리므로
+// 기본값이 반드시 비활성이어야 한다.
+//
+// 목록이지 단일 상수인 것은 새 정책 env가 생겼을 때 어디에 추가해야
+// 하는지가 자명하도록 하기 위해서다. 다만 **아무 정책 env나 여기 넣지
+// 말 것** — `MCCP_ROUND_LEDGER`는 명시적으로 제외된다. 그 수준은 봉인 우선
+// · env fallback이라(`review-rounds/seal.js:207-213`) 봉인이 있으면 자식의 env가
+// 판정에 도달하지 않고, 더 중요하게는 `round-cap-command-body.test.js:209-212`가
+// "이 변수는 운영자 정책이지 게이트 상태가 아니므로 어떤 게이트도
+// 대입하지 않는다"를 단언한다. 러너가 그것을 대입하면 그 불변식을
+// 그 test가 볼 수 없는 곳에서 깨는 것이다.
+const FORCED_POLICY_ENV = Object.freeze({ MCCP_CODEX_DISABLED: '1' });
+
+// childEnv — export는 장식이 아니라 반증 수단이다. 이것 없이는 "러너가
+// codex 정책을 강제한다"는 주장을 **간접 오라클**(갈래 H가 green)로밖에 못
+// 확인하고, 그 오라클은 다른 이유로 green이 되어도 같은 답을 낸다.
+//
+// `MCCP_SUITE_REPO_ROOT`는 유지한다 — 소비처가 실재한다
+// (`scripts/test-suite/reporter.mjs:223`가 repo-relative 산출의 기준점으로 읽는다).
+// M2 계획은 "소비처 0건"이라고 적었으나 그것은 `--include=*.js` grep이 `.mjs`를
+// 놓친 결과였고, 제거했다면 redaction/attribution 경로가 조용히 깨졌다.
+function childEnv(cwd, opts) {
+  const o = opts || {};
   const env = Object.assign({}, process.env, { MCCP_SUITE_REPO_ROOT: cwd });
   INHERITED_TEST_CONTEXT_KEYS.forEach((k) => { delete env[k]; });
+  // `--allow-codex`는 **로컬 진단 전용**이다. 어떤 `pull_request` 트리거
+  // workflow에도 이 플래그를 배선하지 마라 — `childEnv`는 여전히 프로세스
+  // env 전량을 통과시키므로, CI에서 켜지면 codex 자식이 그 job에 노출된
+  // 모든 secret을 물려받는다 (security-reviewer S4).
+  if (o.allowCodex !== true) Object.assign(env, FORCED_POLICY_ENV);
   return env;
 }
 
@@ -432,7 +465,7 @@ function defaultSpawn(args, opts) {
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
     shell: false,                        // 인자 주입 경로를 만들지 않는다
-    env: childEnv(opts.cwd),
+    env: childEnv(opts.cwd, { allowCodex: opts.allowCodex === true }),
   });
 }
 
@@ -449,7 +482,7 @@ function runChunk(opts) {
 
   let r;
   try {
-    r = spawn(args, { cwd: o.cwd });
+    r = spawn(args, { cwd: o.cwd, allowCodex: o.allowCodex === true });
   } catch (err) {
     // 이 문자열은 reporter를 거치지 않는다 — 여기서 직접 redact하지 않으면
     // 지배적 유출 경로가 열린 채로 남는다(원장 77b4add8).
@@ -526,6 +559,7 @@ function runOnce(opts) {
     cwd: cwd,
     spawn: o.spawn,
     redactor: redactor,
+    allowCodex: o.allowCodex === true,
   }));
   const wallClockMs = Date.now() - started;
 
@@ -544,6 +578,10 @@ function runOnce(opts) {
     files_excluded: (o.excluded || []).length,
     exclusions: exclusions,
     exclusions_digest: exclusionsDigest(exclusions),
+    // 이 원소가 codex 비활성 기본값으로 측정됐는가. 컨테이너를 읽는 쪽이 두
+    // 종류의 run을 구분할 수 있어야 한다 — 벽시계도 red 집합도 같은 조건에서
+    // 나온 값이 아니므로, 이 플래그 없이 두 원소를 나란히 비교하면 오독한다.
+    codex_allowed: o.allowCodex === true,
     wall_clock_ms: wallClockMs,
     exit_code: folded.exit_code,
     chunks: folded.chunks,
@@ -608,6 +646,23 @@ function main(argv) {
   const cwd = process.cwd();
   const redactor = createRedactor({ repoRoot: cwd });
 
+  // UI2 — 전수 러너는 codex 비활성이 **기본값**이고 해제는 명시적이다.
+  // 로컬 진단 전용 — CI workflow에 배선하지 말 것(childEnv 주석 참조).
+  // 값 표기를 저장소 관행에 맞춘다 — `MCCP_*` 토글이 전부 `1` 을 on 으로 읽으므로
+  // (`env-contract/value.js` 의 bypass-flag 분기) `--allow-codex=1` 이 조용히 off 로
+  // 접히면 켰다고 믿는 운영자가 강제된 채로 측정한다. 인정하는 표기는 셋뿐이고,
+  // **그 밖의 모든 값은 off** 다(오타는 codex 를 켜는 쪽으로 접히지 않는다).
+  const allowCodexRaw = flags['allow-codex'];
+  const allowCodex = allowCodexRaw === true || allowCodexRaw === 'true' || allowCodexRaw === '1';
+  if (allowCodexRaw !== undefined && !allowCodex) {
+    process.stderr.write('[test-suite] --allow-codex=' + String(allowCodexRaw) +
+      ' is not a recognised value (use the bare flag, =true, or =1); treating it as OFF.\n');
+  }
+  if (allowCodex) {
+    process.stderr.write('[test-suite] --allow-codex: children inherit the ambient codex ' +
+      'policy instead of the forced MCCP_CODEX_DISABLED=1. Local diagnosis only.\n');
+  }
+
   const exclusions = flags['exclude-from']
     ? readJsonFile(flags['exclude-from'])
     : [];
@@ -636,6 +691,7 @@ function main(argv) {
         exclusions: exclusions,
         reporterPath: reporterUrl(path.join(__dirname, 'reporter.mjs')),
         redactor: redactor,
+        allowCodex: allowCodex,
       });
 
     const v = validateElement(element, { redactor: redactor });
@@ -661,6 +717,7 @@ function main(argv) {
     exclusions: exclusions,
     reporterPath: reporterUrl(path.join(__dirname, 'reporter.mjs')),
     redactor: redactor,
+    allowCodex: allowCodex,
   });
 
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -669,6 +726,8 @@ function main(argv) {
 }
 
 module.exports = {
+  childEnv,
+  FORCED_POLICY_ENV,
   planChunks,
   buildSpawnArgs,
   reporterUrl,

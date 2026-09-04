@@ -50,7 +50,25 @@ jobs:
       matrix:
         node: ['20', '24']
     steps:
+      # ci-full-suite M2 갈래 C — 기본 shallow 체크아웃은 `instruction-contract` lint의
+      # C4 strict pass가 요구하는 before-ref를 결정 불가능하게 만든다. 그 lint는
+      # `a3-baseline.json`의 `git_head` SHA(또는 origin/main)에서 `git show <ref>:CLAUDE.md`를
+      # 읽어 감축 이전 heading 집합을 세우는데, depth 1에는 그 커밋이 없다.
+      # 이것은 플랫폼 차이가 아니라 CI 설정이다 — 로컬 저장소는 전체 이력을 가지므로
+      # 같은 test가 로컬에서는 항상 green이었다.
+      #
+      # `persist-credentials: false` — 기본값(true)은 GITHUB_TOKEN을 `.git/config`의
+      # `http.https://github.com/.extraheader`에 **평문 base64**로 기록한다. 이 workflow는
+      # `pull_request`로 발화하고 전수 스위트는 `paths` 필터와 무관하게 저장소 전체의
+      # tracked `*.test.js`를 돌리므로, PR이 추가한 test가 그 파일을 읽어 실패
+      # 메시지에 실을 수 있다. `redact.js`의 `RESIDUAL_PATTERNS`는 경로 패턴 4종뿐이라
+      # credential 클래스 커버리지가 0건이고, 그 메시지는 `if: always()`로 조건 없이
+      # 올라가는 artifact에 그대로 실린다 (security-reviewer S2, HIGH).
+      # 이 job은 이후 어떤 git 쓰기도 하지 않으므로 기능 손실이 없다.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:

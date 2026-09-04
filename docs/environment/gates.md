@@ -581,6 +581,42 @@ MCCP_PR_SKIP_CODEX_REVIEW=<사유를 한 문장으로> /mccp:pr
 MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN=<사유를 한 문장으로> /mccp:pr
 ```
 
+### MCCP_PR_SKIP_LINK_EVIDENCE
+
+**종류** `string` — **값** 자유 문자열 (strict `validateReason` — ≥30자 · ≥3단어 · placeholder 금지) — **기본값** 없음 (미설정이 기본)
+
+**한 줄** back-patch된 리뷰 레코드를 evidence commit에 싣지 않는 1회 우회 (strict reason).
+
+**소비처** `plugins/mccp/commands/pr.md:949`
+
+**읽는 지점이 Phase 2.5.7인 것이 계약의 일부다.** ship receipt는 2.5.7 finalize에서
+봉인되고 evidence commit은 Phase 3.0이므로, 3.0에서 receipt에 사유를 쓰는 것은
+(a) §3.12 no-rehash 불변식 위반이거나 (b) 재해시 없이 쓰면
+`evidence-stage-guard.js`의 해시 불일치 분기에 걸려 **모든 ship이 HALT**한다.
+그래서 2.5.7이 `--link-evidence-skip-reason`으로 **봉인 시점에** 싣고, 3.0은 그
+필드를 읽어 레코드를 stage하지 않을 뿐이다.
+
+**우회가 지표를 강등시킨다 — 숨기지 않는다.** 레코드는 back-patch되지 않고
+`meta.review_record_path`는 정직하게 봉인된 채 남으므로, `linkage-audit.js`의
+라이브 파티션(읽기 원천 = `HEAD` 트리)이 그 ship을 미연결로 계상한다. 작업 트리를
+읽었다면 우회해도 만점이 나왔을 것이고, 그것이 이 축을 `HEAD`로 옮긴 이유다.
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_PR_SKIP_LINK_EVIDENCE": "<왜 이 ship이 리뷰 레코드를 히스토리에 싣지 않는지 한 문장으로>"
+  }
+}
+```
+
+한 호출에만 적용하려면 셸에서 앞에 붙인다:
+
+```bash
+MCCP_PR_SKIP_LINK_EVIDENCE=<왜 이 ship이 리뷰 레코드를 히스토리에 싣지 않는지 한 문장으로> /mccp:pr
+```
+
 **v1.29.0 원문** — 색인 축약 이전의 서술을 줄 단위로 보존한다.
 
 ```text

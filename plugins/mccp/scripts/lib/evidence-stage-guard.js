@@ -37,6 +37,10 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { receiptHash } = require('../receipt/hash');
 const { validate: validateReceiptSchema } = require('../receipt/schema');
+// review-record-linkage M3 — panel-record parsing is corpus.js's (DD1a: one owner),
+// and the link-evidence carrier has one validator shared with pr.md Phase 3.0.
+const { parseRecord } = require('./plan-review/corpus');
+const { parseLinkEvidence } = require('./plan-review/link-receipt');
 
 // An absolute cwd is a leak: Windows drive-letter (`C:\`, `C:/`) or POSIX
 // absolute (`/...`). A redacted receipt is repo-relative ('.', 'sub/dir') or the
@@ -44,6 +48,60 @@ const { validate: validateReceiptSchema } = require('../receipt/schema');
 function isAbsoluteCwd(cwd) {
   if (typeof cwd !== 'string' || cwd.length === 0) return false;
   return path.isAbsolute(cwd) || /^[A-Za-z]:[\\/]/.test(cwd);
+}
+
+// ── review-record-linkage M3 — the review-record branch ──────────────────────
+//
+// Phase 3.0 now stages ONE `.claude/reviews/*.md` panel record alongside the
+// receipt corpus, because the back-patched half of the link is git-tracked and
+// would otherwise never reach history — leaving the audit permanently at zero.
+//
+// `anchor` is `{ record_path, receipt_path, receipt_hash }` from the run's
+// link-evidence artifact, or `null`. It is an ARGUMENT, not an env var: the value
+// must cross a fenced-block boundary, and this repository has twice had to patch
+// stale exported vars that outlived their run (`pr.md:171-180`, `:472-481`). An
+// artifact read fresh per run cannot be inherited from a previous one.
+//
+// Three checks, and the FIRST is what makes this a real defence layer:
+//   1. the staged path must EQUAL `anchor.record_path`. Without it the branch
+//      would trust the caller's pathspec scoping, and a later widening of that
+//      pathspec to `^\.claude/reviews/` would silently admit the whole corpus —
+//      exactly the change this milestone forbids elsewhere. A guard that only
+//      holds while its caller stays correct is not a guard;
+//   2. the blob must parse as a panel record carrying a `## Measurement` fence;
+//   3. its `receipt_hash` must equal THIS ship's `anchor.receipt_hash` — not "some
+//      staged receipt's". Matching against any receipt would pass a stale hash
+//      left by a previous ship, which is the very case Task 8 axis 3 exists for.
+//
+// A null anchor is fail-CLOSED: with no anchor there is no "this ship" to compare
+// against, and the alternative — accepting any well-formed record — is strictly
+// worse than refusing.
+function validateReviewRecord(relPath, raw, anchor) {
+  if (!anchor || typeof anchor !== 'object') {
+    return { path: relPath, reason: 'a review record is staged but no link-evidence anchor was ' +
+      'supplied — refusing (an unanchored record cannot be shown to belong to this ship)' };
+  }
+  if (typeof anchor.record_path !== 'string' || anchor.record_path !== relPath) {
+    return { path: relPath, reason: 'staged review record is not the one this ship linked ' +
+      '(anchor names ' + JSON.stringify(anchor.record_path) + ')' };
+  }
+  let parsed;
+  try { parsed = parseRecord(raw); }
+  catch (e) { return { path: relPath, reason: 'review record parse threw: ' + (e && e.message) }; }
+  if (parsed.kind !== 'record') {
+    return { path: relPath, reason: 'not a panel record with a readable Measurement block (kind=' +
+      parsed.kind + ')' };
+  }
+  const declared = parsed.measurement && parsed.measurement.receipt_hash;
+  if (typeof declared !== 'string' || declared.length === 0) {
+    return { path: relPath, reason: 'review record carries no measurement.receipt_hash — the ' +
+      'back-patch did not land, so this record is not evidence of a link' };
+  }
+  if (declared !== anchor.receipt_hash) {
+    return { path: relPath, reason: 'review record receipt_hash mismatch (stale/forged): declared ' +
+      declared + ' but this ship sealed ' + anchor.receipt_hash };
+  }
+  return null;
 }
 
 // validateContent(relPath, raw) → null when safe, else { path, reason }. PURE —
@@ -121,11 +179,21 @@ function readStagedBlob(repoRoot, relPath) {
 
 // validateStaged(repoRoot, relPaths) → { ok, offenders: [{path, reason}] }.
 // Reads the STAGED blob for each path, then validates its content.
-function validateStaged(repoRoot, relPaths) {
+function validateStaged(repoRoot, relPaths, anchor) {
   const offenders = [];
   for (const p of relPaths) {
     const rel = String(p).trim();
     if (rel.length === 0) continue;
+    const blob = readStagedBlob(repoRoot, rel);
+    // M3 — the ONE review record this ship linked. Routed by extension, then
+    // validated against the anchor; everything about "is it the right one" lives
+    // in validateReviewRecord, not in the caller's pathspec.
+    if (rel.endsWith('.md')) {
+      if (!blob.ok) { offenders.push({ path: rel, reason: blob.reason }); continue; }
+      const badRecord = validateReviewRecord(rel, blob.raw, anchor);
+      if (badRecord) offenders.push(badRecord);
+      continue;
+    }
     // R4/F1 — the caller scopes input to the receipt corpus, so a non-JSON path
     // here is a stray file (scratch/backup/binary) that would be committed
     // unvalidated (the guard used to silently skip it, and the outside-path check
@@ -134,12 +202,28 @@ function validateStaged(repoRoot, relPaths) {
       offenders.push({ path: rel, reason: 'non-JSON path staged under receipt corpus (only ship-receipt .json is durable evidence)' });
       continue;
     }
-    const blob = readStagedBlob(repoRoot, rel);
     if (!blob.ok) { offenders.push({ path: rel, reason: blob.reason }); continue; }
     const bad = validateContent(rel, blob.raw);
     if (bad) offenders.push(bad);
   }
   return { ok: offenders.length === 0, offenders: offenders };
+}
+
+// Read the run's link-evidence artifact. Absent → null, which the review-record
+// branch treats as fail-closed. A PRESENT-but-invalid artifact is also null: a
+// malformed carrier is not a weaker anchor, it is no anchor.
+function readAnchor(anchorPath) {
+  if (typeof anchorPath !== 'string' || anchorPath.length === 0) return null;
+  let raw;
+  try { raw = fs.readFileSync(anchorPath, 'utf8'); }
+  catch (_e) { return null; }
+  const parsed = parseLinkEvidence(raw);
+  if (!parsed.ok) {
+    process.stderr.write('[evidence-stage-guard] link-evidence artifact rejected: ' +
+      parsed.reason + '\n');
+    return null;
+  }
+  return parsed;
 }
 
 function readStdin() {
@@ -152,8 +236,16 @@ function readStdin() {
 
 function main() {
   const repoRoot = process.env.MCCP_EVIDENCE_STAGE_ROOT || process.cwd();
+  // M3 — `--anchor-file <path>`, deliberately argv rather than an env var so the
+  // value cannot be inherited from a previous run (security-reviewer M1).
+  let anchorPath = null;
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--anchor-file' && i + 1 < argv.length) { anchorPath = argv[i + 1]; i += 1; }
+  }
+  const anchor = readAnchor(anchorPath);
   const paths = readStdin().split(/\r?\n/);
-  const res = validateStaged(repoRoot, paths);
+  const res = validateStaged(repoRoot, paths, anchor);
   if (!res.ok) {
     for (const o of res.offenders) {
       process.stdout.write('  BAD ' + o.path + ' — ' + o.reason + '\n');
@@ -169,6 +261,8 @@ if (require.main === module) {
 
 module.exports = {
   isAbsoluteCwd: isAbsoluteCwd,
+  validateReviewRecord: validateReviewRecord,
+  readAnchor: readAnchor,
   validateContent: validateContent,
   readStagedBlob: readStagedBlob,
   validateStaged: validateStaged,

@@ -13,6 +13,7 @@ const { renderOpenQuestions } = require('./sections/open-questions');
 const { renderRisks } = require('./sections/risks');
 const { renderMilestoneHistory } = require('./sections/milestone-history');
 const { renderMswMetrics } = require('./sections/msw-metrics');
+const { renderLeadtimeLine } = require('./sections/leadtime-line');
 const { dedupOQAndRisks } = require('./parsers/cross-section-dedupe');
 const { annotateResolution } = require('./parsers/resolution-classify');
 const { renderMarkdown } = require('./markdown');
@@ -123,7 +124,14 @@ function renderStatus(model, opts) {
       return require('path').join(root, '.claude', 'cache', 'snapshots');
     })();
 
-    const grid = safeSection('status-grid', () => renderStatusGrid(m, formatUtils, planBody, opts));
+    // leadtime-observability M3 (DD1/DD7) — 한 줄은 `sections` 배열이 아니라 grid 를
+    // 통해 두 composer 에 도달한다. 두 composer 가 `sections` 를 정확히 10개 위치로
+    // 구조분해하므로 append 한 원소는 읽히지 않고, `grid` 는 markdown 조립과
+    // `renderHeroPanel(verdict, grid, …)` 양쪽이 이미 받는 **단일** 채널이다.
+    // `safeSection` 은 throw 만 대체하므로 축 부재의 `null` 은 그대로 통과한다.
+    const leadtimeLine = safeSection('leadtime-line', () => renderLeadtimeLine(m, formatUtils));
+    const grid = safeSection('status-grid',
+      () => renderStatusGrid(m, formatUtils, planBody, Object.assign({}, opts, { leadtimeLine })));
     const pipeline = safeSection('pipeline', () => renderPipeline(m, formatUtils, planBody, opts));
     const fanout = safeSection('worker-fanout', () => renderWorkerFanout(m, formatUtils));
     const activeSessions = safeSection('active-sessions', () => renderActiveSessions(m, formatUtils));

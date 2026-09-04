@@ -256,6 +256,24 @@ test('C6: CREATE targets are exempt (C3 owns their absence)', () => {
   assert.equal(r.verdict, 'converged', JSON.stringify(r.violations));
 });
 
+// ci-full-suite M2 — C6 must be able to express a dotfile-directory citation.
+// The capture class once began at [A-Za-z0-9_], so `.claude/prds/x.prd.md:97`
+// was captured as `claude/prds/x.prd.md`, resolved nowhere, and reported a false
+// C6 on a citation that was exactly right. Because this repo keeps its plans and
+// PRDs under dotfile directories, that left no way to cite them both correctly
+// and greenly — measured on this milestone's own plan (3 of 8 violations).
+test('C6: a citation into a dotfile directory resolves (no false positive)', () => {
+  const r = run(goodPlan() + 'Per `.claude/prds/sample.prd.md:97` the denominator is fixed.');
+  assert.equal(r.verdict, 'converged', JSON.stringify(r.violations));
+});
+
+// The pair matters: allowing the dot must not stop C6 from CHECKING those paths.
+test('C6: a dotfile-directory citation that does not exist is still rejected', () => {
+  const r = run(goodPlan() + 'Per `.claude/prds/absent.prd.md:12` something.');
+  assert.equal(r.verdict, 'divergent');
+  assert.ok(codes(r).indexOf('C6_UNRESOLVED_CITATION') !== -1);
+});
+
 // ── inconclusive ≠ divergent (G3) ─────────────────────────────────────────────
 
 test('unreadable plan yields inconclusive, not divergent', () => {

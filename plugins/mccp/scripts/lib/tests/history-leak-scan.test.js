@@ -64,6 +64,20 @@ function buildRepo(commits) {
   return root;
 }
 
+// caseVariantOf — 반드시 대소문자가 **다른** 경로를 낸다.
+//
+// 이전 F4 본문은 `variant === root`이면 조용히 return했는데, 그것은 단언 없이
+// 통과하는 길이라 이 파일이 막으려는 형태 그 자체였다(mkdtemp 난수가 전부
+// 소문자로 나오면 Windows에서도 열린다). 소문자화가 항등이면 대문자화로 뒤집어
+// 변형을 보장하고, 그래도 같으면 그때는 조용히 넘어가는 대신 시끄럽게 실패한다.
+function caseVariantOf(root) {
+  const lower = root.toLowerCase();
+  const variant = lower === root ? root.toUpperCase() : lower;
+  assert.notStrictEqual(variant, root,
+    'a case variant must actually differ, or the assertion below proves nothing');
+  return variant;
+}
+
 test('clean range: no repo-root leak → ok:true', function () {
   const root = buildRepo([{ files: { 'docs/note.md': 'hello world\nno leak here\n' } }]);
   const res = scan.scanRange({ repoRoot: root, base: 'main' });
@@ -332,21 +346,57 @@ test('F1 (Codex R2): ancestor-only old-blob path (copied then DELETED before HEA
   assert.ok(res.leaks.every(function (l) { return l.path !== 'docs/allowed.md'; }), 'the allowlisted base path stays suppressed');
 });
 
-test('F4 (Codex R4): a repo-root path with different CASE still leaks (Windows case-insensitivity)', function () {
+test('F4 (Codex R4): a repo-root path with different CASE still leaks (Windows case-insensitivity)',
+  // ci-full-suite M2 갈래 P — 가드는 이름이 아니라 실행으로 건다.
+  //
+  // 이 단언은 스캐너가 repo-root 패턴을 case-insensitive로 컴파일할 때만 참이고,
+  // 그것은 history-leak-scan.js:130-136이 **드라이브 문자 루트일 때만** 한다
+  // (POSIX 파일시스템은 case-sensitive라 대소문자 변형이 실제로 다른 경로이고,
+  // `i`를 붙이면 과매칭한다 — 의도된 비대칭이다).
+  //
+  // 기존 가드 `if (variant === root) return;`은 그 성질의 프록시로 쓰였지만 틀린
+  // 프록시다: `fs.mkdtempSync`의 6자 난수에 대문자가 하나만 섞여도 POSIX에서
+  // `variant !== root`가 되어 가드가 열리고, 그 순간 case-sensitive 파일시스템에서
+  // 참이 아닌 명제를 단언하게 된다. Linux CI의 red가 정확히 그 경로였다.
+  { skip: process.platform === 'win32'
+      ? false
+      : 'Windows only (case-insensitive repo-root matching is drive-letter-gated)' },
+  function () {
   // Windows paths are case-insensitive: C:\X and c:\x name the same root, so a leak
   // line spelling the repo root with a lowercased drive/segment must still be
   // caught. On POSIX (case-sensitive fs) a case variant is a genuinely different
   // path, so the repo-root pattern stays case-sensitive there and this does not
-  // apply (the test skips when the root is already all-lowercase / has no drive).
+  // apply — the platform guard above owns that split, and F4b asserts the POSIX
+  // half of it.
   const root = initBase();
-  const variant = root.toLowerCase();
-  if (variant === root) { return; } // POSIX / already lowercase — not applicable
+  const variant = caseVariantOf(root);
   commit(root, { 'report.md': 'leaked path ' + variant + '/sub here\n' });
   const res = scan.scanRange({ repoRoot: root, base: 'main' });
   assert.equal(res.ok, false, 'a case-variant of the repo root must still leak on Windows');
   assert.ok(res.leaks.some(function (l) { return /report\.md/.test(l.path) && l.pattern === 'repo-root'; }),
     'the differently-cased repo-root path is detected by the repo-root pattern');
 });
+
+// F4b — F4의 POSIX 절반. 이것이 없으면 Linux 에서 repo-root 대소문자 축의 커버리지가
+// 0이다: F4는 그 플랫폼에서 통째로 skip 되고, 대신 참이어야 할 반대 명제
+// (case-sensitive fs 에서 대소문자 변형은 **다른 경로**라 repo-root 로 잡히지 않는다)를
+// 아무도 단언하지 않는다. 비대칭이 의도된 것이라면 양쪽을 다 고정해야 그 의도가
+// 회귀에서 살아남는다 — 스캐너가 언젠가 `i` 를 무조건 붙이면 여기가 붉어진다.
+test('F4b: on POSIX a case variant is a DIFFERENT path and must NOT match repo-root',
+  { skip: process.platform === 'win32'
+      ? 'POSIX only (Windows compiles the repo-root pattern case-insensitively)'
+      : false },
+  function () {
+    const root = initBase();
+    const variant = caseVariantOf(root);
+    commit(root, { 'report.md': 'leaked path ' + variant + '/sub here\n' });
+    const res = scan.scanRange({ repoRoot: root, base: 'main' });
+    // `res.ok` 전체가 아니라 **repo-root 패턴만** 본다 — 다른 패턴이 이 줄을 잡는 것은
+    // 이 test 의 명제와 무관하고, ok 를 단언하면 그 무관한 변화에 결속된다.
+    assert.ok(!res.leaks.some(function (l) {
+      return /report\.md/.test(l.path) && l.pattern === 'repo-root';
+    }), 'case-sensitive fs: a differently-cased path is a genuinely different path');
+  });
 
 test('empty range (HEAD === base) → ok, nothing scanned', function () {
   const root = buildRepo([]); // no extra commits: HEAD === main

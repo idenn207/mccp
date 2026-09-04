@@ -69,6 +69,13 @@ build/
 # crash-leaked locks/tmps out of the tracked register directory.
 .claude/state/completion-ledger/*.lock
 .claude/state/completion-ledger/*.tmp
+# leadtime-observability M3 — distribution.json 은 git-tracked 발행물이지만 그
+# 원자 write 의 tmp 는 로컬 일회성이다. 형태가 completion-ledger 와 같아 같은
+# 자리에 둔다: 단일 레벨 glob `.claude/state/*.lock` 은 이 하위 디렉토리에 닿지
+# 않는다. writer 는 rename 실패 경로에서 unlink 하지만 write~rename 사이의
+# 크래시는 tracked 디렉토리에 부분 JSON 고아를 남기고, `/mccp:prp-commit` 의
+# 자연어 타겟팅이 그것을 커밋에 쓸어 담을 수 있다.
+.claude/state/leadtime/*.tmp
 # multi-session-work-loop M3 — work-unit occupancy registry (evidence-claim.js).
 # Session-local by construction: a claim binds {session_id, host, session_pid} of
 # a LIVE session, so committing one would resurrect a dead holder in every clone

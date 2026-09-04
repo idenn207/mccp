@@ -75,11 +75,22 @@ function withTmp(fn) {
   }
 }
 
+// ci-full-suite M2 갈래 H — `gitDir: null`은 장식이 아니라 계약이다.
+//
+// `emit-workflow-args`는 라운드 칩 초크포인트를 갖고, 그것은 git dir의 봉인을
+// 읽는다. 이 test는 tmp 저장소를 `--repo-root`로 지정하지만 **프로세스의 cwd는
+// 여전히 이 저장소**이므로, 명시하지 않으면 게이트가 방금 봉인한 운영 상태를
+// 읽어 `BLOCK: round cap reached`로 떨어진다 — 테스트 대상 코드와 무관한 이유로
+// red가 된다(M1 baseline이 "플랫폼 차이"로 읽은 실패의 정체).
+//
+// 이것은 `codex-invoke.test.js:269-275`가 이미 자기 채널에 적어 둔 규약과 **같다** —
+// ambient 게이트 상태에 의존하지 않는 결과를 단언하는 test는 gitDir를 핀해야 한다.
+// 라운드 칩 자체를 검증하려는 test는 반대로 실제 gitDir를 넘기면 된다.
 function emit(ctx, extraArgs) {
   const argv = ['emit-workflow-args', '--plan', ctx.planPath, '--out', ctx.outPath,
     '--repo-root', ctx.dir]
     .concat(extraArgs || []);
-  const code = runCli(argv);
+  const code = runCli(argv, { gitDir: null });
   const payload = fs.existsSync(ctx.outPath)
     ? JSON.parse(fs.readFileSync(ctx.outPath, 'utf8')) : null;
   return { code: code, payload: payload };

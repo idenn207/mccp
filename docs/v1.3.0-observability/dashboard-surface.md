@@ -18,11 +18,20 @@ Programmatic entry (for M4 hook wiring): `const { renderStatus } = require('plug
 | # | Section | Markdown anchor | HTML id | Graceful hide |
 |---|---|---|---|---|
 | 1 | Verdict (1-line tone+icon+text) | `#verdict` | `verdict` | never |
-| 2 | Dashboard (host-version line + named widgets + next-action) | `#대시보드` | `route-overview` | never |
+| 2 | Dashboard (status band + leadtime line + named widgets + next-action) | `#대시보드` | `route-overview` | never |
+| 2a | Leadtime one line (`sections/leadtime-line.js`, inside section 2) | — (no own heading) | — (inside `hero-panel`) | hide **only** if `model.leadtime` is absent or `null` |
 | 3 | Worker fanout (envelopes + controller skew) | `#workers` | `workers` | hide if `envelopes.count===0 AND !controller_active` |
 | 4 | Audit timeline (last 7 days × 30 rows + briefing surface) | `#timeline` | `timeline` | never (empty placeholder if no rows) |
 | 5 | Open Questions (state + plan body merge, dedupe) | `#questions` | `questions` | hide if merged list empty |
 | 6 | Risks (top in-progress plan's `## Risks` + PRD fallback) | `#risks` | `risks` | never (`no risks surface available` placeholder if none) |
+
+Row 2a is not a seventh section — it is a single line that lives **inside** the dashboard block and
+owns no heading of its own (leadtime-observability M3, DD7). It is placed immediately after the
+status band in markdown and immediately after the verdict band in HTML, and it reaches both
+composers through `grid` (`opts.leadtimeLine` → `renderStatusGrid` → `grid.md` / `grid.leadtimeHtml`)
+rather than through the `sections` array — both composers destructure exactly ten slots, so an
+appended eleventh element would be read by neither. It introduces no new heading, no new CSS class
+and no new accent colour.
 
 Markdown uses `##` h2 headings consistently. HTML uses `<section id="...">` for stable cross-doc anchors (impeccable P3 — no emoji prefix in h2 to prevent slugify drift).
 
@@ -173,6 +182,13 @@ Plain-text STATUS.md is grep-friendly because every status row contains the Kore
 - **audit-timeline within 7-day window === 0** → renders `_(최근 7일 활동 없음)_` placeholder. NOT hidden — empty timeline is the signal.
 - **degraded source** → verdict step 3 fires amber. The source section itself still renders (graceful fail-open per per-section catch).
 - **capability `contract_present===false`** → verdict step 1 fires red. All sections still render below.
+- **`model.leadtime` absent or `null`** → the leadtime line is skipped entirely (`renderLeadtimeLine`
+  returns `null`). This is the **only** hide condition for that line: **축 부재만 hide, 값 부재는
+  명시**한다. A measured-but-blind axis still renders, saying `미산출` plus its reason and coverage —
+  writing `0` there would invent a fact, and hiding it would make an unmeasured axis and a measured
+  empty one look identical. `null` counts as absence because bare `derive()` leaves the declared key
+  at `null` when `leadtimeScan` is off; claiming `미산출` for an axis that was never computed would be
+  a retroactive absence claim.
 
 ## §6 Cache and refresh boundary (M3 / M4 / M5 ownership split)
 

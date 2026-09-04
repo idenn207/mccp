@@ -981,3 +981,171 @@ test('no input this oracle accepts can put a negative span in the distribution',
     assert.equal(s.pre_panel_anchors.length, 1, 'offset ' + offset + ' must still be reported');
   }
 });
+
+// ── M3. 소비 표면 투영 + spawn 게이트 ────────────────────────────────────────
+//
+// M3이 더하는 것 넷:
+//   - `allowGit:false`가 W3을 `unavailable`로 만들고 `no`로 접지 않는다 — 그리고
+//     같은 입력의 **분포가 두 모드에서 완전히 동일**하다(증인은 미짝의 분류에만 쓰인다).
+//   - `audit()`의 첫 직접 커버리지 — 합성 tmp repo에서 spawn 없이 완주한다.
+//   - 투영은 경로·레코드명·해시를 하나도 싣지 않고, 두 앵커 키를 **언제나** 싣는다.
+//   - 사람 면의 절삭이 `--json`으로 새지 않는다 — 후자는 전 버킷을 유지한다.
+
+const { summarizeForSurface, audit, UNMATCHED_HUMAN_TOP_N } = require('../leadtime');
+const { formatLeadtimeLine } = require('../leadtime-surface');
+
+test('allowGit:false makes the git witness UNAVAILABLE, never a denial', () => {
+  // 이 축은 `post_panel_span` 이 실제로 로드된 코퍼스에서만 관측 가능하다(빈 합성
+  // repo 는 축 키 자체가 없다 — 부재 규칙 (a)). 그래서 실코퍼스를 쓰되 단언은
+  // **관계**다: reason 이 `git-disabled` 이고 `no` 로 접히지 않았다는 것. 카운트를
+  // 단언하지 않으므로 코퍼스가 자라도 붉어지지 않는다.
+  const without = audit({ repoRoot: process.cwd(), allowGit: false });
+  const gw = without.post_panel_span && without.post_panel_span.coverage.git_witness;
+  assert.ok(gw, 'the axis is loaded in this repository');
+  assert.equal(gw.available, false);
+  assert.equal(gw.reason, 'git-disabled',
+    'a witness we never asked is not a witness that said no');
+});
+
+test('the distribution is IDENTICAL across git modes — witnesses only classify unmatched rows', () => {
+  const root = process.cwd();
+  const a = summarizeForSurface(audit({ repoRoot: root }));
+  const b = summarizeForSurface(audit({ repoRoot: root, allowGit: false }));
+  assert.deepEqual(a.panel_span, b.panel_span);
+  assert.deepEqual(a.post_panel_span.by_anchor, b.post_panel_span.by_anchor);
+  assert.deepEqual(a.coverage, b.coverage);
+  assert.ok(b.degradations.includes('git-disabled'),
+    'the degradation is surfaced — hiding it makes the unclassified rise read as a corpus property');
+  assert.ok(!a.degradations.includes('git-disabled'));
+});
+
+test('audit() completes over a synthetic repo without spawning git (allowGit is the seam)', () => {
+  const root = tmpRepo({});
+  try {
+    const r = audit({ repoRoot: root, allowGit: false });
+    assert.equal(r.tool, 'leadtime');
+    assert.equal(r.state, 'blind', 'an empty corpus is blind, not ok');
+    assert.equal(Object.prototype.hasOwnProperty.call(r, 'panel_span'), false,
+      'absence rule (a) — no empty distribution key');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the projection always carries BOTH anchor keys, absence written as null', () => {
+  // 원본 `by_anchor` 는 조건부 키다 — 관측 0건이면 아예 없다. 투영은 그 조건성을
+  // 소비처로 넘기지 않는다.
+  const bare = aggregate([]);
+  assert.equal(bare.post_panel_span, undefined, 'the raw result has no axis at all here');
+  const s = summarizeForSurface(bare);
+  assert.ok('ledger_basename' in s.post_panel_span.by_anchor);
+  assert.ok('ship_plan_hash' in s.post_panel_span.by_anchor);
+  assert.equal(s.post_panel_span.by_anchor.ledger_basename, null);
+  assert.equal(s.post_panel_span.by_anchor.ship_plan_hash, null);
+});
+
+test('the projection carries no path, record name or hash (DD12)', () => {
+  const ser = JSON.stringify(summarizeForSurface(audit({ repoRoot: process.cwd(), allowGit: false })));
+  assert.ok(!/[\/]/.test(ser), 'no path separator survives the projection');
+  assert.ok(!/\.md\b/.test(ser), 'no review record filename');
+  assert.ok(!/sha256:/.test(ser), 'no reviewed_plan_hash');
+});
+
+test('the projection selects fields and never invents a number (DD13)', () => {
+  const out = aggregate([panelRecord('a.md', { slug: 'a' })], {
+    anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)] }),
+  });
+  const s = summarizeForSurface(out);
+  // 원본에 있는 값은 그대로, 없는 값은 null. 평균도 clamp 도 기본값도 없다.
+  assert.equal(s.panel_span.p50, out.panel_span.p50);
+  assert.equal(s.post_panel_span.by_anchor.ledger_basename.p50,
+    out.post_panel_span.by_anchor.ledger_basename.p50);
+  assert.equal(s.post_panel_span.by_anchor.ship_plan_hash, null,
+    'a zero-join series stays null — never averaged in from the other axis');
+  assert.equal(s.post_panel_span.coverage.matched_ship, 0);
+});
+
+test('the projection drops every per-record array (DD8)', () => {
+  const out = aggregate([panelRecord('a.md', { slug: 'a' })], {
+    anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)] }),
+  });
+  const s = summarizeForSurface(out);
+  assert.equal(s.panel_span.records, undefined);
+  assert.equal(s.panel_span.by_verdict, undefined);
+  assert.equal(s.post_panel_span.negative_spans, undefined);
+  assert.equal(s.post_panel_span.pre_panel_anchors, undefined);
+});
+
+test('the projection keeps the disagreement note so the structural zero is never quoted bare', () => {
+  const s = summarizeForSurface(aggregate([]));
+  assert.match(s.post_panel_span.disagreement_note, /structurally-zero/);
+  // 그러나 한 줄에는 실리지 않는다 (DD11).
+  assert.ok(!/불일치|disagreement/.test(formatLeadtimeLine(s).text));
+});
+
+// 분할 불변식 파손은 CLI 에서 `*** SUM EQUATION BROKEN ***` 로 크게 보이는데(:1261)
+// 소비 표면 셋(STATUS.md · status.html · distribution.json)에서만 사라졌다 — 강등
+// 열거형에 대응 항목이 없어 한 줄이 `사유 미상` 으로 접혔기 때문. 그 비대칭의 falsifier.
+test('a broken partition invariant reaches the one line as a NAMED reason', () => {
+  const s = summarizeForSurface({
+    state: 'degraded',
+    coverage: { panel_records: 2, measurable: 2 },
+    panel_span: null,
+    post_panel_span: {
+      state: 'degraded',
+      by_anchor: {},
+      coverage: { eligible: 2 },
+      unmatched: {
+        ledger_basename: { total: 2, counts: {}, sum_equation_holds: false },
+        ship_plan_hash: { total: 0, counts: {}, sum_equation_holds: true },
+      },
+    },
+  });
+  assert.ok(s.degradations.includes('sum-equation-broken'),
+    'the reason must be named, not swallowed: ' + JSON.stringify(s.degradations));
+  const note = formatLeadtimeLine(s).parts.note;
+  assert.match(note, /sum-equation-broken/);
+  assert.doesNotMatch(note, /사유 미상/, 'a named reason must never fall back to unknown');
+});
+
+test('the named reason does NOT fire when the partition holds (no false alarm)', () => {
+  const s = summarizeForSurface(aggregate([]));
+  assert.ok(!s.degradations.includes('sum-equation-broken'));
+});
+
+test('human output leads with the shared one line and stays inside 100 columns (DD15)', () => {
+  const r = aggregate([panelRecord('a.md', { slug: 'a' })], {
+    anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)] }),
+  });
+  const lines = renderHuman(r).split('\n');
+  assert.equal(lines[0], formatLeadtimeLine(summarizeForSurface(r)).text,
+    'CLI · STATUS.md · distribution.json share one sentence');
+  const over = lines.filter(l => l.length > 100);
+  assert.deepEqual(over, [], 'Output Constraint 4 — no line exceeds 100 columns');
+});
+
+test('the human unmatched line truncates visibly while --json keeps every bucket', () => {
+  const r = aggregate([panelRecord('a.md', { slug: 'a' })], {
+    anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)] }),
+  });
+  const text = renderHuman(r);
+  const human = text.split('\n').filter(l => l.indexOf('unmatched[') !== -1);
+  human.forEach((l) => {
+    const shown = (l.match(/\w+=\d+/g) || []).length;
+    assert.ok(shown <= UNMATCHED_HUMAN_TOP_N,
+      'the human surface shows at most ' + UNMATCHED_HUMAN_TOP_N + ' buckets: ' + l);
+  });
+  // JSON 은 무변경 — 닫힌 5키가 0건이어도 전부 남는다. 사람 면의 절삭이 감사 표면으로
+  // 새면 "분모가 있는 분해" 라는 DD4 의 주장이 무너진다.
+  ANCHOR_SERIES.forEach((k) => {
+    const u = r.post_panel_span.unmatched[k];
+    assert.deepEqual(Object.keys(u.counts).sort(), UNMATCHED_REASONS.slice().sort(),
+      'the --json bucket set is frozen at all five reasons');
+  });
+});
+
+test('a truncated human line always announces the truncation', () => {
+  // 절삭이 보이지 않으면 조용한 절삭이고, 그것이 이 흡수가 막으려는 결함이다.
+  const src = fs.readFileSync(require.resolve('../leadtime'), 'utf8');
+  assert.match(src, /in --json/, 'the truncation marker is emitted, not implied');
+});

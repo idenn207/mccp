@@ -438,3 +438,157 @@ test('M3 finalize [v1.23.5]: outcome=disabled ships even when the WRITE process 
   assert.strictEqual(receipt.meta.codex_disabled_at_pr, true);
   assert.strictEqual(receipt.meta.codex_skip_reason, 'codex_disabled');
 });
+
+// ── review-record-linkage M3 — the path anchor, all seven branches ───────────
+//
+// The NEGATIVE branches are the body of this block. With only the positive one,
+// deleting the entire anchor leaves the suite green — which is exactly the test-HIGH
+// raised against this plan's R3 round.
+
+const { deriveLinkageFlags } = require('../../pr-phase-helpers/finalize-receipt');
+
+const SHIP_PLAN = '.claude/plans/mine.plan.md';
+const RECORD = '.claude/reviews/plan-review-mine.md';
+
+function anchorRepo(receipts) {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-anch-')));
+  const dir = path.join(root, '.claude', 'receipts', 'mccp-plan-codex');
+  fs.mkdirSync(dir, { recursive: true });
+  Object.keys(receipts).forEach(function (slug) {
+    fs.writeFileSync(path.join(dir, slug + '.json'), JSON.stringify(receipts[slug], null, 2));
+  });
+  return root;
+}
+
+function upstream(planPath, reviewSource, recordPath) {
+  const meta = { created_at: '2024-01-01T00:00:00.000Z', command: '/mccp:plan', cwd: '.' };
+  if (planPath !== undefined) meta.plan_path = planPath;
+  if (recordPath !== undefined) meta.review_record_path = recordPath;
+  const resolution = { converged: false, rounds: 1 };
+  if (reviewSource !== undefined) resolution.review_source = reviewSource;
+  return {
+    schema_version: 'v1', gate_id: 'mccp-plan-codex', phase: 'plan',
+    decision_id: 'x', plan_hash: 'sha256:' + 'c'.repeat(64), round: 1,
+    findings: [], resolution: resolution, subject_hash: null, receipt_hash: null, meta: meta,
+  };
+}
+
+function derive(root) {
+  const warnings = [];
+  const out = deriveLinkageFlags({
+    repoRoot: root, shipPlanPath: SHIP_PLAN,
+    warn: function (m) { warnings.push(m); },
+  });
+  out.warnings = warnings;
+  return out;
+}
+
+function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
+
+test('M3 anchor 1/7 — review_source=multi-agent forwards the link AND eligibility=true', () => {
+  const root = anchorRepo({ mine: upstream(SHIP_PLAN, 'multi-agent', RECORD) });
+  const r = derive(root);
+  assert.deepEqual(r.flags,
+    ['--review-record-path', RECORD, '--plan-review-expected=true']);
+  cleanup(root);
+});
+
+test('M3 anchor 2/7 — review_source=hybrid is equally eligible', () => {
+  const root = anchorRepo({ mine: upstream(SHIP_PLAN, 'hybrid', RECORD) });
+  assert.ok(derive(root).flags.indexOf('--plan-review-expected=true') !== -1);
+  cleanup(root);
+});
+
+test('M3 anchor 3/7 — review_source=codex is the ONE establishable negative, with its reason', () => {
+  const root = anchorRepo({ mine: upstream(SHIP_PLAN, 'codex', RECORD) });
+  const r = derive(root);
+  assert.ok(r.flags.indexOf('--plan-review-expected=false') !== -1);
+  const i = r.flags.indexOf('--no-plan-review-reason');
+  assert.ok(i !== -1 && typeof r.flags[i + 1] === 'string' && r.flags[i + 1].length > 0,
+    'a negative eligibility claim must carry its reason — D2 folds an unexplained ' +
+    'false to undecidable, so sealing one would put a claim in the corpus no reader honours');
+  cleanup(root);
+});
+
+test('M3 anchor 4/7 — NO upstream receipt at all seals nothing', () => {
+  const root = anchorRepo({});
+  const r = derive(root);
+  assert.deepEqual(r.flags, []);
+  assert.ok(r.warnings.some(function (w) { return /link_anchor_unresolved/.test(w); }));
+  cleanup(root);
+});
+
+test('M3 anchor 5/7 — a receipt for a DIFFERENT plan seals nothing', () => {
+  // This is the measured state of this branch: the ship slug names M1's receipt.
+  // Opening by name would seal another milestone's review as this ship's evidence.
+  const root = anchorRepo({ other: upstream('.claude/plans/some-other.plan.md', 'multi-agent', RECORD) });
+  const r = derive(root);
+  assert.deepEqual(r.flags, []);
+  assert.ok(r.warnings.some(function (w) { return /expected exactly 1/.test(w); }));
+  cleanup(root);
+});
+
+test('M3 anchor 6/7 — TWO receipts sealing the same plan is ambiguous, and the first is NOT chosen', () => {
+  // Real here: the same plan can be reviewed under two slugs. Picking a row would
+  // reinstate the failure this closes, under a new name.
+  const root = anchorRepo({
+    a: upstream(SHIP_PLAN, 'multi-agent', RECORD),
+    b: upstream(SHIP_PLAN, 'multi-agent', '.claude/reviews/plan-review-other.md'),
+  });
+  const r = derive(root);
+  assert.deepEqual(r.flags, [], 'ambiguity must seal nothing at all');
+  assert.ok(r.warnings.some(function (w) { return /ambiguous/.test(w) && /NOT picking the first/.test(w); }));
+  cleanup(root);
+});
+
+test('M3 anchor 7/7 — a LEGACY receipt (no meta.plan_path) is not a match', () => {
+  // Every pre-M3 receipt is in this state, including this milestone's own upstream.
+  // Absence must not be promoted to a match.
+  const root = anchorRepo({ mine: upstream(undefined, 'multi-agent', RECORD) });
+  assert.deepEqual(derive(root).flags, []);
+  cleanup(root);
+});
+
+test('M3 anchor — an unknown/absent review_source leaves eligibility UNSTAMPED', () => {
+  // schema.js:206 explicitly permits a null review_source. "Unknown" is not "not
+  // reviewed": sealing false would drop a genuinely reviewed ship out of metric 2's
+  // denominator forever, and put a falsehood in a hash-sealed audit field.
+  [undefined, null, 'something-else'].forEach(function (src) {
+    const root = anchorRepo({ mine: upstream(SHIP_PLAN, src, RECORD) });
+    const r = derive(root);
+    assert.ok(r.flags.indexOf('--plan-review-expected=true') === -1
+      && r.flags.indexOf('--plan-review-expected=false') === -1,
+    'eligibility must stay unstamped for review_source=' + JSON.stringify(src));
+    // The link itself still travels — it is a separate axis.
+    assert.ok(r.flags.indexOf('--review-record-path') !== -1);
+    cleanup(root);
+  });
+});
+
+test('M3 anchor — a malformed carried review_record_path is DROPPED, not forwarded', () => {
+  // The upstream receipt is working-tree-only and hash-unverified (the stage guard
+  // checks mccp-pr-codex alone). Forwarding a bad value verbatim would reach the ship
+  // receipt's schema and fail-CLOSE a terminal ship — an instrumentation field must
+  // never widen the ship-blocking condition (R14, applied to the propagation axis).
+  ['docs/x.md', '/etc/passwd', '.claude/reviews/../../etc/x.md', ''].forEach(function (bad) {
+    const root = anchorRepo({ mine: upstream(SHIP_PLAN, 'multi-agent', bad) });
+    const r = derive(root);
+    assert.equal(r.flags.indexOf('--review-record-path'), -1,
+      JSON.stringify(bad) + ' must not be forwarded');
+    // Eligibility is independent and still resolves.
+    assert.ok(r.flags.indexOf('--plan-review-expected=true') !== -1);
+    cleanup(root);
+  });
+});
+
+test('M3 anchor — notation variance on the ship side still matches', () => {
+  const root = anchorRepo({ mine: upstream('./' + SHIP_PLAN, 'multi-agent', RECORD) });
+  const warnings = [];
+  const r = deriveLinkageFlags({
+    repoRoot: root, shipPlanPath: '.claude//plans/./mine.plan.md',
+    warn: function (m) { warnings.push(m); },
+  });
+  assert.ok(r.flags.indexOf('--review-record-path') !== -1,
+    'the anchor must be immune to spelling, since both ends are author transcriptions');
+  cleanup(root);
+});

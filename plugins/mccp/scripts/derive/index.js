@@ -131,6 +131,18 @@ function derive(repoRoot, opts) {
     model.metrics = {};
   }
 
+  // leadtime-observability M3 — 리드타임 분포 투영. correlate 뒤 **독립** try/catch:
+  // 관측 축이 derive 를 깨는 것은 이 저장소가 반복해 거부한 형태다. `leadtimeScan`
+  // 기본 off 라 bare derive(run · validate · perf-budget)는 spawn-free 예산을 지킨다.
+  try {
+    const { scanLeadtime } = require('../lib/leadtime-derive');
+    model.leadtime = scanLeadtime(root, opts);
+  } catch (err) {
+    model.leadtime = null;
+    pushWarning(model, 'low', 'leadtime',
+      'leadtime scan threw: ' + ((err && err.message) || String(err)));
+  }
+
   // Dashboard Truthfulness M2 (Codex R1 F2) — stamp host-project version signal
   // at derive time so the renderer consumes a reproducible snapshot (never reads
   // host files at render time). Independent try/catch from the source loop —

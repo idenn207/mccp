@@ -190,3 +190,96 @@ test('validateStaged: blank lines are skipped, but R4/F1 a stray non-JSON staged
     assert.match(badRes.offenders[0].reason, /non-JSON path/);
   } finally { cleanup(root); }
 });
+
+// ── review-record-linkage M3 — the review-record branch ──────────────────────
+//
+// Phase 3.0 now stages ONE panel record beside the receipt corpus. The branch that
+// admits it has to be a real defence layer, not a pass-through that trusts the
+// caller's pathspec — a later widening of that pathspec is exactly the erosion the
+// security review flagged, and this branch is what must survive it.
+
+const ANCHOR = {
+  record_path: '.claude/reviews/plan-review-mine.md',
+  receipt_path: '.claude/receipts/mccp-pr-codex/mine.json',
+  receipt_hash: 'sha256:' + 'e'.repeat(64),
+};
+
+function panelWith(hash) {
+  return ['# Plan Review Panel — mine', '',
+    '**Verdict**: `divergent` via `multi-agent`', '',
+    '## Findings', '', 'None.', '',
+    '## Measurement', '', '```json',
+    JSON.stringify({ verdict: 'divergent', plan_path: '.claude/plans/mine.plan.md', receipt_hash: hash }, null, 2),
+    '```', ''].join('\n');
+}
+
+test('M3 — a correctly linked record is admitted', function () {
+  const bad = guard.validateReviewRecord(ANCHOR.record_path, panelWith(ANCHOR.receipt_hash), ANCHOR);
+  assert.equal(bad, null, 'the one linked record must pass');
+});
+
+test('M3 — NO anchor is fail-CLOSED, never "accept any well-formed record"', function () {
+  // With no anchor there is no "this ship" to compare against. Accepting anything
+  // well-formed would be strictly worse than refusing.
+  const raw = panelWith(ANCHOR.receipt_hash);
+  [null, undefined, 'not-an-object'].forEach(function (a) {
+    const bad = guard.validateReviewRecord(ANCHOR.record_path, raw, a);
+    assert.ok(bad, 'a missing anchor must be an offender');
+    assert.ok(/anchor/i.test(bad.reason));
+  });
+});
+
+test('M3 — a record at a path the anchor does not name is refused', function () {
+  // THE defence-layer assertion. Without it the branch trusts the caller's pathspec
+  // scoping, and widening that pathspec to a `^\.claude/reviews/` prefix would
+  // silently admit the whole record corpus. A guard that only holds while its
+  // caller stays correct is not a guard.
+  const bad = guard.validateReviewRecord(
+    '.claude/reviews/plan-review-someone-else.md', panelWith(ANCHOR.receipt_hash), ANCHOR);
+  assert.ok(bad, 'a record the anchor does not name must be refused');
+  assert.ok(/not the one this ship linked/.test(bad.reason));
+});
+
+test('M3 — a STALE or absent receipt_hash in the record is refused', function () {
+  const stale = guard.validateReviewRecord(
+    ANCHOR.record_path, panelWith('sha256:' + 'f'.repeat(64)), ANCHOR);
+  assert.ok(stale, 'a hash from a previous ship must not pass');
+  assert.ok(/mismatch/.test(stale.reason));
+
+  const absent = guard.validateReviewRecord(ANCHOR.record_path, panelWith(null), ANCHOR);
+  assert.ok(absent, 'a record whose back-patch never landed is not evidence of a link');
+});
+
+test('M3 — a non-panel .md is refused', function () {
+  const bad = guard.validateReviewRecord(ANCHOR.record_path, '# PR 9 review\n\nnope\n', ANCHOR);
+  assert.ok(bad);
+  assert.ok(/not a panel record/.test(bad.reason));
+});
+
+test('M3 — readAnchor refuses a malformed carrier rather than weakening to a partial one', function () {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-anchor-'));
+  const p = path.join(dir, 'a.json');
+
+  fs.writeFileSync(p, JSON.stringify(ANCHOR));
+  const good = guard.readAnchor(p);
+  assert.ok(good && good.ok, 'a well-formed carrier resolves');
+  assert.equal(good.record_path, ANCHOR.record_path);
+
+  // A present-but-invalid artifact is NO anchor, not a weaker one.
+  fs.writeFileSync(p, JSON.stringify(Object.assign({}, ANCHOR, { record_path: 'docs/x.md' })));
+  assert.equal(guard.readAnchor(p), null);
+  fs.writeFileSync(p, 'not json');
+  assert.equal(guard.readAnchor(p), null);
+  assert.equal(guard.readAnchor(path.join(dir, 'missing.json')), null);
+  assert.equal(guard.readAnchor(null), null);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('M3 — a non-JSON, non-MD path under the corpus is still refused (R4/F1 intact)', function () {
+  // The M3 branch routes `.md` away from the receipt validator; everything else must
+  // keep hitting the original fail-closed rule.
+  const res = guard.validateStaged(process.cwd(), ['.claude/receipts/mccp-pr-codex/scratch.bin'], ANCHOR);
+  assert.equal(res.ok, false);
+  assert.ok(/non-JSON path staged/.test(res.offenders[0].reason));
+});

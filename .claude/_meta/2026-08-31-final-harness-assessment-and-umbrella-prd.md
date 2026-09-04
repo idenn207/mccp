@@ -16,18 +16,18 @@
 
 | # | 참조 | 시점 | 무엇을 전제하는가 |
 |---|---|---|---|
-| 1 | `.claude/receipts/mccp-pr-codex/` | HEAD | 72건. `resolution` 키는 정확히 `converged`(72) · `rounds`(72) · `accepted`(72) · `rejected`(72) · `open_questions`(72) · `codex_verdict`(50)이다. **`findings` 키는 존재하지 않는다** |
-| 2 | 같은 corpus | HEAD | `accepted` 비어있지 않음 **1건** · `rejected` **0건** · `open_questions` **1건**. 유일한 사례가 `v0-2-8-task-2-6-1-fix.json`(2026-06, v0.2.8기)이다 |
-| 3 | `plugins/mccp/scripts/receipt/write.js:393-394` | HEAD | `defaultResolution = { converged: true, rounds: 1, ... }` 리터럴 |
-| 4 | `plugins/mccp/scripts/lib/work-orchestrator.js:318-326` | HEAD | `record-step` 서브커맨드가 구현돼 `autoChain.recordStep`에 위임한다 |
-| 5 | `plugins/mccp/commands/work.md` | HEAD | `record-step` 등장 **0회**. orchestrator CLI를 부르는 줄은 `:139` 하나이고 그것은 산문이다 |
-| 6 | derive `metrics.A1` | HEAD | `invalid_reason: "no live startup producer wired (task_started events not emitted…)"` |
-| 7 | test suite 실행 | 2026-08-31 | 346개 중 105개 실행 완료 시점 **PASS 104 / FAIL 1**(`derive/tests/mccp-fixture.test.js`). 파일당 중앙값 ~12초, 전량 외삽 약 69분 |
-| 8 | `.github/workflows/` | HEAD | CI가 실행하는 test 3개 (`pr-phase-guard` · `pr-phase-lock-f11` · `gitignore-provision`) |
-| 9 | `plan-review/corpus.js` 실행 | HEAD | `m_binding=0` · `k_binding=0` · `findings_binding=31`. wall-clock은 통과 5건만 산출되고 divergent 33건은 미산출 |
+| 1 | `.claude/receipts/mccp-pr-codex/` | d1db647 | 72건. `resolution` 키는 정확히 `converged`(72) · `rounds`(72) · `accepted`(72) · `rejected`(72) · `open_questions`(72) · `codex_verdict`(50)이다. **`findings` 키는 존재하지 않는다** |
+| 2 | `.claude/receipts/mccp-pr-codex/` | d1db647 | `accepted` 비어있지 않음 **1건** · `rejected` **0건** · `open_questions` **1건**. 유일한 사례가 `v0-2-8-task-2-6-1-fix.json`(2026-06, v0.2.8기)이다 |
+| 3 | `plugins/mccp/scripts/receipt/write.js:393-394` | d1db647 | `defaultResolution = { converged: true, rounds: 1, ... }` 리터럴 |
+| 4 | `plugins/mccp/scripts/lib/work-orchestrator.js:318-326` | d1db647 | `record-step` 서브커맨드가 구현돼 `autoChain.recordStep`에 위임한다 |
+| 5 | `plugins/mccp/commands/work.md` | d1db647 | `record-step` 등장 **0회**. orchestrator CLI를 부르는 줄은 `:139` 하나이고 그것은 산문이다 |
+| 6 | `plugins/mccp/scripts/lib/msw-metrics/index.js:146` | d1db647 | `invalid_reason: "no live startup producer wired (task_started events not emitted…)"` |
+| 7 | `plugins/mccp/scripts/derive/tests/mccp-fixture.test.js` | 2026-08-31 | 346개 중 105개 실행 완료 시점 **PASS 104 / FAIL 1**(`derive/tests/mccp-fixture.test.js`). 파일당 중앙값 ~12초, 전량 외삽 약 69분 |
+| 8 | `.github/workflows/` | d1db647 | CI가 실행하는 test 3개 (`pr-phase-guard` · `pr-phase-lock-f11` · `gitignore-provision`) |
+| 9 | `plugins/mccp/scripts/lib/plan-review/corpus.js` | d1db647 | `m_binding=0` · `k_binding=0` · `findings_binding=31`. wall-clock은 통과 5건만 산출되고 divergent 33건은 미산출 |
 | 10 | `.claude/plans/codex-findings-backlog.md` | d1db647 | 데이터 행 465 · Severity 열 파싱 462 · `[ABSORBED` 32건 → 흡수율 **6.9%** |
-| 11 | `plugins/mccp/commands/work.md` | HEAD | `:224`가 `dispatch-partitions.json`을 쓰고 `:715`가 `dispatch-fleet-partitions.json`을 읽는다 |
-| 12 | git worktree · branch | HEAD | in-flight 3축(`env-contract-integrity` · `diverse-agent-review` · `multi-session-work-loop-m9`)이 `codex-findings-backlog.md` · `STATE.md` · `CHANGELOG.md`를 공유 소유한다 |
+| 11 | `plugins/mccp/commands/work.md` | d1db647 | `:224`가 `dispatch-partitions.json`을 쓰고 `:715`가 `dispatch-fleet-partitions.json`을 읽는다 |
+| 12 | `.claude/plans/codex-findings-backlog.md` | d1db647 | in-flight 3축(`env-contract-integrity` · `diverse-agent-review` · `multi-session-work-loop-m9`)이 `codex-findings-backlog.md` · `STATE.md` · `CHANGELOG.md`를 공유 소유한다 |
 
 ---
 

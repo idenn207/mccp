@@ -115,14 +115,14 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/derive/cli.js" run --json | node -e 'const m
 - 재실행 가능(idempotent) — 새 완료 PRD 생기면 다시 실행.
 ```
 
-**version advisory (§3.7)**: 이 명령은 파일만 이동한다 — plugin.json version 을 자동 bump 하지 않는다. milestone ship 과 함께 아카이브하는 흐름이면 `plugins/mccp/.claude-plugin/plugin.json` version + footer(`html.js`/`markdown.js`) + CHANGELOG 동기가 별도로 필요하다는 것만 안내(auto-edit 안 함).
+**version advisory (§3.7)**: 이 명령은 파일만 이동한다 — plugin.json version 을 건드리지 않는다. **그리고 이 저장소에서는 어느 자식 브랜치도 건드리면 안 된다**(우산 결정 1 — 번호는 릴리스 컷이 소유한다). 이 자리에는 "milestone ship 과 함께 아카이브하는 흐름이면 4면 동기가 별도로 필요하다"는 안내가 있었는데, 그 안내가 전제한 브랜치 bump 자체가 금지다. 착지한 작업은 `CHANGELOG.md` 의 `## [Unreleased]` 아래에 쌓이고 번호는 컷이 부여한다.
 
 ## Out of scope
 
 - 자동 적용(human-gate 필수).
 - 미완료 PRD 의 plan 이동(C2 — PRD 전체 완료 시에만).
 - `mccp-*-codex` 게이트 receipt 발행(파일 이동 chore 에 cross-model review 는 YAGNI — human-gate + git history + operation journal 이 review).
-- plugin.json version bump(§3.7 은 별도 축 — advisory 안내만).
+- plugin.json version 변경 — 자식 브랜치는 애초에 선언하지 않는다(우산 결정 1). 강제는 `scripts/version-declaration-guard.js`.
 
 ## See also
 

@@ -26,6 +26,9 @@ const { execFileSync } = require('child_process');
 const { checkPlanConsistency } = require('./l1-check');
 const { panelMinRemaining } = require('./budget');
 const { buildReviewRecord, reviewRecordPath } = require('./record');
+// review-record-linkage M3 — pure back-patch transform + the decision binding.
+const linkReceipt = require('./link-receipt');
+const { isRepoRelativePath } = require('./linkage-defs');
 const {
   decideQuorum, parseQuorum, parseRolesMin, isUsableResult, DEFAULT_BLOCK_SEVERITY,
 } = require('./quorum');
@@ -283,7 +286,21 @@ function cmdL1(args) {
 // The ledger key lives in the gate-entry seal rather than in flags here, for the
 // same reason as the Codex channel: emit-workflow-args receives `--plan`, never a
 // decision slug, and threading one through would put the wiring back into prose.
-function resolveRoundBudget() {
+//
+// ci-full-suite M2 갈래 H — `opts.gitDir`는 **프로그래매틱 전용** 시임이며
+// CLI 플래그를 갖지 않는다. `codex-invoke.js#resolveRoundBudget`의 `opts.gitDir`와
+// 같은 모양이고 같은 이유다 — "so tests can point at a scratch repo without
+// chdir".
+//
+// **왜 `--repo-root`를 따르지 않는가.** 이 명령의 다른 모든 경로는
+// `--repo-root`를 존중하지만, 라운드 캡만은 그래서는 안 된다. `resolveGitDir`는
+// 주어진 디렉토리에서 **위로** 걸어 올라가므로, 저장소의 부모를
+// `--repo-root`로 넘기면 plan은 여전히 contained이면서 git dir는 못 찾아
+// `canRecord:false` → inert → **캡이 조용히 우회된다**. 셸 호출자가 닿을 수
+// 없는 자리에 둔 것이 그 우회를 구조적으로 닫는다(§3.13의 "intent 결정은
+// CLI 표면을 갖지 않는다"와 같은 논거).
+function resolveRoundBudget(opts) {
+  opts = opts || {};
   const inert = {
     allowed: true, canRecord: false, roundsSoFar: null, cap: null,
     pinnedBy: null, gateId: null, decisionId: null, mode: null,
@@ -304,7 +321,9 @@ function resolveRoundBudget() {
   let state;
   try {
     state = seal.resolveEnforcement({
-      gitDir: seal.resolveGitDir(process.cwd()),
+      gitDir: Object.prototype.hasOwnProperty.call(opts, 'gitDir')
+        ? opts.gitDir
+        : seal.resolveGitDir(process.cwd()),
       env: process.env,
     });
   } catch (e) {
@@ -393,7 +412,8 @@ function describeRoundCapRecovery(budget) {
 // the L2 agents that are about to read the plan. Computing it later (at decide
 // time) would read the post-edit file and erase the very mismatch the binding
 // exists to detect.
-function cmdEmitWorkflowArgs(args) {
+function cmdEmitWorkflowArgs(args, ctx) {
+  ctx = ctx || {};
   const planPath = args.plan;
   if (!planPath || planPath === true) {
     errln('emit-workflow-args requires --plan <path>');
@@ -503,7 +523,7 @@ function cmdEmitWorkflowArgs(args) {
   //
   // It runs BEFORE the args file is written so that a refused round leaves no
   // workflow-args.json behind for a later step to pick up.
-  const budget = resolveRoundBudget();
+  const budget = resolveRoundBudget(ctx);
   if (!budget.allowed) {
     errln('BLOCK: round cap reached (' + budget.roundsSoFar + '/' + budget.cap +
       ' for ' + budget.gateId + '__' + budget.decisionId + ')' +
@@ -1192,6 +1212,10 @@ function cmdRecord(args) {
     built = buildReviewRecord({
       slug: slug,
       planPath: (args.plan && args.plan !== true) ? args.plan : null,
+      // review-record-linkage M3 — record.js folds planPath through the same
+      // helper receipt/write.js uses. It needs the root to turn an absolute
+      // `--plan` into the repo-relative form the M3 anchor compares.
+      repoRoot: root,
       mode: modeArtifact && modeArtifact.mode ? modeArtifact.mode : null,
       l1: readIf('l1.json'),
       l2: l2Artifact,
@@ -1238,6 +1262,157 @@ function cmdRecord(args) {
     haltStage: built.measurement.halt_stage,
     wallClockMs: built.measurement.wall_clock_ms,
     degradations: built.degradations,
+  });
+  return EX_OK;
+}
+
+// ── link-receipt (review-record-linkage M3) ──────────────────────────────────
+//
+//   link-receipt --record <repo-relative> --receipt-hash sha256:<64 hex>
+//                --expect-plan-path <repo-relative> [--cwd <p>]
+//
+// Writes the sealed ship-receipt hash into an EXISTING panel record's
+// `## Measurement` fence. Exit 0 on success, 12 on any refusal, 2 on CLI misuse.
+//
+// ── this is a WRITE locus, so it does NOT reuse resolveContained ─────────────
+//
+// (security-reviewer H1.) `resolveContained` (:213) treats a realpath failure as
+// non-fatal and returns the UNRESOLVED lexical path with `ok:true` — its own
+// comment says that fallback exists for READ callers, where a not-yet-existing
+// plan legitimately fails later on read. Here the same fallback is a hole: if
+// `.claude/reviews` is a directory symlink and the leaf does not exist yet, the
+// containment check passes lexically while the read and the write follow the link
+// out of the repository. `writePrivate`'s rename only protects against a symlink
+// at the LEAF; an intermediate symlinked directory is resolved by the OS before
+// rename ever sees it.
+//
+// So this resolver is strict in four ways the read-side one is not:
+//   1. the record must ALREADY EXIST — back-patch updates a record, it never
+//      creates one, so this costs no functionality;
+//   2. the leaf must not itself be a symlink (lstat, not stat);
+//   3. `realpathSync` must SUCCEED — there is no lexical fallback, failure is 12;
+//   4. the resolved real path must sit under BOTH realpath(root) and
+//      realpath(root/.claude/reviews), and every later read/write uses that
+//      resolved path, so a post-check swap of an intermediate symlink cannot
+//      redirect us.
+function resolveRecordForWrite(rawPath, root) {
+  if (typeof rawPath !== 'string' || rawPath.length === 0) {
+    return { ok: false, reason: '--record is empty' };
+  }
+  if (rawPath.indexOf('\0') !== -1) {
+    return { ok: false, reason: '--record contains a NUL byte' };
+  }
+  // Shape first — cheap, and it rejects the drive-letter/absolute/`..` forms
+  // before any filesystem call. Same predicate the receipt schema uses.
+  if (!isRepoRelativePath(rawPath)) {
+    return { ok: false, reason: '--record must be a repo-relative path with no "..", ' +
+      'no drive letter and no absolute form (' + rawPath + ')' };
+  }
+
+  let realRoot;
+  let realReviews;
+  try {
+    realRoot = fs.realpathSync(root);
+    realReviews = fs.realpathSync(path.join(root, '.claude', 'reviews'));
+  } catch (e) {
+    return { ok: false, reason: 'cannot resolve the repository root or .claude/reviews (' +
+      (e && e.code ? e.code : 'unknown') + ') — refusing to write without a resolved base' };
+  }
+
+  const lexical = path.resolve(root, rawPath);
+  let st;
+  try { st = fs.lstatSync(lexical); }
+  catch (e) {
+    return { ok: false, reason: 'the record does not exist (' + (e && e.code ? e.code : 'unknown') +
+      '): back-patch updates an existing panel record, it never creates one' };
+  }
+  if (st.isSymbolicLink()) {
+    return { ok: false, reason: 'the record path is a symbolic link — refusing to write through it' };
+  }
+  if (!st.isFile()) {
+    return { ok: false, reason: 'the record path is not a regular file' };
+  }
+
+  let real;
+  try { real = fs.realpathSync(lexical); }
+  catch (e) {
+    // No lexical fallback here, unlike resolveContained. See the header above.
+    return { ok: false, reason: 'the record path did not resolve (' +
+      (e && e.code ? e.code : 'unknown') + ') — refusing an unresolved write target' };
+  }
+  if (!insideRoot(real, realRoot)) {
+    return { ok: false, reason: 'the record resolves outside the repository (' + rawPath + ')' };
+  }
+  if (!insideRoot(real, realReviews)) {
+    return { ok: false, reason: 'the record resolves outside .claude/reviews/ (' + rawPath + ') — ' +
+      'the panel-record corpus is the only thing this subcommand may write' };
+  }
+  return { ok: true, abs: real };
+}
+
+function cmdLinkReceipt(args) {
+  const root = args['repo-root'] && args['repo-root'] !== true
+    ? args['repo-root'] : (args.cwd && args.cwd !== true ? args.cwd : repoRoot());
+
+  const recordArg = (args.record && args.record !== true) ? args.record : null;
+  const hashArg = (args['receipt-hash'] && args['receipt-hash'] !== true) ? args['receipt-hash'] : null;
+  const expectArg = (args['expect-plan-path'] && args['expect-plan-path'] !== true)
+    ? args['expect-plan-path'] : null;
+
+  if (!recordArg) { errln('link-receipt requires --record <repo-relative path>'); return EX_USAGE; }
+  if (!hashArg) { errln('link-receipt requires --receipt-hash sha256:<64 hex>'); return EX_USAGE; }
+
+  if (!linkReceipt.RECEIPT_HASH_RE.test(hashArg)) {
+    errln('BLOCK: --receipt-hash must match /^sha256:[0-9a-f]{64}$/ — got ' + JSON.stringify(hashArg));
+    return EX_BLOCK;
+  }
+  // A MISSING binding is a refusal, not a permissive default. An unbound
+  // back-patch is precisely the failure the binding exists to close, so the flag
+  // cannot be optional (R4 security HIGH `613d8e5f`).
+  if (!expectArg) {
+    errln('BLOCK: link-receipt requires --expect-plan-path <repo-relative plan path>. ' +
+      'Without it the write is unbound, and an unbound back-patch can mutate ANOTHER ' +
+      "decision's git-tracked review record before any guard runs.");
+    return EX_BLOCK;
+  }
+
+  const resolved = resolveRecordForWrite(recordArg, root);
+  if (!resolved.ok) {
+    errln('BLOCK: ' + resolved.reason);
+    return EX_BLOCK;
+  }
+
+  let text;
+  try { text = fs.readFileSync(resolved.abs, 'utf8'); }
+  catch (e) {
+    errln('BLOCK: cannot read the record (' + (e && e.code ? e.code : 'unknown') + ')');
+    return EX_BLOCK;
+  }
+
+  // Binding BEFORE the write. The order is the whole point.
+  const bound = linkReceipt.bindsToPlanPath(text, expectArg, root);
+  if (!bound.ok) {
+    errln('BLOCK: ' + bound.reason);
+    return EX_BLOCK;
+  }
+
+  const patched = linkReceipt.applyReceiptHash(text, hashArg);
+  if (!patched.ok) {
+    errln('BLOCK: ' + patched.reason);
+    return EX_BLOCK;
+  }
+
+  try { writePrivate(resolved.abs, patched.markdown); }
+  catch (e) {
+    errln('BLOCK: cannot write the record (' + (e && e.message ? e.message : String(e)) + ')');
+    return EX_BLOCK;
+  }
+
+  out({
+    record: recordArg,
+    receiptHash: hashArg,
+    planPath: bound.planPath,
+    changed: patched.changed,
   });
   return EX_OK;
 }
@@ -1525,17 +1700,21 @@ function usage() {
   ].join('\n'));
 }
 
-function runCli(argv) {
+// `opts` is the programmatic-only channel described at resolveRoundBudget. It is
+// never built from argv, so no shell caller can reach it.
+function runCli(argv, opts) {
+  opts = opts || {};
   const sub = argv[0];
   const args = parseArgs(argv.slice(1));
   switch (sub) {
     case 'mode': return cmdMode(args);
     case 'l1': return cmdL1(args);
-    case 'emit-workflow-args': return cmdEmitWorkflowArgs(args);
+    case 'emit-workflow-args': return cmdEmitWorkflowArgs(args, opts);
     case 'l3': return cmdL3(args);
     case 'decide': return cmdDecide(args);
     case 'verify-proof': return cmdVerifyProof(args);
     case 'record': return cmdRecord(args);
+    case 'link-receipt': return cmdLinkReceipt(args);
     case 'backlog-append': return cmdBacklogAppend(args);
     case 'assert-backlog-parity': return cmdAssertBacklogParity(args);
     default:

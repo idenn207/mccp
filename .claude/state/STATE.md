@@ -1,6 +1,6 @@
 ---
 state_version: 1
-task_fingerprint: orchestrator-step-wiring-m1
+task_fingerprint: ci-full-suite-m1
 created_at: 2026-06-03T18:51:31.328Z
 updated_at: 2026-09-04T01:17:53.075Z
 last_event: stop_loop_pass
@@ -14,7 +14,7 @@ chain_progress: |
   {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
 dep_check_at: 2026-09-03T04:12:39.177Z
 escalate_pending: true
-escalate_pending_decision_id: orchestrator-step-wiring-m1
+escalate_pending_decision_id: ci-full-suite
 ---
 ## Goal
 orchestrator-step-wiring M2 (halt-step-recording) — 구현 + 로컬 code-review 흡수 완료. 커밋 직전.

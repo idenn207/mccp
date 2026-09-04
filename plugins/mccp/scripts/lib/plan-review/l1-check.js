@@ -63,7 +63,12 @@ const DYNAMIC_BASE_ROOTS = [
 
 // Only `path:line` citations are checked. A bare `foo.js` mention is prose, not
 // a claim about a location, and treating it as one produces noise.
-const CITATION_RE = /([A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?/g;
+// The optional leading dot is load-bearing: this repo keeps its plans, PRDs and
+// workflows under dotfile directories, so `.claude/prds/x.prd.md:97` is the most
+// common citation shape there is. Without it the capture began at `claude/...`,
+// which resolves nowhere and reported a false C6 on a perfectly good citation —
+// while leaving no way to write that citation both correctly and greenly.
+const CITATION_RE = /(\.?[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?/g;
 
 const ACTIONS_REQUIRING_EXISTENCE = ['UPDATE', 'DELETE'];
 const ACTIONS_REQUIRING_ABSENCE = ['CREATE'];

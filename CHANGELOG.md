@@ -307,6 +307,23 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   test가 막겠다고 선언한 회귀를 정확히 놓치는 형태였다. 판정기 자신도 합성 입력으로
   검증한다(`(c2)`).
 
+### Fixed (goal-detect)
+
+- **`/mccp:milestone-close`가 실재하는 plan을 `plan-missing`으로 거부하던 결함.**
+  `goal-detect.js#extractPlanPath`의 언펜스 정규식이 `` /^`+([^`]+)`+$/ `` — **셀 전체가
+  하나의 백틱 토큰일 때만** 매칭하는데, 이 저장소 PRD의 지배적 표기는
+  `` `<plan>` · 결과 `<report>` `` 2경로 형태다. 매칭에 실패하면 백틱이 포함된 원문 셀이
+  그대로 경로 해소로 넘어가 존재 검사가 실패하고, 그 milestone의 closure ceremony가
+  **구조적으로 진입 불가**가 된다(orchestrator-step-wiring M2에서 라이브 실측, 2026-09-04).
+  markdown 링크 분기 뒤에 **첫 인라인 코드 스팬** 추출을 더했다 — 표기 관례상 plan이 첫
+  스팬이고 나머지는 주석이라 어차피 파일로 해소되지 않으므로, 이 완화는 **거짓 miss를
+  hit으로 바꾸는 방향으로만** 작동한다. 같은 180행 corpus에 구/신 로직을 각각 적용한
+  A/B에서 해소 가능 행이 36 → 39로 늘고 **유실은 0건**이었다. placeholder를 hit으로
+  둔갑시키지 않도록 첫 스팬이 `—`/`-`면 기존대로 미해소로 떨어진다.
+  - 함께 확인된 나머지 2축은 이 수정 범위 밖이라 backlog에 남는다 — archived
+    `dashboard-truthfulness.prd.md`의 열 정렬 어긋남(셀에서 `complete`를 경로로 추출)과,
+    빈 셀(`—`)이 "plan 없음"과 "plan 못 찾음"을 같은 `plan-missing`으로 뭉개는 것.
+
 ## [1.34.4] — 2026-09-02
 
 > **§3.7**: `1.34.3 → 1.34.4` (**patch** — orchestrator-step-wiring PRD의 단일

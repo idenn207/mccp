@@ -41,7 +41,7 @@ fast-forward 불가 처리 · 컷 트리거 · 컷 밖에서도 즉시 도달하
 | 5 | CLAUDE.md §3.7 포인터 | 완료 | 절차 미이전 — lint C1~C4 pass |
 | 6 | PRD 갱신 | 완료 | OQ1·2·3·5 답 기입, 미체크 0건 |
 | 7 | CHANGELOG `## [Unreleased]` | 완료 | 번호 선언 0 |
-| 8 | 이연 축 backlog 적재 | 완료 | 3행, `scanBacklog` invalid 0 |
+| 8 | 이연 축 backlog 적재 | 완료 | 3행 + code-review 이연 2행 = 5행, `scanBacklog` invalid_count 0 |
 | 9 | 보고서 + 유출 검사 | 완료 | 이 문서 |
 
 ## 실측 원문
@@ -137,6 +137,31 @@ backlog 행이 소유한다.
 
 계획서 `## Validation` 블록 15개 검사 전건 exit 0.
 
+**두 번 돌렸고, 두 실행은 같은 것을 재지 않았다 (code-review H1 수용).** 첫 실행은
+커밋 **전**이었는데 그 시점 이 브랜치는 커밋이 0개였고 산출물 6개가 untracked라
+`git diff origin/main...HEAD`가 빈 출력이었다 — 즉 커밋 diff를 보는 검사 2·12·13이 대상
+0건으로 자동 통과했다. **그중 13은 이 저장소의 유일한 절대경로 유출 탐지기**이고, 같은
+사이클이 L2 security finding 2건을 흡수해 그 pathspec을 4→7파일로 넓히고 fail-open guard까지
+붙인 직후였다. 넓힌 pathspec이 아무 파일도 담지 않았다는 뜻이다.
+
+두 번째 실행은 커밋 후다. 관측 창이 실제로 열렸다:
+
+```
+$ git rev-list --count origin/main..HEAD
+2
+
+$ git diff --name-only origin/main...HEAD | wc -l
+12
+
+$ git diff --unified=0 origin/main...HEAD -- docs README.md CLAUDE.md CHANGELOG.md \
+    .claude/PRPs/reports .claude/prds .claude/plans/codex-findings-backlog.md | grep -c '^+'
+610
+```
+
+검사 13이 0줄이 아니라 **610줄**을 스캔하고 통과했다. 아래 표의 결과는 이 두 번째 실행의
+것이다. 라이브 유출은 두 실행 어느 쪽에서도 없었다 — 변경 12파일 전수 스캔 0건이며,
+차이는 유출 유무가 아니라 **탐지기가 볼 것이 있었는가**다.
+
 | # | 검사 | 결과 |
 |---|---|---|
 | 1 | 채널 좌표 무이동 (`ls-remote` = `647dfec…`) | pass |
@@ -152,7 +177,7 @@ backlog 행이 소유한다.
 | 11 | instruction-contract lint (C1~C4) | pass |
 | 12 | 삭제 파일 0건 | pass |
 | 13 | 추가된 줄의 절대 경로 0건 | pass |
-| 14 | 오늘 날짜 backlog 행 ≥3 | pass (3행, `scanBacklog` invalid 0) |
+| 14 | 오늘 날짜 backlog 행 ≥3 | pass (5행 — code-review 이연 2축 추가 후. `scanBacklog` ok:true · invalid_count 0) |
 | 15 | 런북 전 절의 증거 라벨 존재 | pass (7/7) |
 
 ### 판별력 대조
@@ -174,13 +199,20 @@ backlog 행이 소유한다.
 | A | 라벨 없는 `## 임시 절` 추가 | 검사 15 `FAIL: 임시 절` · exit 1 |
 | B | `=` 없는 lease 형태를 산문에 추가 | 검사 9b 탐지 → HALT 발화 |
 | C | 실재하지 않는 16진 좌표 `deadbee` 추가 | 검사 8 `unresolvable token` → HALT 발화 |
+| D | 런북에 절대 경로 1줄 추가 (code-review 후 추가) | **커밋 전 exit 0(미탐지)** / 커밋 후 exit 1 `HALT: an added line carries an absolute path` |
 
 Probe C는 검사 8의 fail-closed 방향도 함께 보여준다 — 지어낸 좌표는 물론 우연히 16진으로만
 이뤄진 영어 단어도 붉어진다. 완화가 아니라 좌표 문서에서 그 토큰을 치우는 것이 정답이며,
 이번 문서의 토큰 6종은 전부 실재 커밋이다.
 
 복원 확인: `sha256=24ab21cbbb5335bc22247faee7298f713f340051b7ce74512b390f1d715699b4`
-(probe 전후 동일).
+(probe A~C 전후 동일).
+
+**Probe D가 A~C와 다른 점**: A~C는 전부 파일을 직접 읽는 검사(15·9·8)를 흔들었고 그래서
+커밋 상태와 무관하게 발화했다. D가 겨냥한 13은 커밋 diff를 보므로 **같은 위반이 커밋
+전에는 통과하고 커밋 후에는 HALT한다** — 그 비대칭이 A~C만으로는 드러나지 않았다.
+D의 커밋-후 측정은 원 브랜치를 건드리지 않도록 임시 브랜치에서 수행하고 즉시 삭제했다
+(복귀 후 HEAD 불변 · 트리 clean 확인).
 
 ## Deviations from Plan
 
@@ -241,6 +273,24 @@ design-direction 캡처 없음 → **Phase 3.7 DESIGN GROUNDING VERIFY는 no-op*
 역슬래시가 한 겹 먹혀 `SyntaxError`가 났다(2회). 스크래치패드에 파일로 쓰고 실행해
 해소했다. 산출물에는 영향이 없고 측정값도 바뀌지 않았다 — 기록해 두는 이유는 같은 형태의
 경로 치환 코드를 다음 사이클이 다시 쓸 것이기 때문이다.
+
+**산출물 편집 도구가 문서를 2.4배로 부풀렸다 (복구 완료).** 런북의 태그 목록 명령을 고치려고
+Node의 `String.replace`를 썼는데, 치환 문자열 끝이 `$'`였다 — 그것은 리터럴이 아니라 **매치
+이후 전체 텍스트**를 뜻하는 치환 패턴이다. 두 번의 replace가 각각 자기 뒤 문서 전량을 복제해
+297줄 파일이 726줄이 되고 절 헤딩이 4번 반복됐다. 파일은 untracked라 `git checkout`으로
+되돌릴 수 없었다.
+
+복구는 팽창이 결정론적이라는 성질을 썼다 — `head + PREFIX + tail + B + tail` 형태를 역산해
+두 꼬리가 실제로 동일함과 가운데가 `B`임을 검증한 뒤 잘라냈고, **원본 sha256
+`24ab21cb…`와 바이트 단위로 일치**함을 확인하고서야 디스크에 썼다(불일치면 쓰지 않고 throw).
+재적용은 `split`/`join`으로 했다 — 치환 패턴을 해석하지 않는다.
+
+부수로 하나 더 나왔다: 첫 재적용본은 `grep -v '^{}$'`였는데 이스케이프가 한 겹 먹혀
+**`^`가 앵커로 읽히는 틀린 필터**(줄 전체가 `{}`)가 됐다. peeled ref를 하나도 걸러내지
+못한다. 정규식 대신 `grep -vF '^{}'` 고정 문자열로 바꾸고 실제 `ls-remote` 출력에 대해
+동작을 확인했다. 두 사고 모두 같은 교훈이다 — **문자열을 조립해 파일을 고칠 때는 조립
+계층마다 해석기가 하나씩 더 있다.** 위의 셸 이스케이프 항목과 같은 계열이고, 다음 사이클이
+같은 형태의 편집을 할 것이므로 남긴다.
 
 ## Files Changed
 

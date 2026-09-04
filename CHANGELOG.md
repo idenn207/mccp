@@ -94,6 +94,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `codex-reachability.js` — 분류 `round-cap-reached`와 새 kind `budget-spent`.
   기존 5종에는 정직한 버킷이 없었다 — `env-policy`는 사유가
   `MCCP_CODEX_DISABLED=1`이라 거짓을, `transport`는 예산 소진을 장애로 보고한다.
+- `docs/release-channel.md` — 릴리스 채널 런북(release-channel-separation M3). 컷 절차
+  (선행조건 → 번호 → 다섯 면 한 커밋 → 가드 → 태그 → `release` fast-forward → 확인) ·
+  롤백 절차 · fast-forward 불가 처리 · 컷 트리거 · 컷 밖에서도 즉시 도달하는 잔여 ·
+  한계. **7개 절이 각각 측정됨/전사됨/미측정으로 라벨된다** — 컷 절차는 아직 한 번도
+  실행된 적이 없고 그 사실을 숨기는 것이 이 문서의 유일한 실패 모드라, 라벨의 존재를
+  검증 블록이 기계로 잡는다. 롤백 절은 M1이 실제로 실행한 것의 전사이며
+  n=1(patch 하향 1건 · major 경계 미측정) 한정을 함께 싣는다. README와 CLAUDE.md
+  §3.7은 포인터만 갖는다 — 절차는 `docs/`가 소유한다.
 
 ### Changed
 

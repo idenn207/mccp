@@ -2449,3 +2449,11 @@ never invokes.
 - 리뷰어가 본 나머지 여섯 축(fork-PR 권한 경계 · SHA pin · secrets · 경로 traversal ·
   명령 주입 · 산출물 유출)은 **결함 없음**으로 확인됐다. 그 축들은 DD4가 위협모델을
   소유하고 Task 7 단언 1b가 방어 다섯을 기계로 고정한다.
+
+## Milestone Closure Provenance
+
+- Milestone : ci-full-suite-m3
+- Verdict   : done
+- Closure   : .claude/milestone-closures/ci-full-suite-m3.md
+- sha256    : sha256:934ba7d2091d5cec92ffbd5f7b42fc2a879d42afed3f684a83fa9caaa1cd7dee
+- Stamped at: 2026-09-04T07:52:00.000Z

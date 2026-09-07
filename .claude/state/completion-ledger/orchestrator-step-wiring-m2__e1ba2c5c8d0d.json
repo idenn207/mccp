@@ -1,0 +1,29 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "orchestrator-step-wiring-m2",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.34.4",
+    "completed_at": "2026-09-04T07:07:09.539Z",
+    "commit_sha": "0fadbd2787d5caebe748b07d7966564cca68acdc",
+    "plan_basename": "orchestrator-step-wiring-m2.plan.md",
+    "plan_file_hash": "sha256:42643dfd92ef68b594129406d8119a03d9bff075ab802d851fc50977a6c2d717",
+    "risks_closed": [
+      "`chain_progress` 는 이 저장소에서 **한 번도 실행된 적 없는 경로**다(STATE.md 에 키 부재, 코드베이스에 소비자 0건). 잠재 결함이 M2 에서 처음 드러난다",
+      "`applyLocked` 의 실제 throw 경로가 recorder 를 통해 `/mccp:work` 를 멈춘다 (UI2 위반)",
+      "recorder 가 `|| true` 로 끝나 halt 분기가 exit 0 을 물려받아 **halt 가 통과로 읽힌다**",
+      "UI5 가 격리한 `:224`/`:715` 를 배선 편집이 우발적으로 넘는다 — `3.wp.no-return` 이 같은 if 블록 안이라 실재하는 위험이다",
+      "산문 halt 2건이 기계 강제 밖이라 커버리지가 실제보다 높게 읽힌다",
+      "worktree 순회 reader 가 다른 저장소·중첩 worktree를 잘못 포함한다",
+      "`chain_progress` 가 git-tracked frontmatter 라 halt 마다 STATE.md 가 바뀌어 commit 노이즈·worktree 간 충돌이 는다",
+      "work_unit 이 `null` 인 기록이 많아 A1 과의 조인이 실제로는 안 된다",
+      "`work.md` 를 건드려 C10(같은 파일 소유)과 충돌",
+      "병렬 브랜치가 같은 version 번호를 선점",
+      "plugin cache 가 구버전이라 라이브 `/mccp:work` 에서 새 본문이 열리지 않는다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:e1ba2c5c8d0dee2de9bf100e756c011c66c34da8875c8a000d20d7a96a8ccd71",
+    "verdict_provenance": "codex-verdict"
+  }
+}

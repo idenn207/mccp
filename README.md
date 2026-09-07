@@ -39,7 +39,10 @@ Claude Code의 `/mccp:*` namespace에 게이트 시스템을 제공한다:
 
 닫히는 표면은 그 본문뿐이다 — marketplace 등록(`known_marketplaces.json`)의 mccp
 항목에는 `ref`가 없어 clone은 계속 `main`을 추종한다. 따라서 `marketplace.json` 자체의
-편집(`source`·`ref` 변경 등)은 여전히 머지 즉시 설치에 도달한다. 이 잔여는 M3이 소유한다.
+편집(`source`·`ref` 변경 등)은 여전히 머지 즉시 설치에 도달한다. 그래서 그 파일은
+릴리스 표면으로 취급한다 — 잔여의 정확한 범위와 드리프트 탐지기는
+[docs/release-channel.md](docs/release-channel.md) 6절이 소유한다. 같은 문서가 릴리스 컷과
+롤백 절차도 소유한다.
 
 설치 명령 자체는 바뀌지 않는다 — 위 3줄 그대로다.
 

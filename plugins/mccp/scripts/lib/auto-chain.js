@@ -244,12 +244,37 @@ function recordStep(repoRoot, entry) {
     if (typeof stateWriter.recordChainProgress === 'function') {
       return stateWriter.recordChainProgress(repoRoot, entry);
     }
-  } catch { /* state-writer optional; fall through */ }
-  // Fallback: append a json sidecar so the info isn't lost
+    // review LOW — 모듈은 로드됐는데 export 가 없는 경우는 catch 를 타지 않아 M2
+    // 이후에도 유일하게 침묵으로 남아 있었다. 같은 사건(STATE.md 에 안 실린다)이므로
+    // 같은 크기로 말한다.
+    process.stderr.write('[mccp:auto-chain] WARNING: state-writer loaded but exposes no '
+      + 'recordChainProgress — falling back to auto-chain.log.jsonl sidecar. '
+      + 'STATE.md does NOT have this entry.\n');
+  } catch (err) {
+    // orchestrator-step-wiring M2 (Task 2 · UI2) — 동작(fall-through)은 무변경이고
+    // **침묵만** 없앤다. 이 catch 는 모듈 부재뿐 아니라 `applyLocked` 의 실제 throw
+    // 경로(MCCP_JOURNAL_DEGRADED_UNRECORDED)도 삼켜 왔다 — 조용히 sidecar 로 내려간
+    // 기록은 "state-writer 가 없었다" 가 아니라 "STATE.md 쓰기가 실패했다" 였을 수
+    // 있고, 그 둘은 운영자에게 전혀 다른 사건이다.
+    process.stderr.write('[mccp:auto-chain] WARNING: state-writer chain_progress path '
+      + 'failed (' + ((err && err.message) || String(err)) + ') — falling back to '
+      + 'auto-chain.log.jsonl sidecar. STATE.md does NOT have this entry.\n');
+  }
+  // Fallback: append a json sidecar so the info isn't lost.
+  // M2 — present-only 규칙을 이 경로에서도 지킨다. `Object.assign` 은 호출자가 넘긴
+  // `halt_site: null` 같은 키를 그대로 실어 "모름" 과 "없음" 을 뭉갠다 — state-writer
+  // 쪽은 그 둘을 구분하므로, 뭉개면 같은 사건이 어느 채널에 기록됐느냐에 따라 다르게
+  // 읽힌다. 맞춘 것은 **키 집합**이지 레코드 전체가 아니다: `ts` 는 여기서 epoch
+  // 밀리초이고 state-writer 쪽은 ISO-8601 이라 형식이 다르며, 그 차이는 이 축이
+  // 건드리지 않는 선재 계약이다(소비처가 채널을 알고 읽는다).
   const dir = path.join(repoRoot, '.claude', 'state');
   fs.mkdirSync(dir, { recursive: true });
   const log = path.join(dir, 'auto-chain.log.jsonl');
-  fs.appendFileSync(log, JSON.stringify(Object.assign({ ts: Date.now() }, entry)) + '\n', 'utf8');
+  const sidecar = { ts: Date.now() };
+  Object.keys(entry || {}).forEach(function (k) {
+    if (entry[k] !== null && entry[k] !== undefined) sidecar[k] = entry[k];
+  });
+  fs.appendFileSync(log, JSON.stringify(sidecar) + '\n', 'utf8');
   return { path: log };
 }
 

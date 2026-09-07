@@ -110,7 +110,7 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 | 1 | linkage-baseline-parser | "라운드 구조 보유" · "리뷰 대상 ship" · "층간 링크"의 정의가 **파서 코드**로 고정되고, 경계 트리의 코퍼스가 그 정의로 동결 보고된다(착지 실측 ship 75 · 레코드 55). 쓰기 0건 · read-only · LLM-free | complete | [.claude/plans/review-record-linkage-m1.plan.md](../plans/review-record-linkage-m1.plan.md) |
 | 2 | rounds-channel | `resolution.rounds`에 게이트용 입력 통로가 생기고 세 게이트가 실값을 넘긴다. **acceptance는 producer가 아니라 산출된 실값** — 배선 부재를 보는 test가 없으면 완료가 아니다 | dropped | 검증 산출물: [review-record-linkage-m2-upstream-verification.md](../PRPs/reports/review-record-linkage-m2-upstream-verification.md) |
 | 3 | bidirectional-link | receipt가 리뷰 경로를, 리뷰가 receipt 식별자를 갖는다. 필드는 present-only(`makeSkeleton` 미포함)라 과거 receipt의 hash가 불변이다 | complete | [.claude/plans/review-record-linkage-m3.plan.md](../plans/review-record-linkage-m3.plan.md) |
-| 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | pending | — |
+| 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | complete | [.claude/plans/review-record-linkage-m4.plan.md](../plans/review-record-linkage-m4.plan.md) |
 
 > **M2 dropped 사유 (2026-09-01, 기계 확인).** `env-contract-integrity M3`(origin/main
 > v1.33.6)가 이 마일스톤의 outcome을 그대로 출시했다 — 통로(`write.js`의 ledger 파생) ·

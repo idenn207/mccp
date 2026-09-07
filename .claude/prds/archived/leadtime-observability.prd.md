@@ -43,13 +43,30 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 | 1 | 패널 벽시계 집계 커버리지 | **5/37 (13.5%)** | **37/37** | 신규 도구 JSON | 운영자 → 미달이면 파서 결손이지 데이터 부재가 아니다 |
 | 2 | 패널 종료→ship 구간 p50/p90/max | **미산출** | 실값 + 커버리지 동시 표기 | 두 앵커 각각 | 운영자 → C7 임계 산정의 유일한 입력 |
 | 3 | join 커버리지와 미짝 사유 분해 | 30% / 34%, **사유 미분해** | 미짝 100%가 사유별로 분류된다 | 신규 도구 | 운영자 → 미짝이 '앵커 부재'면 그것이 다음 배선 축이다 |
-| 4 | 두 끝 앵커 간 불일치 | **미측정** | 산출된다 | ledger vs receipt 차이 | 운영자 → 불일치가 크면 한쪽 기록이 거짓이다 |
+| 4 | 두 끝 앵커 간 **커버리지 차이** | **미측정** | 산출된다 | `only_ledger` · `only_ship` · `both` (시각 차이가 아니다 — M4 판정) | 운영자 → 한쪽에만 매치되는 비율이 크면 그 축의 기록 배선이 죽어 있다 |
 
 **커버리지 없는 값은 출력하지 않는다.** 1/3 표본의 p50을 커버리지 없이 내는 것은 이 저장소가 반복해 지불한 "근거 없는 숫자"와 같은 오류다.
 
 ## Scope
 
 **MVP** — M1(벽시계 전건 집계) + M2(구간 join과 미짝 분해). M3(소비 회로)까지 착지해야 완료다 — M1·M2만 남기면 우산이 지목한 "producer는 있는데 caller가 없다"를 그대로 재현한다.
+
+**M4는 ship 이후에 열렸다 (2026-09-04, 운영자 지시).** 위 MVP 문장은 M3 착지를 완료
+조건으로 못박았고 M3은 실제로 ship됐다(PR #175 · `dee690d`). 그러나 그 사이클의
+`/mccp:code-review`·`/mccp:pr` 게이트가 **자기 표면에 대해** 낸 지적이 review-only
+권한(§3.9 — 수렴은 plan/implement 소유) 때문에 전건 backlog로 이연됐고, 그중 하나는
+이연이 아니라 **출고된 결함**이다: 한 줄의 표시 폭이 예산을 넘는데 계측기가 그것을
+볼 수 없다(code unit 92 · 표시 폭 102 — `lib/tests/leadtime.test.js`가 `l.length`로
+잰다). 값이 틀린 것은 아니지만 "커버리지 없는 값을 내지 않는다"와 같은 급의 자기
+계약이 지켜지지 않은 채 출고됐다. M4는 그 자기 표면만 닫고 **새 지표를 추가하지
+않는다**.
+
+M4의 범위는 **C4가 소유한 것으로 한정한다.** backlog 1393행 중 source가
+leadtime-observability인 것은 108행이고, 그중 ship 이후까지 열려 있는 것이 17행이다.
+나머지는 각자의 소유 PRD가 있고, 남의 PRD 지적을 여기서 흡수하면 이 저장소가 곳곳에서
+강제하는 소유 원칙이 무너진다. 저장소 전체 backlog 소각은 별도 PRD 사거리다.
+`.claude/state/fix-task.md`는 **없다**(consumed → `fix-task-applied.md`만 잔존) —
+이 축의 미처리 항목은 0건이다.
 
 ### 이 PRD가 못박는 결정 3건 (운영자 미확인)
 
@@ -75,6 +92,7 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 | 1 | wall-clock-aggregate | 측정 가능 레코드 전건의 벽시계 분포가 산출된다(이전 소비처는 converged 5건만 보고했다). 코퍼스 커버리지가 하한으로 명시된다. `corpus.js` 출력은 한 바이트도 바뀌지 않는다 | complete | `.claude/plans/leadtime-observability-m1.plan.md` |
 | 2 | span-join | 패널 종료 → ship 구간이 두 끝 앵커로 각각 산출되고, 미짝 레코드 전건이 사유별로 분류된다(미ship / 앵커 부재 / 키 불일치). 두 앵커의 불일치가 함께 나온다 | complete | `.claude/plans/leadtime-observability-m2.plan.md` |
 | 3 | one-line-consumption | `STATUS.md` 상단 한 줄에 값과 커버리지가 **함께** 뜬다. 값이 없으면 없다고 적고 0으로 적지 않는다. C7이 인용할 분포가 파일로 남는다 | complete | `.claude/plans/leadtime-observability-m3.plan.md` |
+| 4 | one-line-hardening | M1~M3이 이연한 자기 표면의 결함이 닫힌다. 표시 폭 계측이 실제 폭을 재고 한 줄이 그 예산 안에 든다. 커버리지 분모가 무엇의 분모인지 줄에서 갈린다. `md`/`html` 두 면의 note 구조가 같아지고 test가 결함이 아니라 계약을 고정한다. 렌더 경로의 git spawn 비용이 되돌릴 수단을 갖는다. 지표 4의 정의가 판정된다 | complete | `.claude/plans/leadtime-observability-m4.plan.md` |
 
 ## Open Questions
 
@@ -82,7 +100,7 @@ We'll know we're right when **분포가 커버리지와 함께 한 화면에 뜨
 - [x] **미짝 26건의 분해 결과에 따라 C4가 아닌 축이 열릴 수 있다.** → **열린다**(M2 실측, 2026-09-02 · [post-panel-span.md](../../docs/leadtime-observability/post-panel-span.md)). `ledger_basename` 미짝 38건 중 `anchor_absent` **29건**이 'ship됐는데 이 축의 앵커가 없다'이고, 그중 **10건**은 반대축 ship receipt가 직접, **19건**은 아카이브된 plan이 증언한다(§3.11 C2대로 archived ⇒ shipped). 집계 문제가 아니라 **기록 배선 문제**가 맞고 C1 사거리다. 남은 **8건**은 `unclassified`, **1건**은 `not_shipped` — 증인 어느 것도 ship을 증언하지 못한 상태다. **초판 측정(2026-09-02 오전)에서는 이 둘이 12 대 17로 반대였고**, base 병합이 아카이브 plan을 늘리자 8 대 29로 뒤집혔다 — 즉 `unclassified`의 상당 부분은 영구적 미지가 아니라 아직 아카이브되지 않은 PRD의 그림자이고, 배선 축을 여는 근거는 그 버킷이 아니라 `anchor_absent` 29건이다. `not_shipped`는 **1건**이다(초판 측정에서는 0건이었고, base 재병합으로 실코퍼스 사례를 얻었다 — 근거는 문서 결론 2).
 - [ ] **10배 격차가 표본 편향인지 패널 밖 구간인지.** 갈리지 않으면 지표 2는 "무엇의 리드타임인지"를 말하지 못한다. M2의 미짝 분해가 1차 증거다. → **부분 진전**: 패널 밖 구간이 실제로 측정됐다(`post_panel_span` p50 0.28~0.38일). 그러나 커버리지가 11~16/49라 이 값으로 격차를 설명하는 것은 **생존 편향에 노출**된다 — 조인된 것은 ship까지 간 것들뿐이다. 나머지 축(`/mccp:work` 진입 → 패널)이 C2에 남아 있으므로 이 질문은 **열어 둔다**.
 - [x] **completion-ledger가 2026-08-21에서 멈췄다.** → **쓰기가 멈춘 것이다**(M2 실측, 2026-09-02). `anchor_absent` 29건 중 10건이 '자격 있는 ship receipt는 있는데 ledger 엔트리가 없다'이고, ledger 마지막 엔트리(08-21) 이후 발행된 자격 receipt가 실재한다. 그 판정은 **receipt 존재가 아니라 `pr-ship-gate.js#deriveShipDecision`이 자격을 인정한 것만** 센 결과다(무증거 skip 6건 배제 · audited override 11건 포함). 지표 4의 한쪽 축이 죽어 있는 것이 맞고, **복구는 C1 사거리**다 — M2는 고치지 않고 표면화했다.
-- [ ] **지표 4('두 앵커의 불일치')는 시각 축에서 구조적으로 0이다.** (M2가 새로 연 질문) 양쪽 매치 6건의 `anchor_delta_ms`가 전건 정확히 0이다 — ledger의 `completed_at`이 ship receipt의 `meta.created_at`을 그대로 복사하기 때문이다. 두 앵커는 독립된 증인이 아니라 **한 사건의 두 기록**이므로, 살아있는 신호는 시각 불일치가 아니라 **커버리지 차이**(`ledger`만 5 · `ship`만 10)다. 지표 4의 정의를 커버리지 축으로 옮길지, 아니면 C2가 세 번째 **독립** 앵커를 만들 때까지 보류할지 미판정.
+- [x] **지표 4('두 앵커의 불일치')는 시각 축에서 구조적으로 0이다.** (M2가 새로 연 질문) → **정의를 커버리지 축으로 옮긴다**(M4 판정, 2026-09-04). 근거는 실측이 아니라 **구조**다: `completion-ledger/index.js`가 `completedAt = meta.created_at`을 그대로 복사하므로 두 앵커는 독립된 두 증인이 아니라 **한 사건의 두 기록**이고, 시각 차이는 우연히 0이 아니라 **구성상 0**이다. 실측이 그것을 확인한다 — 양쪽 매치 건의 `anchor_delta_ms`가 전건 0이고(`distribution.json`의 `disagreement`), M3이 이미 `structurally-zero: ledger.completed_at copies ship receipt meta.created_at`을 `disagreement_note`로 stamp해 뒀다. 살아있는 신호는 **커버리지 차이**(`only_ledger` · `only_ship` · `both`)이고, 그 비대칭은 이미 실제 배선 결함 하나를 표면화했다(바로 위 completion-ledger 항목). **판정의 범위는 이 문서다** — 한 줄과 산출물은 바꾸지 않는다: 시각 불일치는 `disagreement` + `disagreement_note`로 파일에 계속 실리고(결정 1의 표면화 유지), 한 줄에는 원래부터 없다. **재판정 조건**: C2가 세 번째 **독립** 앵커를 만들면 시각 축이 다시 의미를 가지므로 그때 다시 판정한다.
 
 ## Risks
 

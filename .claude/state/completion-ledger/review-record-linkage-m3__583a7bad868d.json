@@ -1,0 +1,33 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "review-record-linkage-m3",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.34.5",
+    "completed_at": "2026-09-03T07:20:00.735Z",
+    "commit_sha": "8b082baa3acb6f475fe772fecf34e5a95d8c68ed",
+    "plan_basename": "review-record-linkage-m3.plan.md",
+    "plan_file_hash": "sha256:66ddf074d1cbc744e44df5d98afab55c650fbc83d4f93d4a1afc89fb413b9dd5",
+    "risks_closed": [
+      "**R1 — 슬러그 충돌이 M1의 git-tracked 리뷰 레코드를 덮어쓴다.** PRD 경로에서 파생되는 슬러그는 `review-record-linkage`이고 M1이 이미 그 이름으로 `.claude/reviews/plan-review-review-record-linkage.md`를 커밋했다",
+      "**R2 — evidence commit이 링크의 절반을 히스토리에 못 싣는다.** Phase **3.0**은 receipt 디렉토리만 stage하고 그 외가 staged면 HALT한다",
+      "**R10 — 새 게이트가 도달 불가한 채 green이 된다.** guard 분기를 더해도 입력 생산자(`plugins/mccp/commands/pr.md:1197`)가 그 경로를 안 보내면 검사가 무발화하고 거부 fixture만으로는 그것을 못 잡는다",
+      "**R3 — 동결 baseline이 움직인다.** `join` 문자열이 동결 블록 안에 있고 Windows EOL이 바이트 비교를 흔든다",
+      "**R4 — 전파가 조용히 불발한다 … 또는 *엉뚱한 receipt를 찾는다*.** `/mccp:pr`은 상류 plan receipt를 ship 슬러그로 찾는데 두 슬러그는 R1의 완화 때문에 **구조적으로** 어긋나고, 이 브랜치에서는 그 이름이 **M1의 receipt와 exact match**한다",
+      "**R5 — `plan_review_expected` 생산자가 M3 범위인지 논쟁이 된다.** PRD M3 문장은 링크만 말한다",
+      "**R6 — codex 모드 plan 게이트에는 패널 레코드가 없어 100%가 불가능해 보인다**",
+      "**R7 — 병렬 브랜치 version 충돌** (9회 재발 이력)",
+      "**R8 — `plan-review/`를 공유 소유하는 in-flight 브랜치** (`diverse-agent-review-m9/m11`)",
+      "**R11 — 층간 링크의 신원 앵커가 없었다.** 슬러그는 구조적으로 어긋나고(R1·R4), 내용 해시는 2.5.4 주입으로 항상 움직이며(R3가 shipped 쌍에서 실증), plan receipt에 불변 plan 식별자가 없다",
+      "**R12 — `SHIP_PLAN_PATH` 기본 파생이 이 브랜치에서 실재하지 않는 경로를 낸다.** `${PR_PLAN_PATH:-.claude/plans/${DECISION_SLUG}.plan.md}` → `review-record-linkage.plan.md`인데 디스크에 없다(M1의 plan은 `-m1` 접미사)",
+      "**R13 — 같은 `meta.plan_path`를 봉인한 plan receipt가 둘 이상일 수 있다** (같은 plan을 다른 슬러그로 재리뷰)",
+      "**R14 — `meta.plan_path`가 plan 게이트 전용 필드가 아니다.** `write.js`의 `--plan` 파생이 게이트 중립이라 모든 게이트의 receipt에 실리고, 일부 호출처는 plan 경로가 아닌 값을 정당하게 넘긴다(`plugins/mccp/commands/pr.md:916` PR 제목 허용 · `prp-implement`/`resume`의 `$ARGUMENTS`)",
+      "**R15 — 앵커의 두 끝은 저자 전사에서 온다.** `plugins/mccp/commands/plan.md`의 `--plan \"<plan path>\"`도 ship 쪽 placeholder와 같은 종류다",
+      "**R9 — 신규 test가 CI에 없다.** `.github/workflows/`에 등재된 test는 셋뿐이라 강제가 로컬 실행에 의존한다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:583a7bad868d20bea8b14d4948223c3b29ca25d9d9f70ece36ef1f1e24c44840",
+    "verdict_provenance": "codex-verdict"
+  }
+}

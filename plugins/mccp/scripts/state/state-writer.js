@@ -198,17 +198,26 @@ function readState(repoRoot) {
   return parseStateMd(raw) || emptyState();
 }
 
-function parseStateMd(raw) {
+// `opts.quiet` 은 **읽기 전용 관찰자 전용**이다 (orchestrator-step-wiring M2 review
+// HIGH-2). 이 두 WARNING 은 "이 세션의 STATE.md 를 리셋한다" 는 뜻이라 자기 상태를
+// 쓰려는 호출자에게는 옳지만, 남의 worktree 를 훑기만 하는 reader(`last-halt`)에게는
+// 거짓이다 — 그쪽은 아무것도 쓰지 않는다. 게다가 그 stderr 가 호출자의 실패 채널로
+// 흘러가면 "halt 가 없다"(정상)가 "읽기가 깨졌다"로 오보된다. 기본값은 무변경이라
+// 기존 호출자는 계속 시끄럽다.
+function parseStateMd(raw, opts) {
+  const quiet = !!(opts && opts.quiet);
   const match = raw.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/);
   if (!match) {
-    process.stderr.write('[mccp:state-writer] WARNING: no frontmatter found; resetting state\n');
+    if (!quiet) process.stderr.write('[mccp:state-writer] WARNING: no frontmatter found; resetting state\n');
     return null;
   }
   const fm = parseFrontmatter(match[1]);
   if (!fm) return null;
   if (fm.state_version !== STATE_VERSION) {
-    process.stderr.write('[mccp:state-writer] WARNING: unsupported state_version ' +
-      fm.state_version + ' (expected ' + STATE_VERSION + '); resetting state\n');
+    if (!quiet) {
+      process.stderr.write('[mccp:state-writer] WARNING: unsupported state_version ' +
+        fm.state_version + ' (expected ' + STATE_VERSION + '); resetting state\n');
+    }
     return null;
   }
   const body = parseBody(match[2]);
@@ -727,12 +736,23 @@ function recordChainProgress(repoRoot, entry) {
       log = { steps: [] };
     }
     if (!Array.isArray(log.steps)) log.steps = [];
-    log.steps.push({
+    // 기존 4필드의 직렬화는 한 글자도 바꾸지 않는다 — 키 순서까지 그대로다.
+    const record = {
       step: String(entry.step || 'unknown'),
       status: String(entry.status || 'unknown'),
       receipt_path: entry.receipt_path || entry.receiptPath || null,
       ts: nowIso(),
-    });
+    };
+    // orchestrator-step-wiring M2 (Task 1) — halt 맥락 3필드는 **present-only** 다.
+    // 값이 있을 때만 키를 넣는 이유는 §3.2 `dep_check_at` 과 같다: 부재가 곧
+    // "모름" 이어야 하고, `null` 을 실으면 그 구분이 사라진다. DD2 가 work_unit 을
+    // 추정으로 채우지 않기로 한 결정도 이 표현에 의존한다.
+    const haltSite = entry.halt_site || entry.haltSite;
+    const workUnit = entry.work_unit || entry.workUnit;
+    if (haltSite) record.halt_site = String(haltSite);
+    if (entry.reason) record.reason = String(entry.reason);
+    if (workUnit) record.work_unit = String(workUnit);
+    log.steps.push(record);
     // M5 — 직접 write 대신 공용 임계구역을 거친다. 이미 락 안이므로
     // update()를 부르면 재진입이 되어 락 획득이 실패한다(fail-soft 경고 후
     // 무락 진행) — 그래서 applyLocked를 직접 부른다.

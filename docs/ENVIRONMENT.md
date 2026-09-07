@@ -59,7 +59,7 @@ lint L12가 대조한다.
 - [orchestration](environment/orchestration.md) — 오케스트레이션 · 병렬 · 핸드오프 (21개)
 - [cost](environment/cost.md) — 비용 · 구독 · briefing (11개)
 - [hooks](environment/hooks.md) — hook · 세션 · MCP · 설치 (25개)
-- [observability](environment/observability.md) — 관측 · 대시보드 · 증거 (12개)
+- [observability](environment/observability.md) — 관측 · 대시보드 · 증거 (13개)
 - [external](environment/external.md) — 외부 도구가 소유하는 이름 (28개)
 - [retired](environment/retired.md) — 은퇴 · 부재 · 스캔 오탐 (17개, §4)
 
@@ -214,6 +214,7 @@ lint L12가 대조한다.
 |`MCCP_RECLAIM_IDENTITY_TOLERANCE_MS`|int|—|—|동일성 판정 허용 오차.|[→](environment/observability.md#mccp_reclaim_identity_tolerance_ms)|
 |`MCCP_WORKTREE_SCAN_CAP`|int|—|—|worktree 스캔 상한.|[→](environment/observability.md#mccp_worktree_scan_cap)|
 |`MCCP_WORKTREE_ACTIVE_DAYS`|int|—|—|worktree active 일수.|[→](environment/observability.md#mccp_worktree_active_days)|
+|`MCCP_LEADTIME_GIT`|bool|on/off|on|리드타임 git 증인 spawn.|[→](environment/observability.md#mccp_leadtime_git)|
 
 ### external — 외부 도구가 소유하는 이름
 

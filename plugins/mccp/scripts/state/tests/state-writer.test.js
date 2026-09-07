@@ -677,3 +677,41 @@ test('withStateLock: tryAcquire closes fd even when writeSync throws (B#17 fd le
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });
+
+// orchestrator-step-wiring M2 (Task 1) — halt 맥락 3필드는 present-only 다.
+// 존재와 부재를 **양쪽 다** 단언한다: 부재만 보면 필드가 아예 배선되지 않아도
+// 통과하고, 존재만 보면 `null` 이 실려 "모름" 과 "없음" 이 뭉개져도 통과한다.
+test('recordChainProgress: halt fields are present-only (both directions)', () => {
+  const repo = mkRepo();
+  sw.recordChainProgress(repo, { step: 'commit', status: 'ok' });
+  sw.recordChainProgress(repo, {
+    step: 'implement', status: 'halted',
+    halt_site: '3.gate.verdict', reason: 'verdict was not ok', work_unit: 'demo-m2',
+  });
+  const raw = readRaw(repo);
+  const m = raw.match(/chain_progress: \|\s*\n((?:  .+\n)+)/);
+  assert.ok(m, 'chain_progress block missing: ' + raw);
+  const parsed = JSON.parse(m[1].split('\n').map(l => l.replace(/^  /, '')).join('\n').trim());
+
+  const plain = parsed.steps[0];
+  assert.deepStrictEqual(Object.keys(plain).sort(), ['receipt_path', 'status', 'step', 'ts'],
+    'an ordinary step must serialize exactly as before — absence IS the "unknown" value');
+
+  const halted = parsed.steps[1];
+  assert.strictEqual(halted.halt_site, '3.gate.verdict');
+  assert.strictEqual(halted.reason, 'verdict was not ok');
+  assert.strictEqual(halted.work_unit, 'demo-m2');
+});
+
+test('recordChainProgress: explicit nulls do not materialize keys', () => {
+  const repo = mkRepo();
+  sw.recordChainProgress(repo, {
+    step: 'pr', status: 'halted', halt_site: null, reason: null, work_unit: null,
+  });
+  const raw = readRaw(repo);
+  const m = raw.match(/chain_progress: \|\s*\n((?:  .+\n)+)/);
+  const entry = JSON.parse(m[1].split('\n').map(l => l.replace(/^  /, '')).join('\n').trim()).steps[0];
+  assert.ok(!('halt_site' in entry) && !('reason' in entry) && !('work_unit' in entry),
+    'DD2 resolves work_unit to null when it cannot be known; serializing that null '
+    + 'would put an unjoinable key into the corpus instead of leaving it absent');
+});

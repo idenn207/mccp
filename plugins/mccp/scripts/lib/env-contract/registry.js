@@ -179,7 +179,7 @@ const RAW = [
   // ── orchestration — work 격리/병렬/merge · plan fan-out · runaway · dispatch ─
   ['MCCP_WORK_ISOLATE_IMPLEMENT', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/scripts/lib/orchestration-preview.js:78', 'implement worktree 격리.'],
   ['MCCP_WORK_IMPLEMENT_WORKFLOW', 'bool', B, 'off', OFF, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/route.js:68', 'Workflow 런타임 사용.'],
-  ['MCCP_WORK_IMPLEMENT_PARALLEL', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/commands/work.md:239', '병렬 implement 허용.'],
+  ['MCCP_WORK_IMPLEMENT_PARALLEL', 'bool', B, 'on', ON, 'active', 'orchestration', 'plugins/mccp/commands/work.md:322', '병렬 implement 허용.'],
   ['MCCP_WORK_PARALLEL_MAX', 'int', null, '4', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:120', '동시 worker 상한.'],
   ['MCCP_WORK_PARALLEL_BUDGET', 'int', null, '150000', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:121', '병렬 최소 토큰 예산.'],
   ['MCCP_WORK_PARALLEL_AUTODISABLE_TIER', 'list', null, '', null, 'active', 'orchestration', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js:122', '병렬 자동 해제 tier.', 'plugins/mccp/scripts/lib/implement-dispatch/budget.js#allowed'],
@@ -253,6 +253,7 @@ const RAW = [
   ['MCCP_RECLAIM_IDENTITY_TOLERANCE_MS', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/lib/session-processes.js:946', '동일성 판정 허용 오차.'],
   ['MCCP_WORKTREE_SCAN_CAP', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/derive/sources/worktrees.js:280', 'worktree 스캔 상한.'],
   ['MCCP_WORKTREE_ACTIVE_DAYS', 'int', null, null, null, 'undocumented-default', 'observability', 'plugins/mccp/scripts/derive/sources/worktrees.js:290', 'worktree active 일수.'],
+  ['MCCP_LEADTIME_GIT', 'bool', B, 'on', ON, 'active', 'observability', 'plugins/mccp/scripts/lib/leadtime-derive.js:96', '리드타임 git 증인 spawn.'],
 
   // ── external — mccp가 정의하지 않지만 mccp 경로가 읽는 이름 ─────────────────
   ['CLAUDE_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:68', '주입된 플러그인 루트.'],

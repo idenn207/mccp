@@ -430,4 +430,12 @@ module.exports = {
   deriveWorktreeProgress,
   isSelfWorktree,
   normalizeWorktreePath,
+  // orchestrator-step-wiring M2 (Task 4, L2 architect MEDIUM) — 스캔 상한과
+  // timeout 을 재사용 가능하게 만든다. work-orchestrator 의 `last-halt` 가 같은
+  // 순회를 하면서 이 값들을 리터럴로 복제하면 그 순간 drift 가 시작된다.
+  // 상한은 `DEFAULT_CAP` 숫자가 아니라 `parseCap` **정책**으로 내보낸다 — 숫자만
+  // 가져가면 `MCCP_WORKTREE_SCAN_CAP` 이 한쪽에만 먹어 두 순회가 서로 다른 범위를
+  // 보게 되고, 그래서 소비처가 쓰지 않을 숫자는 애초에 표면에 두지 않는다.
+  SCAN_TIMEOUT_MS,
+  parseCap,
 };

@@ -619,3 +619,99 @@ test('(14) a worktree with no STATE.md at all is absence, not a coverage gap', (
   assert.ok(!('coverage_incomplete' in JSON.parse(j.stdout)),
     'present-only: no key at all, so absence is distinguishable from an observed zero');
 });
+
+// ── (15) santa R3 — 자격은 답과 같은 스트림을 타야 한다 ──────────────────────
+//
+// (14) 는 reader 가 사실을 **낸다**는 것까지 세웠고, 거기서 멈췄다. 양 lane 의
+// 리뷰어가 독립적으로 같은 구멍을 짚었다: 유일한 소비처인 work.md 배너는
+// `if (out) { …stdout… } else { …stderr… }` 라서 stdout 이 빌 때만 stderr 를 읽는데,
+// 커버리지 구멍이 해로운 경우는 정반대다 — 답이 **있고** 그 답이 전역 최신이
+// 아닐 수 있는 경우다. (14) 가 green 인 채로 그 구멍이 열려 있었던 이유는 그
+// test 가 CLI 를 직접 spawn 해 stderr 를 읽기 때문이다. 즉 검증이 문제의 표면을
+// 지나가고 있었다. 그래서 이 test 는 **stdout 만** 본다.
+
+test('(15) the coverage caveat rides stdout, where the answer it qualifies is', () => {
+  const repo = mkRepo('coverage-stdout');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-blocked');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'blocked15', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+  fs.mkdirSync(path.join(wt, '.claude', 'state', 'STATE.md'), { recursive: true });
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.match(out, /step=implement/, 'the partial answer is still given');
+  assert.match(out, /coverage=incomplete\(1\)/,
+    'a consumer that reads ONLY stdout must still learn the answer is unqualified. '
+    + 'this is the assertion (14) could not make. measured: ' + JSON.stringify(out));
+});
+
+test('(15) a fully-read repository carries no coverage token at all', () => {
+  const repo = mkRepo('coverage-clean');
+  plantChainProgress(repo, [{
+    step: 'commit', status: 'halted', receipt_path: null,
+    ts: '2026-02-01T00:00:00.000Z', halt_site: '2t.commit', reason: 'local',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.match(out, /step=commit/);
+  assert.ok(!/coverage=/.test(out),
+    'the token is a component, and components are omitted when empty — a token that '
+    + 'fired on every healthy repo would carry no information. measured: '
+    + JSON.stringify(out));
+});
+
+// ── (16) santa R3 — reader 재강제는 축 전체다, 필드 목록만이 아니다 ──────────
+//
+// `safeField` 는 control 축만 되걸고 경로 축을 빠뜨렸다. 경로 축은 `narrowReason`
+// 이 **쓰기 경로에서만** 걸고 있었으므로, 이미 디스크에 있는 레코드(구버전
+// recorder · 손 편집 · 다른 worktree) 의 절대경로는 배너와 `--json` 양쪽으로 그대로
+// 나갔다. reader 재강제의 존재 이유가 정확히 "쓰기 시점 좁히기는 이미 있는
+// 레코드를 되돌리지 못한다" 이므로, 축을 하나만 되걸면 그 이유가 절반만 선다.
+
+test('(16) an absolute path planted in a halt record is scrubbed on the text path', () => {
+  const repo = mkRepo('abs-text');
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-03-01T00:00:00.000Z', halt_site: '3.preflight',
+    reason: 'failed reading /home/someone/private/key.json',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.ok(!/\/home\/someone\/private\/key\.json/.test(out),
+    'a write-time scrub cannot reach a record already on disk; the reader must scrub '
+    + 'again or the banner leaks it. measured: ' + JSON.stringify(out));
+  assert.match(out, /outside-repo:key\.json/,
+    'the value is masked, not deleted — the operator still learns what was referenced');
+});
+
+test('(16) the same scrub applies on the --json path', () => {
+  const repo = mkRepo('abs-json');
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-03-02T00:00:00.000Z', halt_site: '3.preflight',
+    reason: 'failed reading /home/someone/private/key.json',
+    work_unit: '/home/someone/private/unit',
+  }]);
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.strictEqual(j.status, 0);
+  const parsed = JSON.parse(j.stdout);
+  assert.ok(!/\/home\/someone\/private/.test(String(parsed.reason)),
+    'JSON.stringify protects the file, not the replay. measured: '
+    + JSON.stringify(parsed.reason));
+  assert.ok(!/\/home\/someone\/private/.test(String(parsed.work_unit)),
+    'every field the reader narrows, not just reason. measured: '
+    + JSON.stringify(parsed.work_unit));
+});

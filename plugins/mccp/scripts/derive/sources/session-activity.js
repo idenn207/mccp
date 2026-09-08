@@ -226,10 +226,14 @@ function scanSessionActivity(repoRoot) {
               // 가드가 감싸는 범위는 **세션 누적 블록 전체**다. 엔트리 생성만 막으면
               // 아래 `events.push`와 `session_end` 갱신이 그대로 돌아, 앞선 공유 A1
               // 이벤트가 이미 만들어 둔 엔트리에 외래 span과 외래 context 샘플이
-              // 실린다(Implement-Codex R1 F1). 그 뒤의 **독립 계수기**
-              // (`task_started`/`task_completed`/`task_ship_sealed`)는 이 블록 밖에
-              // 그대로 둔다 — A1 축은 공유 위치에서 읽혀야 하고 그것이 M1이 세운
-              // 경계다.
+              // 실린다(Implement-Codex R1 F1).
+              //
+              // 가드 **밖**에 남는 것은 정확히 A1 축 계수기 셋
+              // (`task_started`/`task_completed`/`task_ship_sealed`)이고, 그 집합은
+              // 우연이 아니라 `A1_AXIS_KINDS` 그 자체다 — A1 축은 공유 위치에서
+              // 읽혀야 하고 그것이 M1이 세운 경계다. santa R3 이전에는 이 열거가
+              // 셋을 말하면서 실제로는 여섯이 밖에 있었다(evidence 계수기 3종이
+              // 함께 새어 있었다). 지금은 열거와 실제가 같다.
               const sessionAxisAdmissible =
                 !(dirIsShared && !mswEvents.A1_AXIS_KINDS.has(evt && evt.kind));
               if (sessionAxisAdmissible) {
@@ -242,9 +246,11 @@ function scanSessionActivity(repoRoot) {
                     created_at: evt.created_at,
                     ended_at: evt.ended_at,
                     // Task 5a — 이 세션을 worktree-local 후보에서 본 적이 있는가.
-                    // 이 맵은 kind 가드가 없어(`:154` 선례) 공유 위치의 외래 A1
-                    // 이벤트도 엔트리를 만든다. 그래서 "봤다"와 "여기서 봤다"를
-                    // 구분하는 표식이 필요하다.
+                    // 위 `sessionAxisAdmissible`는 공유 위치의 **비-A1 kind만** 거르므로
+                    // 공유 위치의 외래 A1 이벤트는 여전히 엔트리를 만든다 — 그것이 M1이
+                    // 세운 경계다. 그래서 "봤다"와 "여기서 봤다"를 구분하는 표식이
+                    // 필요하다. (santa R3 — 이 자리는 "kind 가드가 없어"라고 적혀
+                    // 있었는데, 그 가드를 열두 줄 위에 더한 커밋에서 그대로 남았다.)
                     observed_local: false,
                   };
                 }
@@ -298,14 +304,27 @@ function scanSessionActivity(repoRoot) {
 
               // M3 증거 충돌 taxonomy. guard_active는 충돌 유무와 무관하게
               // guarded write마다 emit되므로 producer-present의 **독립** 신호다.
-              if (evt.kind === 'evidence_guard_active') {
-                result.guard_active_count++;
-                result.collision_producer_present = true;
-              } else if (evt.kind === 'evidence_overwrite_observed') {
-                result.overwrite_observed_count++;
-              } else if (evt.kind === 'evidence_conflict_prevented') {
-                result.conflict_prevented_count++;
-                if (CLAIM_FENCE_KINDS.has(evt.conflict_kind)) result.claim_denied_count++;
+              //
+              // santa R3 (reviewer B/HIGH) — 이 세 계수기는 Task 5 가 세운 격리 **안쪽**에
+              // 속한다. 위 세션 축과 마찬가지로 B2 를 먹이는 로컬 축이고, A1 축이
+              // 아니므로 공유 위치에서 읽힐 이유가 없다. 그런데 가드가 세션 누적
+              // 블록에서 끝나 이들만 `dirIsShared` 와 무관하게 돌고 있었다 — Task 5 가
+              // 닫았다고 주장한 단일 실패점이 evidence 축에 그대로 남아 있던 것이다.
+              // 오늘 도달 불가라는 사실(writer 의 kind 게이트)은 Task 5 자신의 정당화와
+              // 같고, 그 정당화가 세션 축에 유효하면 여기에도 유효하다.
+              //
+              // 술어는 `sessionAxisAdmissible` **그대로** 재사용한다. 같은 경계를 두
+              // 번 표현하면 그 둘이 갈리는 순간 어느 쪽이 계약인지 말할 수 없게 된다.
+              if (sessionAxisAdmissible) {
+                if (evt.kind === 'evidence_guard_active') {
+                  result.guard_active_count++;
+                  result.collision_producer_present = true;
+                } else if (evt.kind === 'evidence_overwrite_observed') {
+                  result.overwrite_observed_count++;
+                } else if (evt.kind === 'evidence_conflict_prevented') {
+                  result.conflict_prevented_count++;
+                  if (CLAIM_FENCE_KINDS.has(evt.conflict_kind)) result.claim_denied_count++;
+                }
               }
             } catch (lineErr) {
               // Per-line malformed isolation (R2-F1 absorption)

@@ -1005,3 +1005,59 @@ test('A2 (M3 Task 4): the sessions_local fallback keeps its pre-M3 behaviour', (
   assert.equal(a2.numerator, 1);
   assert.equal(a2.denominator, 2);
 });
+
+// ── santa R3 — `ok` 와 `degraded` 는 다른 사실이다 ───────────────────────────
+//
+// source 는 shard 하나를 못 읽으면 `degraded` 를 세우고 **나머지로 계속 센다**
+// (fail-open per-source). 소비자가 그 상태를 버리면 A1 은 부분 corpus 에서 나온
+// 비율을 `computed` + `integrity_ok:true` 로 발행한다 — 못 읽은 shard 에 미완료
+// 단위가 들어 있으면 분모가 조용히 깎여 완주율이 위로 편향되고, 그 수치는 아무
+// 자격 없이 신뢰된다. `computeA3` 는 이미 이 선례를 세워 두었고 A1 만 빠져 있었다.
+
+function a1DegradedModel(extra) {
+  return {
+    sources: {
+      session_activity: Object.assign({
+        ok: true,
+        degraded: true,
+        task_startups_count: 1,
+        task_completions_count: 1,
+        startups_producer_present: true,
+        completions_producer_present: true,
+        sessions: [],
+        sessions_local: [],
+        producer_coverage: 'session-activity',
+      }, extra || {}),
+    },
+  };
+}
+
+test('A1 (santa R3): a degraded scan cannot publish a trusted completion rate', () => {
+  const a1 = computeMetrics(a1DegradedModel())[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid',
+    'an unreadable shard means the denominator may be short; answering anyway reports '
+    + 'a biased rate as fact. measured status: ' + a1.status);
+  assert.equal(a1.integrity_ok, false,
+    'this is the field a consumer reads to decide whether the number is usable');
+  assert.equal(a1.numerator, null, 'no partial counts leak out under an invalid verdict');
+  assert.equal(a1.denominator, null);
+  assert.equal(a1.value, null);
+  assert.match(String(a1.invalid_reason), /degraded/,
+    'the reason names the axis, so the operator can act. measured: ' + a1.invalid_reason);
+});
+
+test('A1 (santa R3): a scan error is reported verbatim, not folded into a generic reason', () => {
+  const a1 = computeMetrics(a1DegradedModel({ degraded: false, error: 'EACCES on shard 3' }))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid');
+  assert.equal(a1.invalid_reason, 'EACCES on shard 3',
+    'absence, unreadability and damage are different facts; collapsing them is the '
+    + 'defect computeA3 already documents');
+});
+
+test('A1 (santa R3): a healthy scan is untouched by the degraded branch', () => {
+  const a1 = computeMetrics(a1Model(3))[A1_WORK_COMPLETION_RATE];
+  assert.notEqual(a1.status, 'invalid',
+    'the branch must be reachable ONLY on degradation — otherwise it is not a guard, '
+    + 'it is an outage. measured status: ' + a1.status);
+  assert.equal(a1.integrity_ok, true);
+});

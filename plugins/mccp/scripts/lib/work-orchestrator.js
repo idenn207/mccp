@@ -308,8 +308,21 @@ function narrowReason(text, repoRoot, deps) {
 // `echo` 로 나가고 `chain_progress` 는 git-tracked STATE.md 라 PR 로 유입될 수 있는
 // 값이다 — 접지 않으면 개행 하나로 `[mccp:work] ` 접두를 위조한 줄을 심을 수 있다.
 // 그래서 step·site·ts·work_unit 도 reason 과 같은 좁히기를 통과한다.
-function safeField(value, deps) {
-  return deps.oneLineExcerpt(scrubControl(String(value === undefined || value === null ? '' : value), deps));
+//
+// santa R3 (reviewer B/HIGH) — "읽는 모든 필드"는 필드 목록만이 아니라 **좁히기의
+// 축 전체**를 뜻해야 한다. 이 함수는 control 축만 재강제하고 경로 축을 빠뜨렸고,
+// 그 축은 `narrowReason` 이 **쓰기 경로에서만** 걸고 있었다. 그래서 구버전 recorder
+// 가 썼거나 손으로 편집된, 또는 다른 worktree 의 STATE.md 에서 읽어 온 halt 의
+// `reason`·`step`·`work_unit` 에 담긴 절대경로가 배너와 `--json` 양쪽으로 그대로
+// 나갔다. 쓰기 시점 좁히기가 이미 디스크에 있는 레코드를 되돌리지 못한다는 것이
+// 이 reader 재강제의 존재 이유이므로, 축을 하나만 되걸면 그 이유가 절반만 성립한다.
+//
+// 따라서 `safeField` 는 `narrowReason` 과 **같은 3단계**(경로 스크럽 → control 제거
+// → 절삭)를 지난다. 두 함수를 나란히 두면 축이 다시 갈라지므로 하나를 다른 하나로
+// 정의한다 — 차이는 null/undefined 강제뿐이다. `repoRoot` 는 선택 인자가 아니다:
+// 기본값을 두면 그것을 잊은 호출자가 조용히 옛 동작으로 돌아간다.
+function safeField(value, deps, repoRoot) {
+  return narrowReason(String(value === undefined || value === null ? '' : value), repoRoot, deps);
 }
 
 // DD7 repo-root 봉쇄 가드. `findRepoRoot` 는 `.git` 조상이 없으면 cwd 를 그대로
@@ -442,9 +455,9 @@ function formatHaltLine(best, repoRoot, deps) {
   // orchestrator-step-wiring M3 (Task 2) — `worktree`가 정확히 그 남은 하나였다.
   // 주석은 M1부터 이 불변식을 선언했지만 아래 `path.basename(...)`은 좁히기를
   // 우회했고, 주석이 센 "네 필드"는 실제 구성요소 수와도 어긋나 있었다.
-  const parts = ['직전 halt:', 'step=' + safeField(e.step, deps),
-    'site=' + safeField(e.halt_site, deps), '(' + safeField(e.ts, deps) + ')'];
-  const reason = safeField(e.reason, deps);
+  const parts = ['직전 halt:', 'step=' + safeField(e.step, deps, repoRoot),
+    'site=' + safeField(e.halt_site, deps, repoRoot), '(' + safeField(e.ts, deps, repoRoot) + ')'];
+  const reason = safeField(e.reason, deps, repoRoot);
   if (reason) {
     parts.push('reason=' + (reason.length > BANNER_REASON_MAX
       ? reason.slice(0, BANNER_REASON_MAX - 1) + '…' : reason));
@@ -456,7 +469,7 @@ function formatHaltLine(best, repoRoot, deps) {
     // 이루어진 basename을 빈 문자열로 접는데, 출력 조건이 값이 아니라
     // `!isSelfWorktree(...)`라서 그대로 두면 라벨만 남은 `· worktree=`가 나간다.
     // 위 `reason`이 이미 값 기반 가드를 쓰는 것과 같은 형태로 맞춘다.
-    const worktreeName = safeField(path.basename(best.worktree), deps);
+    const worktreeName = safeField(path.basename(best.worktree), deps, repoRoot);
     if (worktreeName) line += ' · worktree=' + worktreeName;
   }
   return line;
@@ -620,6 +633,17 @@ function runCli(argv) {
       // 없음(정상)" 으로 읽는다. 절삭 분기와 같은 규율이되 답을 버리지는 않는다:
       // 절삭은 아무 worktree 도 읽지 못한 것이고 이쪽은 부분 커버리지라, 있는 답을
       // 내되 그것이 전역 최신이라고 보장하지 못한다는 사실을 함께 낸다.
+      // santa R3 (reviewer A/HIGH · reviewer B/HIGH — 양 lane 독립 검출) — stderr 만으로는
+      // 이 경고가 **정확히 필요한 경우에** 운영자에게 닿지 않는다. 유일한 소비처인
+      // work.md 배너는 `if (out) { …stdout… } else { …stderr… }` 형태라 stdout 이 비었을
+      // 때만 stderr 를 읽는데, 커버리지 구멍이 문제가 되는 경우는 정반대다 — 답이
+      // **있고** 그 답이 전역 최신이 아닐 수 있는 경우다. 그래서 R2 는 reader 에만
+      // 배선하고 표면을 열지 못했다.
+      //
+      // 그러므로 자격은 답과 같은 스트림을 탄다. stderr 도 남긴다 — errno 목록이라는
+      // 더 자세한 사실을 나르고, `!r.hit`(못 읽은 worktree 에만 halt 가 있어 답이 비는
+      // 경우) 에서는 그쪽이 유일한 통로이기 때문이다. 둘은 중복이 아니라 서로 다른
+      // 경우를 덮는다.
       if (r.unreadable) {
         process.stderr.write('[mccp:last-halt] coverage incomplete: '
           + r.unreadable.length + ' worktree STATE.md unreadable ('
@@ -631,15 +655,15 @@ function runCli(argv) {
         // review M1 — JSON 소비자도 그대로 출력할 수 있으므로 텍스트 경로와 같은
         // 좁히기를 통과시킨다. `JSON.stringify` 는 파일을 지키지 재생을 지키지 않는다.
         emit({
-          step: safeField(r.hit.entry.step, deps) || null,
-          site: safeField(r.hit.entry.halt_site, deps) || null,
-          ts: safeField(r.hit.entry.ts, deps) || null,
-          reason: safeField(r.hit.entry.reason, deps) || null,
-          work_unit: safeField(r.hit.entry.work_unit, deps) || null,
+          step: safeField(r.hit.entry.step, deps, repoRoot) || null,
+          site: safeField(r.hit.entry.halt_site, deps, repoRoot) || null,
+          ts: safeField(r.hit.entry.ts, deps, repoRoot) || null,
+          reason: safeField(r.hit.entry.reason, deps, repoRoot) || null,
+          work_unit: safeField(r.hit.entry.work_unit, deps, repoRoot) || null,
           // Task 2 — 텍스트 경로와 같은 좁히기. 다른 필드가 전부 `safeField`를
           // 지나는데 이것만 raw basename이면 JSON 소비자가 그대로 재생할 때
           // 통로가 남는다.
-          worktree: safeField(path.basename(r.hit.worktree), deps) || null,
+          worktree: safeField(path.basename(r.hit.worktree), deps, repoRoot) || null,
           self: deps.worktrees.isSelfWorktree(r.hit.worktree, repoRoot),
           // santa R2 — present-only. JSON 소비자도 텍스트 소비자와 같은 사실을
           // 받아야 한다. `undefined` 는 `JSON.stringify` 가 키째 지우므로 구멍이
@@ -648,7 +672,12 @@ function runCli(argv) {
         });
         return 0;
       }
-      process.stdout.write(formatHaltLine(r.hit, repoRoot, deps) + '\n');
+      // 텍스트 경로의 자격. 배너는 한 줄 예산이라 errno 원문이 아니라 개수만 싣고,
+      // 상세는 stderr 와 `--json` 의 `coverage_incomplete` 가 나른다. 구멍이 없으면
+      // 토큰 자체가 없다(구성요소 생략 규율 — 위 `reason`·`worktree` 와 같은 형태).
+      let haltLine = formatHaltLine(r.hit, repoRoot, deps);
+      if (r.unreadable) haltLine += ' · coverage=incomplete(' + r.unreadable.length + ')';
+      process.stdout.write(haltLine + '\n');
       return 0;
     } catch (err) {
       let why;

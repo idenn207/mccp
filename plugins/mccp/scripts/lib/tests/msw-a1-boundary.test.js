@@ -786,3 +786,51 @@ test('(santa R2) a __proto__ session id cannot reach Object.prototype', () => {
   assert.ok(scan.sessions.some(function (s) { return s && s.session_id === '__proto__'; }),
     'the id lands as an ordinary own key, not as a hole');
 });
+
+// ── santa R3 — 격리는 evidence 계수기까지다 ─────────────────────────────────
+//
+// Task 5 는 격리를 "세션 누적 블록"에만 걸었고, 그 뒤의 evidence 계수기 3종
+// (`evidence_guard_active` · `evidence_overwrite_observed` ·
+// `evidence_conflict_prevented`) 은 `dirIsShared` 와 무관하게 돌고 있었다. 그 셋은
+// A1 축이 **아니라** B2 를 먹이는 로컬 축이므로, Task 5 가 닫았다고 주장한 단일
+// 실패점이 evidence 축에 그대로 남아 있던 셈이다. 위 (M3 Task 5) 묶음과 같은
+// 이유로 오늘의 writer 는 이 형태를 만들지 못한다 — 그것이 이 단언의 목적이다.
+
+test('(santa R3) shared evidence events do not reach the evidence counters', () => {
+  const fx = mkFixture('m3ev');
+  const t0 = '2026-05-01T00:00:00.000Z';
+  writeLine(sharedDirOf(fx), 'ev-ghost', {
+    kind: 'evidence_guard_active', session_id: 'ev-ghost', ts: t0, event_id: 'ev-g',
+  });
+  writeLine(sharedDirOf(fx), 'ev-ghost', {
+    kind: 'evidence_overwrite_observed', session_id: 'ev-ghost', ts: t0, event_id: 'ev-o',
+  });
+
+  const scan = scanSessionActivity(fx.main);
+  assert.equal(scan.guard_active_count, 0,
+    'a foreign guarded write is not evidence that THIS location has a collision producer');
+  assert.equal(scan.collision_producer_present, false,
+    'the producer-present signal is the one that opens B2; a foreign event must not open it');
+  assert.equal(scan.overwrite_observed_count, 0);
+});
+
+test('(santa R3) local evidence events still feed the counters — the discriminator', () => {
+  // 판별자. 술어를 kind 단독으로 쓰면(dir 조건 없이) 로컬 evidence 이벤트까지
+  // 막혀 B2 축이 통째로 사라진다 — 오늘 없는 오염을 막으려다 실재하는 집계를
+  // 죽이는 순손실이고, 위 Task 5 판별자 1·2 와 같은 형태의 함정이다.
+  const fx = mkFixture('m3evlocal');
+  const t0 = '2026-05-02T00:00:00.000Z';
+  writeLine(localDirOf(fx.main), 'ev-local', {
+    kind: 'evidence_guard_active', session_id: 'ev-local', ts: t0, event_id: 'evl-g',
+  });
+  writeLine(localDirOf(fx.main), 'ev-local', {
+    kind: 'evidence_conflict_prevented', session_id: 'ev-local', ts: t0,
+    conflict_kind: 'claim_fence', event_id: 'evl-c',
+  });
+
+  const scan = scanSessionActivity(fx.main);
+  assert.equal(scan.guard_active_count, 1,
+    'the guard is (dirIsShared AND non-A1-kind), never kind alone');
+  assert.equal(scan.collision_producer_present, true);
+  assert.equal(scan.conflict_prevented_count, 1);
+});

@@ -106,6 +106,29 @@ function computeA1(model) {
     return insufficientMetric(A1_WORK_COMPLETION_RATE, 'session_activity source unavailable');
   }
 
+  // santa R3 (reviewer B/HIGH) — `ok` 와 `degraded` 는 다른 사실이다. source 는 shard
+  // 하나를 못 읽으면 `degraded` 를 세우고 **나머지로 계속 센다**(fail-open per-source).
+  // 그 상태를 소비자가 버리면 A1 은 부분 corpus 에서 나온 비율을 `status:'computed'`
+  // + `integrity_ok:true` 로 발행한다 — 못 읽은 shard 에 미완료 단위가 들어 있으면
+  // 분모가 조용히 깎여 완주율이 **위로** 편향되고, 그 수치는 아무 자격 없이 신뢰된다.
+  //
+  // 이 판정은 `computeA3` 가 이미 세운 선례를 그대로 따른다(아래 `src.degraded ||
+  // src.error` 분기 + 그 주석): 무결성 위반은 producer 부재보다 강한 신호이므로
+  // **먼저** 판정하고, 부재·판독불가·손상을 한 통에 넣지 않는다. A1 만 그 선례에서
+  // 빠져 있었다. 방향은 fail-closed 다 — 지표는 모를 때 답하지 않는 편이 낫다.
+  if (sessionActivity.degraded || sessionActivity.error) {
+    return {
+      id: A1_WORK_COMPLETION_RATE,
+      numerator: null,
+      denominator: null,
+      value: null,
+      integrity_ok: false,
+      invalid_reason: sessionActivity.error || 'A1 source degraded (event shard unreadable)',
+      status: 'invalid',
+      coverage: sessionActivity.producer_coverage || 'unknown',
+    };
+  }
+
   const startupCount = sessionActivity.task_startups_count || 0;
   const completedCount = sessionActivity.task_completions_count || 0;
 
@@ -130,8 +153,11 @@ function computeA1(model) {
       ? 'unit_count_spike_suspected' : null;
 
   // present-only. 기준선이 있어 가드가 실제로 판정할 수 있으면 키 자체가 없다 —
-  // `:140-152`가 producer 부재를 `computed 0`으로 위장하지 않는 것과 같은 계열이다.
-  // 모르는 것을 아는 것처럼 쓰지 않고, 모른다는 사실에 이름을 준다.
+  // 아래 두 `forward-only` 분기(`startups_producer_present` ·
+  // `completions_producer_present`)가 producer 부재를 `computed 0`으로 위장하지 않는
+  // 것과 같은 계열이다. 모르는 것을 아는 것처럼 쓰지 않고, 모른다는 사실에 이름을
+  // 준다. (santa R3 — 이 자리의 `:140-152` 인용은 같은 커밋이 그 분기들을 아래로
+  // 밀어내 무효가 됐다. 행 번호는 편집마다 다시 어긋나므로 이름으로 가리킨다.)
   const spikeGuardFields = spikeBaselinePresent ? {} : {
     spike_guard: 'dormant',
     spike_guard_reason:
@@ -232,8 +258,11 @@ function computeA2(model) {
   // orchestrator-step-wiring M1 (Task 5a) — 분모는 **로컬에서 관측된 세션**이다.
   //
   // A1 축 이벤트가 git common dir로 올라가면 `session-activity.js`의 세션 맵은
-  // kind 가드가 없어서(그 파일 `:154` 선례) 타 worktree의 A1 이벤트로도 엔트리를
-  // 만든다. 분자(`samples`)는 로컬 `session_end`의 `context_remaining_pct`에서만
+  // **A1 축 이벤트를 의도적으로 받아들이므로**(Task 5의 `sessionAxisAdmissible`는
+  // 공유 위치의 비-A1 kind만 거른다) 타 worktree의 A1 이벤트로도 엔트리를 만든다.
+  // (santa R3 — 이 자리는 "kind 가드가 없어서"라고 적혀 있었는데, 그 가드를 더한
+  // 바로 그 커밋에서 그대로 남아 거짓이 됐다. 결론은 그대로다: 분모는 여전히
+  // 로컬 관측 세션이어야 한다.) 분자(`samples`)는 로컬 `session_end`의 `context_remaining_pct`에서만
   // 오므로 두 축이 비대칭으로 움직이고, 그대로 두면 A2의 sample coverage가
   // **관측된 적 없는 세션 수만큼 희석**된다 — 이 PRD가 A1에서 없애는 위치
   // 의존성을 A2에서 새로 만드는 셈이다.

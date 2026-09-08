@@ -2,18 +2,18 @@
 state_version: 1
 task_fingerprint: release-channel-separation-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T07:28:17.501Z
+updated_at: 2026-09-08T07:38:33.131Z
 last_event: stop_loop_pass
 last_event_at: 2026-09-04T07:28:17.501Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/170
+last_pr_url: https://github.com/idenn207/mccp/pull/188
 dep_check_at: 2026-09-03T04:13:06.520Z
 ---
 ## Goal
-release-channel-separation M4 — residual-closure. M1~M3이 명시로 이연한 부채를 닫는다(좌표 가드 상시화 · 렌더러 footer 파생 · 관측/기록 정리). 구현 완료, Validation 진행 중.
+release-channel-separation(우산 C0) M4 residual-closure를 ship하고 PRD·plan 4개를 아카이브한다. PR #188 생성 완료, CI 6/6 pass.
 
 ## Plan
 - PRD: `.claude/prds/release-channel-separation.prd.md` — M1·M2·M3 complete, **M4 in-progress**(신설). OQ6 신설·종결
@@ -31,20 +31,19 @@ release-channel-separation M4 — residual-closure. M1~M3이 명시로 이연한
 - **R4 재측정(읽기 전용)** — 브랜치 보호는 `release`뿐 아니라 `main`도 404. M3은 `release`만 쟀다. 원격 ref 무이동 확인(`647dfec` 시작=종료)
 
 ## In Progress
-
+없음 — 사용자 리뷰·머지 대기.
 
 ## Next Step
-/mccp:pr (수동) — Phase 7 auto-chain이 exit 13으로 멈췄다(cost-catastrophic 548.68 >= 500). 진입 전 `git diff --diff-filter=D --name-only origin/main...HEAD`(§3.5.1) + `node scripts/version-declaration-guard.js`(§3.7 확인 지점 2). PR 본문에 보고서의 ## Gate Deviation을 인용할 것.
+PR #188 머지. 머지 후 (1) worktree cleanup(§3.8) (2) 신규 MEDIUM 1건(release-manifest-gate.yml permissions + SHA-pin)은 별도 사이클 (3) 게이트를 초록으로 되돌리려면 working-tree only인 plan/implement receipt를 verdict 무변경으로 아카이브 경로에 재anchor.
 
 ## Last Decision
-구현·Validation·커밋을 완료하고 Phase 7 auto-chain에서 멈췄다. auto-chain check --next-step commit이 exit 13(should_abort)을 냈고 사유는 단일하다 — cost-telemetry: cost_usd=548.678179가 catastrophic ceiling 500을 넘었다. 커밋 자체는 그 판정 이전에 이미 완료됐으므로(3커밋: 82535d0 구현 · 30782f8 검사 14-16 전사 · 203ed0a 검사 15 자기매치 정정) 손실은 없고, 멈춘 것은 PR 단계다. STATE.md의 chain_aborted는 **건드리지 않았다** — §3.2대로 그 플래그는 cost 채널(ecc-context-monitor)이 abort_owner="cost"와 함께 소유하며, auto-chain은 텔레메트리를 읽었을 뿐 그 플래그를 세우지 않았다. 내가 대신 세우면 소유권을 참칭하고 decay 규칙 밖의 상태를 만든다.
+아카이브를 유지한 채 ship했다. 아카이브가 M4 자신의 ship 게이트를 막는데(isPlanPath가 활성 .claude/plans/만 참이라 경로 이동이 해시 함수를 markdownHashStructural에서 markdownHash로 바꾼다) plan 내용이 동일함을 두 해시로 증명했고 blocking:0이라 판정 축은 전부 통과했다. MCCP_SKIP_RECEIPT는 이 축을 열지 않음을 실측했으므로 env도 receipt도 건드리지 않고 판정을 그대로 PR 본문 이탈 1번에 기록했다. PR-Codex는 재발화시키지 않았다 — 원장이 2026-09-07 발화(classification ok)를 기록하고 §3.16이 라운드를 늘리지 말라고 하므로 audited MCCP_PR_SKIP_CODEX_REVIEW로 receipt만 봉인했다.
 
 ## Open Questions
-- santa `review_proof`가 지적을 열거하지 않아 escalation 해소를 기계로 대조할 수 없다 — 원장(backlog)만이 유일한 지적 원문 보관처다 (backlog 이연, L2 security LOW가 같은 축을 지적)
-- 좌표 가드는 형태를 재지 **custody**를 재지 않는다 — 브랜치 보호 부재(release·main 둘 다 404)와 required status check 미지정은 M4가 닫지 않았다 (UI4로 범위 밖)
-- `sha` audited escape 부재의 비용: 사고 대응 핀을 박으면 그 이후 **모든 PR**이 붉어지고 그 우회는 어디에도 사유가 봉인되지 않는다 (L2 security MEDIUM, backlog 이연)
-- 극성 반전의 간접 참조 우회 — 리터럴을 앵커 줄 밖 상수로 옮기면 가드가 `derived`로 인증한다. 보상 검사는 `i18n-surface.test.js`뿐 (security review MEDIUM, backlog 이연)
-- findings registry가 전부 `finding_opened`로 남는다 — `closure_type` 플래그 부재로 정규 close 경로가 없다 (저장소 전반 부채, UI3 밖)
+- CI가 잡은 회귀 1건(registry evidence 핀 1112 to 1115, ac3bc8a)의 수정 커밋은 ship receipt(head ec46178)가 덮지 않는다 — §3.7대로 재봉인하지 않고 PR 본문 이탈 4번에 기록
+- 상위 plan/implement receipt는 아카이브 경로 탓에 계속 stale로 보고된다. 재anchor는 사용자 승인 범위 밖이라 하지 않았다
+- 아카이브가 PRD의 plan 상대 링크 4건을 깨뜨린다(archive-complete가 재작성 안 함) — 폭발 반경은 사람 탐색에 한정, backlog 이연
+- evidence-audit state=incomplete(unverifiable 19)는 선재 커버리지 공백, false_positive 0
 
 ## Last Updated
-2026-09-04T07:28:17.501Z
+2026-09-08T07:38:33.131Z

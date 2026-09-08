@@ -1,51 +1,49 @@
 ---
 state_version: 1
-task_fingerprint: closure-accounting-m1
+task_fingerprint: release-channel-separation-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-08T05:38:13.613Z
+updated_at: 2026-09-08T07:38:33.131Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-08T05:38:13.613Z
+last_event_at: 2026-09-04T07:28:17.501Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/174
-chain_progress: |
-  {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
-dep_check_at: 2026-09-08T02:34:22.371Z
-escalate_pending: true
-escalate_pending_decision_id: c11-closure-accounting
+last_pr_url: https://github.com/idenn207/mccp/pull/188
+dep_check_at: 2026-09-03T04:13:06.520Z
 ---
 ## Goal
-closure-accounting M1 — closure-report. 구현·PR-Codex 2라운드 흡수 완료. push 직전에서 대기(누락 receipt로 ship-gate aggregate ok=false).
+release-channel-separation(우산 C0) M4 residual-closure를 ship하고 PRD·plan 4개를 아카이브한다. PR #188 생성 완료, CI 6/6 pass.
 
 ## Plan
-- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1 complete, M2는 머지 전까지 in-progress (사용자 판정 2026-09-04)
-- plan: .claude/plans/orchestrator-step-wiring-m2.plan.md · 결과 .claude/PRPs/reports/orchestrator-step-wiring-m2-report.md
-- version: 자식 브랜치는 plugin.json version을 선언하지 않는다(우산 결정 1). main의 version-declaration-guard가 이제 기계로 강제하며 통과 확인
-- M1은 PR #174로 머지됐고 이 브랜치가 그 위에 쌓인다
+- PRD: `.claude/prds/release-channel-separation.prd.md` — M1·M2·M3 complete, **M4 in-progress**(신설). OQ6 신설·종결
+- plan: `.claude/plans/release-channel-separation-m4.plan.md` — 승인 receipt 부재. L2 패널 divergent, HIGH 8건 전건 흡수(`## Gate Deviation`)
+- Axis A(R1): `scripts/release-manifest-guard.js` + test + `.github/workflows/release-manifest-gate.yml`(paths 필터 없음 — red가 타이머)
+- Axis B(R2·R3): `renderer/plugin-version.js` 단일 파생원 → html·markdown footer 2면. 컷이 움직이는 면 5 → 3
+- Axis C·D(R4·R5·R6): 브랜치 보호 읽기 전용 재측정 · santa escalation 기록 · 런북 6/7절 · PRD
 
 ## Done
-- 구현 착지 + 보고서 + base 머지(충돌 2건 양쪽 보존, 행 산술 1180+15+84=1279로 확인)
-- PR-Codex R1 HIGH 흡수 — 격차를 길이차가 아니라 ID로 센다. 재현 1689 대 1703, 봉인 14건 소실. 추가·삭제 상쇄 시 격차 0 → 재봉인 경고 침묵이 진짜 위험이었다
-- PR-Codex R2 HIGH 흡수 — 봉인 digest를 items로 재계산해 검증. 재현: 봉인 1건으로 잘라도 digest 유지 시 pct 100 · degraded 빈 배열
-- test 25 → 27종, 양방향 mutation으로 비공허성 확인(검증 끄면 (i) red, 전부 degrade하면 (i2)+(m1) red)
-- 전수 스위트 green(failing 0) + CI 게이트 exit 0 + 커버리지 386/392 · plan Validation 1~9 전건 exit 0
-- ship receipt 봉인 — verdict divergent 그대로, MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE override는 경고로만 기록
+- **Axis A 착지** — 좌표 가드가 형태 6축(`source`/`url`/`path`/`ref` 값 · `sha` 부재 · 엔트리 유일성)을 단언하고, `paths` 필터 없는 워크플로가 모든 PR에서 돌린다. 판별력 test 11개 전건 통과
+- **Axis B 착지** — 두 footer가 `plugin-version.js`에서 파생. 라이브 렌더 1회로 확인: `status.html` footer `v1.34.4 · … · derive-only · LLM-free`, `STATUS.md:3237` `_derived from .claude/ · v1.34.4 · derive-only · LLM-free_`, manifest `1.34.4` — 셋이 일치
+- **가드 재배선** — 4면 → 2면. 두 footer는 앵커-후-리터럴 2단계(부재는 여전히 위반 `version-face-missing`, 리터럴 재도입은 `version-face-literal-reintroduced`). 기존 test 2건을 회수하지 않았으면 red 위에 착지할 뻔했다
+- **보상 검사를 CI에 올렸다** — M4 이전 `i18n-surface.test.js`를 부르는 워크플로가 5개 중 **0개**였다. `version-declaration-gate`의 test 단계에 renderer test 2종 추가 + `paths`에 신규 파일 3건 등재
+- **security-reviewer 1회** — CRITICAL 0 · HIGH 0. prototype pollution·path traversal 부재를 근거와 함께 확인(설치 캐시 1.33.7을 직접 열어 require 산술 재확인). MEDIUM 3 · LOW 3 triage
+- **R4 재측정(읽기 전용)** — 브랜치 보호는 `release`뿐 아니라 `main`도 404. M3은 `release`만 쟀다. 원격 ref 무이동 확인(`647dfec` 시작=종료)
 
 ## In Progress
-push + gh pr create 대기. 사용자 판단 필요.
+없음 — 사용자 리뷰·머지 대기.
 
 ## Next Step
-ship-gate aggregate ok=false의 유일 원인은 누락 receipt 2건이고 MCCP_SKIP_RECEIPT로도 안 풀린다. 진행하려면 그 상태를 받아들이고 push+PR하거나, 브랜치명을 plan basename(closure-accounting-m1)에 맞춰 슬러그를 정렬한다.
+PR #188 머지. 머지 후 (1) worktree cleanup(§3.8) (2) 신규 MEDIUM 1건(release-manifest-gate.yml permissions + SHA-pin)은 별도 사이클 (3) 게이트를 초록으로 되돌리려면 working-tree only인 plan/implement receipt를 verdict 무변경으로 아카이브 경로에 재anchor.
 
 ## Last Decision
-라운드를 늘리지 않고 audited override로 ship하기로 했다(§3.16). R2 흡수 코드가 또 미리뷰이므로 R3를 열면 같은 논리가 무한히 반복된다 — §3.16이 실측으로 기록한 8시간·6라운드 병리가 그것이다. override는 verdict를 재작성하지 않으므로 dedupe는 계속 fail-closed다. 미흡수 MEDIUM 2건은 재현 절차째 backlog에 있고, 그중 하나는 거짓 100%로 가는 알려진 잔여 경로라고 명시했다.
+아카이브를 유지한 채 ship했다. 아카이브가 M4 자신의 ship 게이트를 막는데(isPlanPath가 활성 .claude/plans/만 참이라 경로 이동이 해시 함수를 markdownHashStructural에서 markdownHash로 바꾼다) plan 내용이 동일함을 두 해시로 증명했고 blocking:0이라 판정 축은 전부 통과했다. MCCP_SKIP_RECEIPT는 이 축을 열지 않음을 실측했으므로 env도 receipt도 건드리지 않고 판정을 그대로 PR 본문 이탈 1번에 기록했다. PR-Codex는 재발화시키지 않았다 — 원장이 2026-09-07 발화(classification ok)를 기록하고 §3.16이 라운드를 늘리지 말라고 하므로 audited MCCP_PR_SKIP_CODEX_REVIEW로 receipt만 봉인했다.
 
 ## Open Questions
-- mccp:pr은 슬러그를 브랜치명에서, plan/implement는 plan 경로에서 파생한다 — PR 게이트가 찾는 슬러그로 상위 receipt가 쓰이는 경로가 없다. 이 저장소의 구조적 조건이며 이 사이클이 만든 것이 아니다
-- disposition 레코드 미검증(R2-F2)은 거짓 100%로 가는 알려진 잔여 경로다. upstream validateDisposition이 있으나 report는 0회 호출
-- findings-registry listWorkUnits의 열거 실패 삼킴(R1-F2)은 Validation 7이 편집을 금지한 파일이라 범위 밖
+- CI가 잡은 회귀 1건(registry evidence 핀 1112 to 1115, ac3bc8a)의 수정 커밋은 ship receipt(head ec46178)가 덮지 않는다 — §3.7대로 재봉인하지 않고 PR 본문 이탈 4번에 기록
+- 상위 plan/implement receipt는 아카이브 경로 탓에 계속 stale로 보고된다. 재anchor는 사용자 승인 범위 밖이라 하지 않았다
+- 아카이브가 PRD의 plan 상대 링크 4건을 깨뜨린다(archive-complete가 재작성 안 함) — 폭발 반경은 사람 탐색에 한정, backlog 이연
+- evidence-audit state=incomplete(unverifiable 19)는 선재 커버리지 공백, false_positive 0
 
 ## Last Updated
-2026-09-08T05:38:13.613Z
+2026-09-08T07:38:33.131Z

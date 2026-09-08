@@ -18,14 +18,41 @@
 // `/mccp:pr` 커맨드 본문에는 넣지 않는다 — 그러면 남의 저장소에까지 우리
 // 릴리스 규율을 강요하게 된다.
 //
-// 무엇을 재는가 (셋 다 같은 축의 다른 얼굴이다):
-//   1. plugin.json 의 version 이 base 와 다른가            -> 선언
-//   2. 4면(footer 2 + CHANGELOG 노트)이 plugin.json 과 어긋나는가 -> 반쪽 선언
-//   3. CHANGELOG 에 base 에 없던 `## [X.Y.Z]` 헤딩이 생겼는가 -> 번호 선점
+// 무엇을 재는가 (넷 다 같은 축의 다른 얼굴이다):
+//   1. plugin.json 의 version 이 base 와 다른가                    -> 선언
+//   2. **2면**(plugin.json + CHANGELOG 노트)이 서로 어긋나는가      -> 반쪽 선언
+//   3. 렌더러 두 footer 가 번호를 **파생하는가**(리터럴이면 위반)   -> 선언 재도입
+//   4. CHANGELOG 에 base 에 없던 `## [X.Y.Z]` 헤딩이 생겼는가       -> 번호 선점
 //
-// 2번을 함께 재지 않으면 "footer 만 올리는" 우회가 남고, 3번을 함께 재지 않으면
-// plugin.json 을 그대로 두고 CHANGELOG 로 번호를 선점하는 우회가 남는다. 셋 다
-// 같은 행위의 다른 표면이므로 한 가드가 소유한다.
+// 2번을 함께 재지 않으면 "CHANGELOG 노트만 올리는" 우회가 남고, 4번을 함께 재지
+// 않으면 plugin.json 을 그대로 두고 CHANGELOG 로 번호를 선점하는 우회가 남는다.
+// 넷 다 같은 행위의 다른 표면이므로 한 가드가 소유한다.
+//
+// **3번은 M4 에서 극성이 뒤집혔다.** 그전까지 두 footer 는 번호를 리터럴로 박고
+// 있어서 이 가드가 "리터럴이 manifest 와 같은가"를 쟀다. M4 가 두 면을
+// `renderer/plugin-version.js` 파생으로 바꾸면서 리터럴이 사라졌고, 그러면 옛
+// matcher 는 `undefined` 를 내어 **모든 PR 이** `version-face-unreadable` 로 HALT
+// 한다 — 이 주석이 예전에 "Fix the matcher in this guard together with the format
+// change" 라고 적었던 바로 그 지점이다. 그래서 판정을 두 단계로 나눈다:
+//
+//   (1) face **앵커** 를 찾는다 (`<footer …page-foot` · `derived from .claude/`).
+//       못 찾으면 `version-face-missing` — 부재는 여전히 위반이다. 역방향 단언만
+//       두면 footer 삭제·형식 변경·파일 이름 변경이 전부 '파생'(통과)으로 읽혀,
+//       오늘 CI 에서 차단하는 unknown 이 내일은 통과가 된다.
+//   (2) 앵커를 찾은 뒤에야 그 줄에 버전 리터럴이 있는지 본다. 있으면
+//       `version-face-literal-reintroduced`.
+//
+// **이 검사의 알려진 잔여(security review MEDIUM, 2026-09-04)**: (2) 는 앵커 **한
+// 줄** 만 스캔하므로, 리터럴을 그 줄 밖으로 옮기면(`const FOOTER_V = '1.34.4';` 뒤
+// `'…>v' + FOOTER_V`) 앵커는 계속 매치되고 그 줄에 숫자가 없어 '파생'으로 인증된다
+// — 파생이 아닌 값에 대해. 구 4면 설계에는 이 구멍이 없었다(어떤 형식 이탈이든
+// `undefined` 로 접혀 fail-closed 였다). 즉 극성 반전이 새로 여는 회귀이며,
+// **여기서 닫지 않는다.** 보상 검사는 렌더 **출력** 을 manifest 와 대조하는
+// plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js 이고, 이 워크플로의
+// test 단계가 그것을 실제로 CI 에서 돌린다(M4 이전에는 어떤 워크플로도 그 파일을
+// 부르지 않았다 — 5개 중 0개). 분담: 이 가드는 **소스에서 리터럴의 부재** 를,
+// 그 test 는 **출력에서 값의 일치** 를 잰다. 둘 중 하나만으로는 위 잔여가 관측되지
+// 않는다. 정적 스캔을 모듈 참조 단언으로 승격하는 것은 별개 축이라 backlog 소유.
 //
 // 유일한 합법 경로는 릴리스 컷이다. 그때는 MCCP_RELEASE_CUT 에 **사유**를 담아
 // 켠다 (값이 곧 사유 — §3.15 MCCP_REVIEW_SINGLE_PASS 와 같은 형태. 별도 사유
@@ -94,18 +121,28 @@ function manifestVersion(text, where) {
   return v;
 }
 
-// 두 footer 는 리터럴이다. 정규식이 못 찾으면 형식이 바뀐 것이고, 그때 조용히
-// null 을 흘리면 4면 검사가 도달 불가가 된다 — 그래서 부재도 보고한다.
-function htmlFooterVersion(text) {
-  if (text === null) return null;
-  const m = text.match(/page-foot[^']*?>v(\d+\.\d+\.\d+)/);
-  return m ? m[1] : undefined;
-}
+// 두 footer 의 face 앵커. 파일 전수 정규식을 쓰지 않는 것이 핵심이다 — html.js 는
+// 이력 주석에 버전 리터럴을 9건 담고 있어서, 파일 전수로 재면 **어떤 상태에서도**
+// 붉다(올바른 상태를 포함해서). 그러면 판별력이 0 이고, 예측 가능한 수리는 matcher
+// 완화이며 그것이 게이트가 게이트이기를 그만두는 방식이다. 같은 오탐을
+// i18n-surface.test.js 가 이미 겪고 태그 앵커로 옮겼다.
+const FOOTER_ANCHORS = {
+  html_footer: /<footer[^>]*page-foot/,
+  markdown_footer: /derived from \.claude\//,
+};
 
-function markdownFooterVersion(text) {
-  if (text === null) return null;
-  const m = text.match(/_derived from \.claude\/ · v(\d+\.\d+\.\d+)_/);
-  return m ? m[1] : undefined;
+// null(파일 못 읽음) 도 'missing' 이다 — 읽을 수 없는 face 는 인증할 수 없는
+// face 와 같다. 앵커가 정확히 1줄이 아니면(0줄=삭제/형식변경, 2줄 이상=중복)
+// 역시 인증 불가다.
+//   'derived'          — 앵커 1줄, 그 줄에 버전 리터럴 없음 (기대 상태)
+//   'literal:<v>'      — 앵커 1줄, 그 줄에 리터럴 재도입
+//   'missing:<n>'      — 앵커가 1줄이 아님 (n = 찾은 줄 수, 파일 부재는 -1)
+function footerFaceState(text, anchorRe) {
+  if (text === null) return 'missing:-1';
+  const lines = text.split('\n').filter((l) => anchorRe.test(l));
+  if (lines.length !== 1) return 'missing:' + lines.length;
+  const m = lines[0].match(/\d+\.\d+\.\d+/);
+  return m ? 'literal:' + m[0] : 'derived';
 }
 
 function changelogNoteVersion(text) {
@@ -181,8 +218,8 @@ function main(argv) {
 
   const faces = {
     plugin_json: headVersion,
-    html_footer: htmlFooterVersion(readWorkingTree(repoRoot, HTML_FOOTER)),
-    markdown_footer: markdownFooterVersion(readWorkingTree(repoRoot, MD_FOOTER)),
+    html_footer: footerFaceState(readWorkingTree(repoRoot, HTML_FOOTER), FOOTER_ANCHORS.html_footer),
+    markdown_footer: footerFaceState(readWorkingTree(repoRoot, MD_FOOTER), FOOTER_ANCHORS.markdown_footer),
     changelog_note: changelogNoteVersion(readWorkingTree(repoRoot, CHANGELOG)),
   };
 
@@ -201,25 +238,50 @@ function main(argv) {
     });
   }
 
-  Object.keys(faces).forEach(function (k) {
-    if (k === 'plugin_json') return;
-    const v = faces[k];
-    if (v === undefined) {
+  // 렌더러 두 면 — 역방향 단언(리터럴이 있으면 위반), 단 앵커 부재도 위반.
+  Object.keys(FOOTER_ANCHORS).forEach(function (k) {
+    const state = faces[k];
+    if (state === 'derived') return;
+    if (state.indexOf('missing:') === 0) {
+      const n = state.slice('missing:'.length);
       violations.push({
-        rule: 'version-face-unreadable',
-        detail: k + ' did not match its expected literal shape — the face moved, so the ' +
-          'four-face check cannot certify anything. Fix the matcher in this guard together with the format change.',
+        rule: 'version-face-missing',
+        detail: k + ': ' + (n === '-1'
+          ? 'the file could not be read'
+          : 'found ' + n + ' lines matching the face anchor ' + FOOTER_ANCHORS[k] +
+            ' (expected exactly 1)') +
+          '. The face is gone or its anchor moved, so this guard cannot certify that the ' +
+          'footer derives its number. Absence is not derivation — restore the anchor, or ' +
+          'update this guard together with the format change.',
       });
       return;
     }
-    if (v !== null && v !== headVersion) {
-      violations.push({
-        rule: 'version-face-drift',
-        detail: k + ' reads ' + v + ' but ' + PLUGIN_MANIFEST + ' reads ' + headVersion +
-          '. A half-declared version is still a declaration.',
-      });
-    }
+    violations.push({
+      rule: 'version-face-literal-reintroduced',
+      detail: k + ' carries a version literal (' + state.slice('literal:'.length) +
+        ') on its footer anchor line. Since M4 both renderer footers derive the number ' +
+        'from ' + PLUGIN_MANIFEST + ' via renderer/plugin-version.js; a literal there is a ' +
+        'declaration wearing a footer, and it puts back one of the faces the release cut ' +
+        'no longer has to move.',
+    });
   });
+
+  // 리터럴 대조가 남는 면 — CHANGELOG 노트 하나뿐이다(plugin_json 은 위 1번이 잰다).
+  const note = faces.changelog_note;
+  if (note === undefined) {
+    violations.push({
+      rule: 'version-face-unreadable',
+      detail: 'changelog_note did not match its expected literal shape (currently `X.Y.Z`) — ' +
+        'the face moved, so the two-face check cannot certify anything. Fix the matcher in ' +
+        'this guard together with the format change.',
+    });
+  } else if (note !== null && note !== headVersion) {
+    violations.push({
+      rule: 'version-face-drift',
+      detail: 'changelog_note reads ' + note + ' but ' + PLUGIN_MANIFEST + ' reads ' +
+        headVersion + '. A half-declared version is still a declaration.',
+    });
+  }
 
   if (newHeadings.length > 0) {
     violations.push({
@@ -281,8 +343,8 @@ if (require.main === module) {
 
 module.exports = {
   changelogVersionHeadings: changelogVersionHeadings,
-  htmlFooterVersion: htmlFooterVersion,
-  markdownFooterVersion: markdownFooterVersion,
+  footerFaceState: footerFaceState,
+  FOOTER_ANCHORS: FOOTER_ANCHORS,
   changelogNoteVersion: changelogNoteVersion,
   releaseCutReason: releaseCutReason,
 };

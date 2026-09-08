@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: closure-accounting-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-08T05:20:34.157Z
-last_event: precompact
-last_event_at: 2026-09-08T05:20:34.156Z
+updated_at: 2026-09-08T05:38:13.613Z
+last_event: stop_loop_pass
+last_event_at: 2026-09-08T05:38:13.613Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -17,7 +17,7 @@ escalate_pending: true
 escalate_pending_decision_id: c11-closure-accounting
 ---
 ## Goal
-closure-accounting M1 — closure-report. 세 종결 계기를 하나의 read-only 출력으로 합쳐 봉인 분모와 라이브 부채의 격차를 산출한다. 구현 완료, /mccp:pr 대기.
+closure-accounting M1 — closure-report. 구현·PR-Codex 2라운드 흡수 완료. push 직전에서 대기(누락 receipt로 ship-gate aggregate ok=false).
 
 ## Plan
 - PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1 complete, M2는 머지 전까지 in-progress (사용자 판정 2026-09-04)
@@ -26,25 +26,26 @@ closure-accounting M1 — closure-report. 세 종결 계기를 하나의 read-on
 - M1은 PR #174로 머지됐고 이 브랜치가 그 위에 쌓인다
 
 ## Done
-- 구현 착지(commit 9a20265) — report.js 445줄 · cli.js 163줄 · report.test.js 1147줄. 기존 원장 코드 편집 0건
-- Validation 1~9 전건 exit 0 — closure test 24 pass/0 fail · 이웃 회귀 backlog-source 9 pass/0 fail
-- Acceptance 기계 검증 — 동시점 재계산 buildInventory(2467) − readInventory(1115) = 1352 이 report.denominator_gap.count 와 일치
-- 두 계기의 불일치 실측 — disposition-ledger 100%(1115/1115, 봉인 분모) 대 findings-registry 1.91%(19/997, 라이브 분모)
-- 보고서 작성 — .claude/PRPs/reports/closure-accounting-m1-report.md. Task 6이 요구한 대조 결과 기재가 미이행이었고 이 사이클이 채웠다
+- 구현 착지 + 보고서 + base 머지(충돌 2건 양쪽 보존, 행 산술 1180+15+84=1279로 확인)
+- PR-Codex R1 HIGH 흡수 — 격차를 길이차가 아니라 ID로 센다. 재현 1689 대 1703, 봉인 14건 소실. 추가·삭제 상쇄 시 격차 0 → 재봉인 경고 침묵이 진짜 위험이었다
+- PR-Codex R2 HIGH 흡수 — 봉인 digest를 items로 재계산해 검증. 재현: 봉인 1건으로 잘라도 digest 유지 시 pct 100 · degraded 빈 배열
+- test 25 → 27종, 양방향 mutation으로 비공허성 확인(검증 끄면 (i) red, 전부 degrade하면 (i2)+(m1) red)
+- 전수 스위트 green(failing 0) + CI 게이트 exit 0 + 커버리지 386/392 · plan Validation 1~9 전건 exit 0
+- ship receipt 봉인 — verdict divergent 그대로, MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE override는 경고로만 기록
 
 ## In Progress
-없음 — PR 대기.
+push + gh pr create 대기. 사용자 판단 필요.
 
 ## Next Step
-/mccp:pr. PR 본문에 보고서의 Deviations from Plan 을 ## Gate Deviation 으로 인용한다. 머지 후 PRD closure-accounting 의 M1 status 를 complete 로 정정.
+ship-gate aggregate ok=false의 유일 원인은 누락 receipt 2건이고 MCCP_SKIP_RECEIPT로도 안 풀린다. 진행하려면 그 상태를 받아들이고 push+PR하거나, 브랜치명을 plan basename(closure-accounting-m1)에 맞춰 슬러그를 정렬한다.
 
 ## Last Decision
-mccp-implement-codex receipt 를 사후에 만들어 넣지 않기로 했다. 라운드 원장은 그 게이트가 실제로 발화했음을 기록하지만(index 0 · channel codex · classification ok, 2개 슬러그) receipt 는 봉인되지 않았다. 게이트를 돌리지 않은 세션이 receipt 를 쓰는 것은 §3.16 이 금지하는 위조에 가깝고, 정직한 부재가 기록된 부재보다 낫다. 부재는 보고서와 PR 본문이 소유한다. mccp-plan-codex 는 애초에 CLI 표면이 없어(§3.13) 쓸 수 없다.
+라운드를 늘리지 않고 audited override로 ship하기로 했다(§3.16). R2 흡수 코드가 또 미리뷰이므로 R3를 열면 같은 논리가 무한히 반복된다 — §3.16이 실측으로 기록한 8시간·6라운드 병리가 그것이다. override는 verdict를 재작성하지 않으므로 dedupe는 계속 fail-closed다. 미흡수 MEDIUM 2건은 재현 절차째 backlog에 있고, 그중 하나는 거짓 100%로 가는 알려진 잔여 경로라고 명시했다.
 
 ## Open Questions
-- 라운드 캡 소진(MCCP_GATE_ROUND_CAP=1, 봉인) 상태라 R3 잔여 수정 이후의 코드는 다시 리뷰되지 않았다 — plan ## Gate Deviation 의 남는 델타
-- M2(재봉인)가 이 격차 1352 를 닫는다. 지금 재봉인하면 판정 1115건이 전부 unmatched 가 된다 — 리포트의 reseal_warning 이 그 경고를 출력 필드로 싣는다
-- 이연 5건(MEDIUM 2 · LOW 3)은 codex-findings-backlog.md — 실패 순서 의존성 · upstream 열거 실패의 latent 0/0 · cwd 결속 test 5건 · readAll 비배열 반환 · table 모드 note 미렌더
+- mccp:pr은 슬러그를 브랜치명에서, plan/implement는 plan 경로에서 파생한다 — PR 게이트가 찾는 슬러그로 상위 receipt가 쓰이는 경로가 없다. 이 저장소의 구조적 조건이며 이 사이클이 만든 것이 아니다
+- disposition 레코드 미검증(R2-F2)은 거짓 100%로 가는 알려진 잔여 경로다. upstream validateDisposition이 있으나 report는 0회 호출
+- findings-registry listWorkUnits의 열거 실패 삼킴(R1-F2)은 Validation 7이 편집을 금지한 파일이라 범위 밖
 
 ## Last Updated
-2026-09-08T05:20:34.157Z
+2026-09-08T05:38:13.613Z

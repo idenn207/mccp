@@ -1,0 +1,6 @@
+[
+  {
+    "pattern": "scripts/tests/nonexistent-negative-fixture.test.js",
+    "reason": "negative fixture for the DD7 rewire assertion - this entry deliberately omits `ticket` so the runner must refuse it"
+  }
+]

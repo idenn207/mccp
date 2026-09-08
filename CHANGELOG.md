@@ -192,6 +192,19 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
     `INPUT_REASONS`가 "닫힌 열거"를 선언하고 **부르는 곳이 0건**이었으며 이미
     불완전했다 — 이 우산이 서명 실패 모드로 지목한 형태가 판정자 자신 안에서 재현된
     것이라, 런타임 소비처(`reasons_undeclared`)와 양방향 대조 test를 함께 붙였다.
+  - **첫 라이브 발화가 잡은 둘 (run 34174703512)** — 게이트가 PR #185에서 실제로 돌았고
+    stage 1에서 `suite_red`로 차단했다. 차단은 옳았다: 이 브랜치가 아니라 **main이**
+    붉었다(`command-body-lint.test.js`, 격리 6건과 무관하게 결정적). 원인은
+    `work.md:962` — halt 원장 진전 기록(`b35be24`)이 fail-open 계측 호출 **하나만** 담은
+    fence 를 새로 만들었고 그 마지막 줄이라 S2가 잡는데 부채 열거에 등재되지 않았다.
+    수리가 아니라 **열거**를 택했다(`SEAM_DEBT` 18 → 19): 규칙이 지목하는 해악("실패한
+    검사가 통과로 읽힌다")이 이 fence 에서는 성립하지 않고, `|| true`를 떼면 fail-open
+    계약이 깨지며, 다른 fallback 으로 바꾸는 것은 "exit status 가 항상 0"을 남긴 채
+    매처만 피하는 회피다. 둘째로 stage 1 메시지가 실패 파일 자리에 `[object Object]`를
+    싣고 있었다 — `failing`은 `{file,name,kind,error}` 객체 배열인데 fixture 만
+    문자열이라 test가 producer가 아니라 자기 자신을 검사하고 있었다. 게이트가 막았을 때
+    사람이 읽는 유일한 산출물이라 항목이 아니라 **파일**을 세도록 고치고 실제 shape 로
+    회귀 test 둘을 붙였다.
 
 ### Changed
 

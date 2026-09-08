@@ -26,7 +26,8 @@ const EXCLUSIONS_FILE = path.join(REPO, '.github', 'test-suite-exclusions.json')
 const FLOOR_FILE = path.join(REPO, '.github', 'test-suite-floor.json');
 
 const { computeCoverage } = require('../test-suite/coverage.js');
-const { judge, undeclaredReasons, JUDGE_REASONS, INPUT_REASONS } = require('../test-suite/gate.js');
+const gate = require('../test-suite/gate.js');
+const { judge, undeclaredReasons, JUDGE_REASONS, INPUT_REASONS } = gate;
 const { validateExclusions, MAX_EXCLUSION_ENTRIES } = require('../test-suite/exclusions.js');
 const { enumerateTests, exclusionsDigest } = require('../test-suite/enumerate.js');
 
@@ -303,6 +304,42 @@ test('(a) a red suite blocks at stage 1 and names the failing files plus the dow
   assert.match(v.message, /a\/one\.test\.js/);
   assert.match(v.message, /may be DOWNSTREAM of this red/,
     'stage 1 must carry the caveat: the leak verdict below it may be an artefact of the red');
+});
+
+// ── (a2) stage 1 메시지는 `run.js`가 **실제로 내는** 형태를 읽는다 ─────────────
+//
+// (a)의 fixture는 `failing: ['a/one.test.js']` — 문자열 배열이다. producer는 그 형태를
+// 내지 않는다(`reporter.mjs:182-189`는 `{file, name, kind, error}` 객체를 push하고, 한
+// 파일이 roll-up 1건 + 실패 test N건으로 여러 항목이 된다). 그 shape drift 때문에 (a)는
+// green인 채로 실산출물이 `[object Object]`를 실었다(run 34174703512). fixture가
+// producer를 모방하지 않으면 test는 자기 자신만 검사한다.
+test('(a2) stage 1 names the real producer shape: object entries fold to unique files', () => {
+  const v = judge({
+    measurement: mkMeasurement(['a/one.test.js', 'b/two.test.js'], {
+      exit_code: 1,
+      failing: [
+        { file: 'a/one.test.js', name: 'a/one.test.js', kind: 'file', error: 'test failed' },
+        { file: 'a/one.test.js', name: 'a case', kind: 'test', error: 'false !== true' },
+      ],
+    }),
+    coverage: cov1(['a/one.test.js', 'b/two.test.js']),
+    deletions: NO_DEL,
+  });
+  assert.strictEqual(v.stage, 1);
+  assert.match(v.message, /a\/one\.test\.js/);
+  assert.ok(!/\[object Object\]/.test(v.message),
+    'the entries are objects; joining them raw is what shipped the defect');
+  assert.match(v.message, /1 failing file\(s\)/,
+    'two entries for one file are one failing FILE — the count names files, not entries');
+});
+
+// 이름을 못 뽑은 항목과 "러너가 아무것도 열거하지 않았다"는 다른 사실이다. 접으면
+// producer drift가 침묵으로 읽힌다.
+test('(a3) entries without a file name are reported as such, not as an empty list', () => {
+  assert.match(gate.describeFailing([], 3), /3 failure entries carried no file name/);
+  assert.match(gate.describeFailing([], 0), /the runner listed none/);
+  assert.deepStrictEqual(gate.failingFileNames(['b.test.js', { file: 'a.test.js' }, { file: 'a.test.js' }, null, {}]),
+    ['a.test.js', 'b.test.js'], 'strings and objects both resolve; each file is named once');
 });
 
 test('(b) red AND leaking still stops at stage 1 — order is the argument', () => {

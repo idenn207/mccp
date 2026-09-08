@@ -80,6 +80,47 @@ function undeclaredReasons(reasons) {
   return (Array.isArray(reasons) ? reasons : []).filter(function (r) { return !declared.has(r); });
 }
 
+// stage 1 메시지가 실을 실패 파일 목록. `run.js`의 `failing`은 **문자열 배열이 아니라**
+// `{file, name, kind, error}` 객체 배열이며(`reporter.mjs:182-189`), 한 파일이 roll-up
+// 1건 + 실패 test N건으로 여러 항목을 낸다. 그 배열을 그대로 join하면 메시지에
+// `[object Object]`가 실리고 "N failing file(s)"가 파일 수가 아니라 항목 수를 세게 된다
+// — 실측(run 34174703512): 파일 하나가 무너졌는데 메시지는 "2 failing file(s):
+// [object Object], [object Object]"였다. 게이트가 막았을 때 사람이 읽는 유일한 산출물이
+// 무엇이 무너졌는지 말하지 못한 것이다.
+//
+// 문자열도 받는다 — 이 gate의 test fixture가 그 형태를 쓰고 있고, 그 형태 차이가 바로
+// 위 결함이 test를 통과하며 살아남은 경로다. 둘 다 받되 파일 이름은 **한 번만** 센다.
+const MAX_NAMED_FAILING = 10;
+
+function failingFileNames(failing) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(failing) ? failing : []).forEach(function (e) {
+    if (e == null) return;
+    const raw = typeof e === 'string' ? e : (e.file != null ? e.file : null);
+    if (raw == null) return;
+    const f = String(raw);
+    if (f === '' || seen.has(f)) return;
+    seen.add(f);
+    out.push(f);
+  });
+  return out.sort();
+}
+
+// 이름을 하나도 못 뽑았는데 항목은 있는 상태는 "러너가 아무것도 열거하지 않았다"와 다른
+// 사실이다. 접어서 같게 만들면 producer drift가 침묵으로 읽힌다.
+function describeFailing(files, entryCount) {
+  if (files.length === 0) {
+    return entryCount > 0
+      ? '(' + entryCount + ' failure entr' + (entryCount === 1 ? 'y' : 'ies') + ' carried no file name)'
+      : '(the runner listed none)';
+  }
+  const head = files.slice(0, MAX_NAMED_FAILING).join(', ');
+  return files.length > MAX_NAMED_FAILING
+    ? head + ', … and ' + (files.length - MAX_NAMED_FAILING) + ' more'
+    : head;
+}
+
 /**
  * DD3의 4축(0~3)을 순서대로 평가한다. **순수 함수** — I/O도 git 호출도 없다.
  *
@@ -147,9 +188,10 @@ function judge(opts) {
   // ── stage 1 — 스위트 green ────────────────────────────────────────────────
   if (Number(m.exit_code) !== 0) {
     const failing = Array.isArray(m.failing) ? m.failing : [];
+    const files = failingFileNames(failing);
     return blocked(1, ['suite_red'],
-      'suite is RED (exit_code=' + m.exit_code + '), ' + failing.length + ' failing file(s): ' +
-      (failing.length ? failing.join(', ') : '(the runner listed none)') +
+      'suite is RED (exit_code=' + m.exit_code + '), ' + files.length + ' failing file(s): ' +
+      describeFailing(files, failing.length) +
       ' | NOTE: any redaction verdict below may be DOWNSTREAM of this red - ' +
       'a failing assertion diff can carry path-shaped fixtures.');
   }
@@ -240,7 +282,7 @@ function publicCoverage(cov, del) {
   };
 }
 
-module.exports = { judge, undeclaredReasons, JUDGE_REASONS, INPUT_REASONS };
+module.exports = { judge, undeclaredReasons, failingFileNames, describeFailing, JUDGE_REASONS, INPUT_REASONS };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLI — **강제 workflow가 부르는 유일한 판정 명령**이다.

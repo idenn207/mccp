@@ -321,6 +321,27 @@ F10은 backlog 잔량을 산문에서 79로, 열거에서 90으로 적었다(두
 3. ship은 `claude --plugin-dir <worktree>/plugins/mccp` 세션에서 완주한다
    ([dogfood-install.md](../../../docs/dogfood-install.md)). 완주 전후로
    `installed_plugins.json` sha256 불변을 확인한다.
+
+   > **정정 (2026-09-08) — 그 경로가 필요한 것은 ship만이 아니다. 1단계의 plan
+   > 게이트부터다.** 위 3단계는 ship만 지목했는데, 그대로 하면 M7의 네 검사 중
+   > **1·2·3이 구조적으로 불가능**하다. 근거 둘을 실측했다:
+   >
+   > - `grep -c review-record-path ~/.claude/plugins/cache/mccp/mccp/1.33.6/commands/plan.md`
+   >   → **0**. 링크 필드를 찍는 줄은 워크트리
+   >   (`plugins/mccp/commands/plan.md:2890`)에만 있다. 같은 캐시의 `pr.md`에는
+   >   back-patch 블록(`link-receipt`)도 **0건**이다.
+   > - `plugins/mccp/scripts/lib/pr-phase-helpers/finalize-receipt.js:308-318` —
+   >   ship의 `meta.review_record_path`는 **상류 plan receipt의 carry-forward가
+   >   유일 경로**이고 재생성 분기가 없다. 상류가 비어 있으면 ship이 새 판본이어도
+   >   실을 값이 없다.
+   >
+   > 그리고 이 순서는 **되돌릴 수 없다**. `MCCP_GATE_ROUND_CAP=1`이고 캡은 산문이
+   > 아니라 기계다(`plugins/mccp/scripts/lib/plan-review/cli.js:334-359`가 원장을
+   > 읽어 초과를 refuse) — 캐시 판본에서 패널을 한 번 돌리면 그 슬러그의 예산이
+   > 소진돼 워크트리 판본 재실행이 `round-cap-reached`로 거부된다.
+   >
+   > 따라서 1단계의 `/mccp:plan`도 `--plugin-dir` 세션에서 돈다. 자세한 근거는
+   > [M7 plan](../../plans/review-record-linkage-m7.plan.md)의 DD1.
    - 완주 전 baseline(2026-09-08): sha256 `26925fd8b72568ea…` ·
      `install_skew.state=behind` 181 커밋 · `linkage.bidirectional=0` `denominator=null`
 4. 그 뒤 Task 6의 네 검사를 재측정한다.

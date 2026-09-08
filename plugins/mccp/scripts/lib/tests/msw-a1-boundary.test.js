@@ -67,6 +67,12 @@ function writeLine(dir, sessionId, evt) {
   fs.appendFileSync(path.join(dir, sessionId + '.jsonl'), JSON.stringify(evt) + '\n', 'utf8');
 }
 
+// chmod 기반 주입은 root에서 아무것도 막지 못한다 — 거기서는 테스트가 조용히
+// 통과하며 아무 명제도 세우지 않으므로, 통과시키지 말고 **건너뛴다**.
+function isRoot() {
+  return typeof process.getuid === 'function' && process.getuid() === 0;
+}
+
 // ── (1) 도달성 — CRITICAL 회귀 가드 ────────────────────────────────────────
 //
 // 초안이 죽은 지점이 정확히 여기다: 실 producer 둘이 `repoRoot`를 **항상 명시**로
@@ -843,32 +849,95 @@ test('(santa R3) local evidence events still feed the counters — the discrimin
 // `ok:true` · `degraded:false`라 소비자는 온전한 집계로 읽는다. 공유 위치가 없는
 // 저장소(정상)와 못 읽은 저장소(손상)가 구별되지 않던 것이다.
 
-test('(santa R4) a shared-corpus resolution failure is recorded as degradation', () => {
+// orchestrator-step-wiring M3 (PR-Codex R1 F1) — **주입은 실제 fs 실패여야 한다.**
+//
+// 이 자리의 앞선 판은 `mod.commonDirOf`를 throw하는 스텁으로 갈아끼웠는데, 실
+// `commonDirOf`는 fs 오류를 내부에서 삼키고 `null`을 돌려주므로 그 경로는 운영에서
+// 한 번도 실행되지 않는다. 즉 테스트는 초록인데 가드는 목표한 실패를 못 보는 상태였다.
+// 그래서 이제 해소기를 건드리지 않고 **`.git`/`commondir` 읽기 자체를 실패시킨다**.
+
+// 실 linked worktree를 만든 뒤 `commondir`을 **디렉토리로 바꾼다**. `readFileSync`가
+// EISDIR로 실패하고, 이것은 uid와 무관하게 결정적이라 root로 도는 CI에서도 선다
+// (chmod 기반 주입은 root에서 조용히 통과한다 — 아래 EACCES 케이스를 따로 두는 이유).
+function breakCommondirOf(fx, name) {
+  const wtGitDir = path.join(fx.gitDir, 'worktrees', name);
+  const commondir = path.join(wtGitDir, 'commondir');
+  fs.unlinkSync(commondir);
+  fs.mkdirSync(commondir);
+}
+
+test('(F1) an unreadable commondir is a resolution FAILURE, not an absent shared dir', () => {
   const fx = mkFixture('m3sharedfail');
-  const t0 = '2026-06-01T00:00:00.000Z';
-  writeLine(localDirOf(fx.main), 'loc-only', {
+  const wt = addWorktree(fx, 'wt-broken');
+  breakCommondirOf(fx, 'wt-broken');
+  writeLine(localDirOf(wt), 'loc-only', {
     kind: 'task_started', session_id: 'loc-only', work_unit: 'u-local',
-    work_unit_kind: 'milestone', ts: t0, event_id: 'lo-t',
+    work_unit_kind: 'milestone', ts: '2026-06-01T00:00:00.000Z', event_id: 'lo-t',
   });
 
-  const mod = require('../../state/msw-events');
-  const real = mod.commonDirOf;
-  let scan;
-  try {
-    mod.commonDirOf = function () { throw new Error('EACCES reading git metadata'); };
-    // require 캐시를 공유하므로 source 모듈이 같은 객체를 본다.
-    delete require.cache[require.resolve('../../derive/sources/session-activity')];
-    const { scanSessionActivity: rescan } = require('../../derive/sources/session-activity');
-    scan = rescan(fx.main);
-  } finally {
-    mod.commonDirOf = real;
-    delete require.cache[require.resolve('../../derive/sources/session-activity')];
-  }
+  // 해소기 계약: 실패는 `error`로 나오고 `dir`은 비며, 얇은 wrapper는 오늘처럼 null이다.
+  const info = mswEvents.commonDirInfoOf(wt);
+  assert.equal(info.dir, null);
+  assert.match(info.error || '', /commondir failed \(EISDIR\)/,
+    'the failure must name what could not be read; swallowing it is the defect');
+  assert.equal(mswEvents.commonDirOf(wt), null,
+    'the wrapper keeps its old return value — existing callers must not shift');
+  assert.ok(!/\/home\/|^[A-Za-z]:\\/.test(info.error || ''),
+    'F9 — the message must not leak an absolute path');
 
+  const scan = scanSessionActivity(wt);
   assert.equal(scan.degraded, true,
     'the whole shared corpus dropped out; reporting ok with no degradation makes an '
     + 'unreadable repository indistinguishable from one that simply has no shared dir');
   const m = metricsMod.computeMetrics({ sources: { session_activity: scan } });
   assert.equal(m[metricsMod.A1_WORK_COMPLETION_RATE].status, 'invalid',
     'and the metric must not publish a rate from what is left');
+});
+
+test('(F1) an unreadable .git file is a resolution FAILURE', { skip: isRoot() }, () => {
+  const fx = mkFixture('m3gitunreadable');
+  const wt = addWorktree(fx, 'wt-noperm');
+  fs.chmodSync(path.join(wt, '.git'), 0o000);
+  try {
+    const info = mswEvents.commonDirInfoOf(wt);
+    assert.equal(info.dir, null);
+    assert.match(info.error || '', /read <root>\/\.git failed \(EACCES\)/,
+      'stat says it is a file; a read that then fails is corruption, not absence');
+
+    const scan = scanSessionActivity(wt);
+    assert.equal(scan.degraded, true);
+  } finally {
+    fs.chmodSync(path.join(wt, '.git'), 0o644);
+  }
+});
+
+// 반대 방향의 가드 — 넓히면 이 축이 거짓 경보가 된다.
+//
+// 위 둘만 두면 "부재도 degraded로 접으면 통과"하는 구현이 통과한다. 그러면 `.git`이
+// 없는 정상 저장소(그리고 tmpdir fixture 전부)가 영구 degraded가 되고, 소비자는 그
+// 표식을 무시하기 시작한다 — 지표를 지키려다 지표를 죽이는 쪽이다.
+test('(F1) legitimate absence stays undegraded — the guard must not fire on a normal repo', () => {
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-a1b-absent-'));
+  fs.mkdirSync(path.join(plain, '.claude', 'state'), { recursive: true });
+  writeLine(localDirOf(plain), 'loc-only', {
+    kind: 'task_started', session_id: 'loc-only', work_unit: 'u-local',
+    work_unit_kind: 'milestone', ts: '2026-06-01T00:00:00.000Z', event_id: 'lo-t',
+  });
+
+  const info = mswEvents.commonDirInfoOf(plain);
+  assert.deepEqual(info, { dir: null, error: null },
+    'no .git at all is the ordinary case, not a failure');
+  assert.equal(scanSessionActivity(plain).degraded, false,
+    'a repo with no shared location must still report an undegraded scan');
+});
+
+// `commondir` **부재**도 부재다 — linked worktree가 아닌 gitdir가 그렇다.
+test('(F1) a missing commondir resolves normally rather than degrading', () => {
+  const fx = mkFixture('m3nocommondir');
+  const wt = addWorktree(fx, 'wt-plain');
+  fs.unlinkSync(path.join(fx.gitDir, 'worktrees', 'wt-plain', 'commondir'));
+
+  const info = mswEvents.commonDirInfoOf(wt);
+  assert.equal(info.error, null, 'ENOENT on commondir is the ordinary non-worktree shape');
+  assert.equal(scanSessionActivity(wt).degraded, false);
 });

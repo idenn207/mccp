@@ -122,21 +122,34 @@ function scanSessionActivity(repoRoot) {
     // 전건 수용이다. 마이그레이션이 여러 worktree의 이벤트를 공유 디렉토리 하나로
     // 모으므로, 그것을 `di=0`에 두면 `event_id` 없는 레거시 이벤트가 복합키 dedupe를
     // 통과해 중복 계상된다. 그래서 **뒤쪽**이다.
+    //
+    // santa R4 (reviewer B/HIGH) — 이 실패는 공유 corpus **전체**가 후보에서 빠진다는
+    // 뜻이고, 그 corpus에 미완료 작업 단위가 있으면 A1 분모가 통째로 깎여 완주율이
+    // 위로 편향된다 — 그런데 결과는 `ok:true` · `degraded:false`라 소비자가 그것을
+    // 온전한 집계로 읽는다. 공유 위치가 **없는** 저장소(정상)와 공유 위치를 **못 읽은**
+    // 저장소(손상)가 같은 값을 내던 것이다.
+    //
+    // orchestrator-step-wiring M3 (PR-Codex R1 F1) — 그 판정을 `catch`로 하던 것이
+    // 틀렸다. `commonDirOf`는 fs 오류를 내부에서 삼키고 `null`을 돌려주므로 **throw가
+    // 오지 않는다**. 즉 그때 얹은 가드는 목표한 실패를 한 번도 보지 못했고, 동반
+    // 테스트는 `commonDirOf`를 throw하는 스텁으로 바꿔 그 사실을 지나쳤다. 이제
+    // 해소기가 `error`를 따로 돌려주므로 여기서 그것을 읽는다.
+    //
+    // `degraded`는 shard 하나를 못 읽었을 때 서는 표식이고 이쪽은 그보다 큰 손실이므로
+    // 같은 표식으로 충분하다(더 강한 표식을 새로 만들면 소비자 셋이 각자 해석해야
+    // 한다). 후보 미추가라는 동작 자체는 그대로다.
     let sharedDir = null;
     try {
-      const common = mswEvents.commonDirOf(repoRoot);
-      if (common) sharedDir = path.join(common, mswEvents.SHARED_SUBPATH);
+      const info = mswEvents.commonDirInfoOf(repoRoot);
+      if (info && info.error) {
+        // 해소 **실패**. 부재(`dir:null, error:null`)와 구별되는 유일한 지점이다.
+        result.degraded = true;
+      } else if (info && info.dir) {
+        sharedDir = path.join(info.dir, mswEvents.SHARED_SUBPATH);
+      }
     } catch (_e) {
-      // santa R4 (reviewer B/HIGH) — throw 하지 않는 것은 옳지만, **조용히** 접는 것은
-      // 아니었다. 이 실패는 공유 corpus **전체**가 후보에서 빠진다는 뜻이고, 그
-      // corpus 에 미완료 작업 단위가 있으면 A1 분모가 통째로 깎여 완주율이 위로
-      // 편향된다 — 그런데 결과는 `ok:true` · `degraded:false` 라 소비자가 그것을
-      // 온전한 집계로 읽는다. 공유 위치가 **없는** 저장소(정상)와 공유 위치를
-      // **못 읽은** 저장소(손상)가 같은 값을 내던 것이다.
-      //
-      // `degraded` 는 shard 하나를 못 읽었을 때 서는 표식이고 이쪽은 그보다 큰
-      // 손실이므로 같은 표식으로 충분하다(더 강한 표식을 새로 만들면 소비자 셋이
-      // 각자 해석해야 한다). 후보 미추가라는 동작 자체는 그대로다.
+      // 해소기가 계약을 깨고 throw하는 경우까지 남겨 둔다 — 체인은 멈추지 않되
+      // 강등은 조용하지 않다.
       sharedDir = null;
       result.degraded = true;
     }

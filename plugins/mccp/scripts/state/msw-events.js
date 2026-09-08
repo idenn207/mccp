@@ -345,18 +345,48 @@ function classifyWorkUnitKind(commandArgs) {
 // worktree에서도 성립하지 않아 이 milestone이 통째로 무력화된다. 실제로 성립하는
 // 불변식은 구조 검증이다 — `commondir`의 `../` 누적이 임의 디렉토리를 가리키면
 // 그곳은 git dir의 형태를 갖지 않으므로 여기서 걸린다.
-function looksLikeGitDir(dir) {
+//
+// orchestrator-step-wiring M3 (PR-Codex R1 F1) — 이 probe도 해소의 일부라 실패를
+// 삼키면 안 된다. `ok`의 의미는 한 바이트도 바뀌지 않고, 왜 false인지만 덧붙는다.
+function looksLikeGitDirInfo(dir) {
   try {
-    if (!fs.statSync(path.join(dir, 'HEAD')).isFile()) return false;
-  } catch (_e) {
-    return false;
+    if (!fs.statSync(path.join(dir, 'HEAD')).isFile()) return { ok: false, error: null };
+  } catch (err) {
+    if (!isAbsentFsError(err)) {
+      return { ok: false, error: 'stat <gitdir>/HEAD failed (' + fsErrCode(err) + ')' };
+    }
+    return { ok: false, error: null };
   }
+  let markerError = null;
   for (const marker of ['objects', 'refs']) {
     try {
-      if (fs.statSync(path.join(dir, marker)).isDirectory()) return true;
-    } catch (_e) { /* 다음 marker */ }
+      if (fs.statSync(path.join(dir, marker)).isDirectory()) return { ok: true, error: null };
+    } catch (err) {
+      // 한 marker의 부재는 정상이다(둘 중 하나만 있어도 통과). 판독 불가는 다르다.
+      if (!isAbsentFsError(err)) {
+        markerError = 'stat <gitdir>/' + marker + ' failed (' + fsErrCode(err) + ')';
+      }
+    }
   }
-  return false;
+  return { ok: false, error: markerError };
+}
+
+function looksLikeGitDir(dir) {
+  return looksLikeGitDirInfo(dir).ok;
+}
+
+// 부재로 접을 fs 오류만 열거한다. 그 밖은 전부 손상이다.
+//
+// 열거를 넓히면 이 축이 조용히 다시 꺼진다 — 그것이 F1이 지적한 실패 그대로다.
+const ABSENT_FS_CODES = new Set(['ENOENT', 'ENOTDIR']);
+
+function isAbsentFsError(err) {
+  return !!err && ABSENT_FS_CODES.has(err.code);
+}
+
+// F9 — 오류 문구에 절대경로를 싣지 않는다. 무엇이 왜 실패했는지만 말한다.
+function fsErrCode(err) {
+  return (err && err.code) ? String(err.code) : 'unknown';
 }
 
 // `root/.git` **하나만** 본다. 부모로 올라가지 않는다.
@@ -367,14 +397,36 @@ function looksLikeGitDir(dir) {
 //
 // spawn 금지: `discoverRepoRoot`의 주석대로 `git rev-parse` spawn은 append마다
 // ~44ms라 hot path에 부적합하다. 여기는 전부 `fs` 연산이다.
-function commonDirOf(root) {
-  if (!root) return null;
+//
+// orchestrator-step-wiring M3 (PR-Codex R1 F1) — **해소 실패는 부재가 아니다.**
+//
+// 이 함수는 모든 fs 오류를 내부에서 삼키고 `null`을 돌려줬다. 그래서 호출자는
+// "공유 위치가 없는 저장소(정상)"와 "있는데 못 읽은 저장소(손상)"를 같은 값으로
+// 받았고, 읽는 쪽(`derive/sources/session-activity.js`)에서 그것은 공유 corpus
+// **전체**가 조용히 후보에서 빠지는 것을 뜻했다 — 미완료 작업 단위가 그 corpus에
+// 있으면 A1 분모가 깎여 완주율이 **위로 편향**되는데 결과는 `ok:true` ·
+// `degraded:false` · `integrity_ok:true`라 소비자가 온전한 집계로 읽는다.
+// santa R4가 그 축을 지적했고 그때 얹은 `catch`는 **throw에만** 반응했는데, 이
+// 함수는 fs 오류에서 throw하지 않으므로 그 가드는 목표한 실패를 한 번도 보지
+// 못했다(PR-Codex R1 F1: EACCES 주입으로 실증).
+//
+// 실패를 `error`로 따로 노출하고 `commonDirOf`는 `.dir`만 돌려주는 얇은 wrapper로
+// 남긴다 — 기존 호출자 셋(`resolveEventsDirInfo` · `session-activity` ·
+// `m8-coverage-gate`)의 반환값은 한 바이트도 바뀌지 않는다.
+//
+// 판정 축은 **fs 읽기 실패**뿐이다. 내용이 깨진 `.git`(`gitdir:` 줄 부재)이나 git
+// dir의 형태가 아닌 대상은 오늘처럼 부재로 남긴다 — 그것은 다른 축이고, 여기서
+// 넓히면 검증하지 않은 정상 구성이 degraded로 뒤집힌다.
+function commonDirInfoOf(root) {
+  if (!root) return { dir: null, error: null };
   const dotGit = path.join(root, '.git');
   let st;
   try {
     st = fs.statSync(dotGit);
-  } catch (_e) {
-    return null;
+  } catch (err) {
+    // `.git` 부재는 정상이다 — 호출자는 worktree-local로 남는다.
+    if (isAbsentFsError(err)) return { dir: null, error: null };
+    return { dir: null, error: 'stat <root>/.git failed (' + fsErrCode(err) + ')' };
   }
 
   let candidate = null;
@@ -387,24 +439,34 @@ function commonDirOf(root) {
     let text;
     try {
       text = fs.readFileSync(dotGit, 'utf8');
-    } catch (_e) {
-      return null;
+    } catch (err) {
+      // stat이 파일이라고 답한 직후의 읽기 실패는 부재가 아니라 손상이다.
+      return { dir: null, error: 'read <root>/.git failed (' + fsErrCode(err) + ')' };
     }
     const m = /^\s*gitdir:\s*(.+)$/m.exec(text);
-    if (!m) return null;
+    if (!m) return { dir: null, error: null };
     const gitdir = path.resolve(root, m[1].trim());
     let commonText;
     try {
       commonText = fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8');
-    } catch (_e) {
+    } catch (err) {
+      // `commondir` 부재는 정상이다 — linked worktree가 아닌 gitdir가 그렇다.
+      if (!isAbsentFsError(err)) {
+        return { dir: null, error: 'read <gitdir>/commondir failed (' + fsErrCode(err) + ')' };
+      }
       commonText = null;
     }
     candidate = commonText === null ? gitdir : path.resolve(gitdir, commonText.trim());
   } else {
-    return null;
+    return { dir: null, error: null };
   }
 
-  return looksLikeGitDir(candidate) ? candidate : null;
+  const probe = looksLikeGitDirInfo(candidate);
+  return { dir: probe.ok ? candidate : null, error: probe.error };
+}
+
+function commonDirOf(root) {
+  return commonDirInfoOf(root).dir;
 }
 
 // 해소 결과 + 그것이 공유 위치인지. `appendEvent`의 evict 분기가 두 번째 값을 쓴다 —
@@ -525,6 +587,7 @@ module.exports = {
   resolveEventsDirInfo,
   discoverRepoRoot,
   commonDirOf,
+  commonDirInfoOf,
   sharedEventsEnabled,
   classifyWorkUnitKind,
   eventToJsonLine,

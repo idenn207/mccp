@@ -288,3 +288,79 @@ ship 될 본문이 실제로 다르다.
 main 이 그 사이 ci-full-suite M3(PR #185)를 머지해 전수 스위트가 **머지 차단 게이트**가 됐다.
 로컬 실행 결과 `blocked: false` · `reasons: []` · 386 files · failing 0 · coverage 98.47% ·
 56.7s — 이 브랜치는 그 게이트를 통과한다.
+
+---
+
+## Addendum 2 — anchor 복구 시도와 그 실패, 그리고 사이클 봉인 (2026-09-08)
+
+Addendum C 가 남긴 운영자 결정에 대해 «A 를 시도하고 실패하면 B» 가 선택됐다. **A 를 끝까지
+실행했고 실패했으며, 그 과정에서 B 를 직접 반증하는 근거가 나와 B 로 넘어가지 않았다.** 이
+절은 그 전말과 봉인 판단을 기록한다.
+
+### A — 캡 상향 후 L2 재실행 (실행함 · 실패함)
+
+`write.js` DD13 이 스스로 처방한 경로다. `/mccp:plan` **전체**가 아니라 **Phase 5 게이트만**
+돌렸다 — 전체 재실행은 Phase 4 WRITE 가 이미 구현이 끝난 plan 을 재작성하기 때문이다.
+multi-agent 모드는 게이트가 plan 본문을 건드리지 않으므로(5.2h 가 sibling artifact 에 쓴다)
+리뷰 내내 해시가 `b4385c9e…` 로 고정됐다.
+
+| 단계 | 결과 |
+|---|---|
+| round seal | `cap=2 mode=enforce` (상향, 사유는 backlog 감사 기록) |
+| 5.2a L1 | `converged` · violations 0 |
+| 5.2b 예약 | `granted=4 required=3` |
+| 5.2c emit | exit 0 · `reviewedPlanHash: b4385c9e…` — 캡 통과 |
+| dispatch log | `round_index=0` (새 본문 그룹 — 재발화가 원장에서 falsifiable) |
+| 패널 | 4/4 응답 — architect **fail** · test **fail** · invariant **fail** · security pass |
+| 5.2e decide | `review_verdict:"divergent"` · `block:true` · `review_proof:null` · exit 12 |
+| 원장 | `rounds_so_far: 2 / cap: 2` — 상향분 **소진** |
+| receipt | **미갱신**. stale 2건 그대로 |
+
+**§3.16 이탈의 대가를 치렀으나 anchor 는 복구되지 않았다.** 숨기지 않고 적는다.
+
+### 왜 B 로 넘어가지 않았는가 — 같은 라운드가 B 를 반증했다
+
+invariant 리뷰어의 HIGH 가 정확히 선택지 B 를 지목한다:
+
+> 라운드 캡 게이트가 slug 재키잉으로 무력화되고, 그 재키잉이 이 계획의 공식 진행 경로가 됐다 —
+> skip predicate("이 키의 원장은 0라운드")는 **파일 이름을 바꾸는 것만으로 성립**하므로
+> "리뷰를 받지 않았다"는 증거가 실제 작업 없이 존재할 수 있다.
+
+근거로 이 plan 이 **이미 두 번 재키잉했음**을 든다(PRD slug 3라운드 → `-m3` 1라운드 →
+`-rev2`, plan L611-612). B 는 세 번째가 된다. CLAUDE.md §3.16 이 열거한 감사 우회 목록에
+재키잉은 없다. 게이트가 방금 잡아낸 행위를 그 게이트를 통과하려고 저지르는 것은 채택하지 않는다.
+
+### 캡 3 도 도달 불가 — 산술이 아니라 구조다
+
+`quorum.js:199` 는 `passed: reasons.length === 0` 이다. 즉 **blocking finding 이 0일 때만**
+통과하며, `required: 3` 은 *응답 수* 하한이지 pass 수가 아니다. 리뷰어 하나의 HIGH 하나 또는
+bare `verdict=fail` 하나가 라운드를 막는다(그 합성은 `quorum.js:173-180` — CLAUDE.md §3.14 가
+임시 규칙을 만든 바로 그 지점이다).
+
+HIGH 4건 중 셋은 plan 편집으로 흡수 가능하지만 **invariant 의 것은 아니다** — 그것은 이
+사이클이 *이미 실행한* 재키잉 이력에 대한 진술이라 본문을 고쳐도 사라지지 않는다. 따라서
+캡 3 라운드는 결과가 정해져 있다. 비용을 더 쓸 근거가 없다.
+
+### 정직한 우회도 없다
+
+`/mccp:pr` 은 세 지점(`pr.md:269`·`:1137`·`:1211`)에서 전부 `validate` 를 부르며 `preflight` 를
+쓰지 않는다. 그리고 `validate-cmd` 는 `MCCP_SKIP_RECEIPT` 를 읽지 않는다(실측: 그 env 를 켜도
+`ok:false stale:2`; 그 변수의 유일한 소비처는 `preflight.js:72-80`). `MCCP_FORCE_PR_WITHOUT_
+CODEX_CONVERGENCE` 는 verdict 축이라 stale 과 무관하다. **stale plan_hash 에 대한 문서화된
+audited escape 는 존재하지 않는다.** 만들어 내는 것은 위조다.
+
+### 봉인 판단
+
+**이 사이클은 여기서 끝난다. M3 의 작업은 완료·검증됐고, ship 만 anchor 공백에 막혔다.**
+
+- acceptance 13절 중 **10 충족 · 1 부분 · 2 미충족**. 미충족 2건은 순서(`/mccp:pr`)와 배포
+  간극(cache)이며 **M3 작업의 잔여가 아니다**.
+- 막는 것은 M3 의 결함이 아니라 게이트 기계의 공백이다 — 이미 HIGH 2건으로 backlog 에 있다
+  (2026-08-16 「plan-body 스탬프가 상위 receipt 를 stale 로 만든다」의 review-축 정정 ·
+  2026-09-08 「재키잉이 캡 게이트를 무력화한다」).
+- PRD Delivery Milestones 의 M3 는 **`in-progress` 유지**. M1·M2 관례(머지 시점 flip)와
+  일치하며, PR 이 없으므로 flip 할 근거도 없다.
+- 브랜치에는 검증된 작업이 커밋으로 남는다(푸시 없음). 다음 사이클이 anchor 축을 소유한다.
+
+**이 closure 의 `Status: done` 이 뜻하는 것은 milestone 작업의 완료이지 ship 이 아니다.**
+그 구분을 흐리지 않기 위해 여기 명시한다.

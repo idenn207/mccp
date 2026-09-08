@@ -517,6 +517,106 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
   }
 }));
 
+function sealDigestFixture(storedSha, hashFn) {
+  const sealedDoc = {
+    meta: {
+      sealed_at: '2026-09-01T01:21:41.049Z',
+      sealed_at_commit: '9093b08',
+      stats: { by_source: { backlog: 3 } },
+    },
+    inventory_sha256: storedSha,
+    items: Array(3).fill(null).map((_, i) => ({ item_id: 'old:' + i, source: 'backlog' })),
+  };
+  return function (id, originalRequire, self, args) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return {
+        readInventory: () => sealedDoc,
+        buildInventory: () => ({
+          items: Array(3).fill(null).map((_, i) => ({ item_id: 'old:' + i, source: 'backlog' })),
+          stats: { by_source: { backlog: 3 } },
+        }),
+        readDispositions: () => ({
+          ok: true,
+          lines: sealedDoc.items.map((it) => ({
+            item_id: it.item_id, disposition: 'deferred', inventory_sha256: storedSha,
+          })),
+        }),
+        SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+        foldDispositions: (lines) => {
+          const m = new Map();
+          for (const l of lines) m.set(l.item_id, l);
+          return m;
+        },
+        inventoryHash: hashFn,
+      };
+    } else if (id === '../../state/findings-registry') {
+      return { readAll: () => ({ findings: [] }) };
+    }
+    return originalRequire.apply(self, args);
+  };
+}
+
+test('invariant (i): a seal whose digest does not match its items is NOT counted (PR-Codex R2 F1)', withFixtures((t, report, fixture) => {
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+
+  // The falsifying case for trusting inventory_sha256 without recomputing it.
+  // The seal keeps its ORIGINAL digest but its items[] no longer hash to it --
+  // a parseable truncation or a merge that preserved the label. Before the fix
+  // the report returned closed/total/pct = 1/1/100% with degraded: [], i.e. a
+  // corrupt seal produced a perfect closure score.
+  const resolver = sealDigestFixture('sha256:stale-label', function (items) {
+    return 'sha256:actually-' + items.length;
+  });
+  Module.prototype.require = function (id) { return resolver(id, originalRequire, this, arguments); };
+
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const result = require('../report.js').buildClosureReport(process.cwd());
+
+    const hit = (result.degraded || []).find((d) => d.name === 'seal-digest');
+    assert.ok(hit, 'degraded[] must carry a seal-digest entry');
+    assert.strictEqual(result.dispositions, null, 'dispositions must be unavailable on a corrupt seal');
+    assert.strictEqual(result.denominator_gap, null, 'the gap is computed against the sealed id set, so it is unknown too');
+    assert.strictEqual(result.reseal_warning, null, 'no reseal advice from a denominator we cannot trust');
+    const row = result.ledgers.find((l) => l.name === 'disposition-ledger');
+    assert.strictEqual(row.closed, null, 'closure count must not be reported');
+    assert.strictEqual(row.pct, null, 'and above all NOT 100');
+    assert.ok(/seal digest does not match its items/.test(row.denominator_note),
+      'the note must name the seal, not the ledger — a reader told the wrong reason looks in the wrong place');
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}));
+
+test('invariant (i2): a seal whose digest DOES match is counted normally (positive control)', withFixtures((t, report, fixture) => {
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+
+  // Without this control, invariant (i) would still pass if the verification
+  // degraded EVERY seal — which would be a different way of reporting nothing.
+  const resolver = sealDigestFixture('sha256:actually-3', function (items) {
+    return 'sha256:actually-' + items.length;
+  });
+  Module.prototype.require = function (id) { return resolver(id, originalRequire, this, arguments); };
+
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const result = require('../report.js').buildClosureReport(process.cwd());
+
+    assert.strictEqual((result.degraded || []).find((d) => d.name === 'seal-digest'), undefined,
+      'a matching digest must not degrade');
+    assert.ok(result.dispositions, 'dispositions are reported when the seal verifies');
+    assert.ok(result.denominator_gap, 'and so is the gap');
+    const row = result.ledgers.find((l) => l.name === 'disposition-ledger');
+    assert.strictEqual(row.total, 3, 'the verified seal is the denominator');
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}));
+
 test('invariant (h): equal-sized inventories with DIFFERENT identities report the full unsealed count and still warn (PR-Codex R1 F1)', withFixtures((t, report, fixture) => {
   const Module = require('node:module');
   const originalRequire = Module.prototype.require;
@@ -1013,8 +1113,13 @@ test('invariant (c7-registry): a findings-registry throw is caught and its path 
 test('invariant (m1): disposed, resolved and fixed are three different numbers (PRD decision 2)', (t) => {
   const Module = require('node:module');
   const originalRequire = Module.prototype.require;
-  const SHA = 'sha256:right';
   const realDebt = require('../../msw-metrics/debt-inventory');
+  // PR-Codex R2 F1 — the seal digest is now VERIFIED, so this fixture must be
+  // self-consistent: SHA is derived from the very items[] it labels. A hardcoded
+  // literal made this a corrupt seal, which the new check correctly degrades.
+  // The dispositions below bind to the same SHA.
+  const SEAL_ITEMS = Array.from({ length: 10 }, (_, i) => ({ item_id: 'a' + i, source: 'backlog' }));
+  const SHA = realDebt.inventoryHash(SEAL_ITEMS);
 
   Module.prototype.require = function (id) {
     if (id === '../msw-metrics/debt-inventory') {
@@ -1028,7 +1133,7 @@ test('invariant (m1): disposed, resolved and fixed are three different numbers (
             stats: { by_source: { backlog: 999 } },
           },
           inventory_sha256: SHA,
-          items: Array.from({ length: 10 }, (_, i) => ({ item_id: 'a' + i, source: 'backlog' })),
+          items: SEAL_ITEMS,
         }),
         buildInventory: () => ({
           // 25 live items, so any ledger total sourced from live rather than the

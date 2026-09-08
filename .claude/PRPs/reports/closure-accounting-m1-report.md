@@ -43,18 +43,18 @@ Task 6은 산출물 보존만이 아니라 "같은 실행 시점에 `debt-invent
 (**F1 흡수 후 재산출**. 이전 판은 길이 뺄셈으로 계산된 값이라 결함 있는 구현의 출력이었고,
 milestone의 증거로 남길 수 없어 폐기하고 다시 냈다. 폐기된 판의 수치는 아래 측정 이력에 남는다.)
 
-| 축 | 값 (2026-09-08T05:25:19Z) |
+| 축 | 값 (2026-09-08T05:34:01Z) |
 |---|---|
 | `seal.sealed_at` / `sealed_at_commit` | `2026-09-01T01:21:41.049Z` / `9093b08` |
 | `seal.items` (봉인 분모) | 1115 |
-| `live.items` (라이브 부채) | 2806 |
-| `denominator_gap.count` (**ID 기준 미봉인**) | **1705 (60.76%)** |
-| `denominator_gap.net_change` (길이 차) | 1691 |
+| `live.items` (라이브 부채) | 2807 |
+| `denominator_gap.count` (**ID 기준 미봉인**) | **1706 (60.78%)** |
+| `denominator_gap.net_change` (길이 차) | 1692 |
 | `denominator_gap.sealed_not_live` | **14** |
 | `degraded[]` | 없음 (세 원장 전부 판독) |
 
-동시점 독립 재계산과 **세 값 전부 일치**한다(`count` 1705 · `sealed_not_live` 14 ·
-`net_change` 1691). 이 대조는 이제 등식 하나가 아니라 셋이고, 그중 `count`와 `net_change`가
+동시점 독립 재계산과 **세 값 전부 일치**한다(`count` 1706 · `sealed_not_live` 14 ·
+`net_change` 1692). 이 대조는 이제 등식 하나가 아니라 셋이고, 그중 `count`와 `net_change`가
 **갈라진다는 사실 자체**가 F1이 실재했다는 증거다 — 옛 구현에서는 둘이 같은 값이었다.
 
 **재확인 (2026-09-08T05:07:32Z)** — `readInventory` / `buildInventory`를 직접 호출해
@@ -159,12 +159,68 @@ mutation(옛 뺄셈 복원)을 심으니 `invariant (h)`와 `(c9)` 정확히 둘
 귀속했다). 여기서 고치면 M1의 병렬 안전성 주장이 깨진다. `codex-findings-backlog.md`에
 처방과 재현 절차를 함께 적재했다.
 
-### 하지 않은 것
+## PR-Codex R2 — 고친 diff를 다시 물었고, 또 실재하는 HIGH가 나왔다
 
-`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` override를 쓰지 않았다. 그 우회는 "diff가 상류에서
-이미 적대적으로 리뷰됐다"는 상황을 위한 것이지, **리뷰어가 실재하는 결함을 찾았을 때** 쓰는
-것이 아니다. 게이트는 옳게 막았고, 옳게 막은 게이트를 밀어내는 것이 이 저장소가 없애려는
-행동이다.
+R1의 HIGH를 고치자 `denominator_gap`의 **핵심 의미가 바뀌었고**, 그 코드는 한 번도 적대적
+리뷰를 받지 않은 상태였다. 계기의 정직성이 주제인 milestone에서 미리뷰 semantic 변경을
+override로 통과시키는 것은 부적절하므로, ship gate 자신의 복구 지침 1순위("fresh diff에
+재발화")를 따라 `MCCP_GATE_ROUND_CAP=2`로 R2를 열었다.
+
+R2는 R1과 **다른 축**에서 두 건을 냈다. 둘 다 독립 재현했다.
+
+### R2-F1 [HIGH · ACCEPT_NOW] — 봉인 digest를 믿기 전에 검증하라
+
+`report.js`가 `inventory_sha256`을 읽어 그대로 실을 뿐 **items[]로 재계산해 대조하지
+않았다**. 그래서 파싱은 되지만 잘린 봉인이나 옛 digest를 유지한 머지가 분모를 바꿔도 결속은
+유지된다. 재현(확인함): 실제 봉인에서 **첫 항목만 남기고** digest를 그대로 두니
+
+```
+ledgers[0] = { closed: 1, total: 1, pct: 100 }   degraded: []
+```
+
+**손상된 봉인이 완벽한 종결 점수를 냈다.** F1과 다른 경로지만 도착지는 같다 — 이 milestone이
+없애려는 바로 그 "편안한 100%"다. upstream `verifyDispositions`는 `inventoryHash`로 이미 이걸
+막고 있었고 report만 그 보호를 빠뜨렸다.
+
+**흡수**: `debtInv.inventoryHash(sealDoc.items)`를 재계산해 대조하고, 불일치면
+`degraded[]`에 `seal-digest`를 남기고 **dispositions · denominator_gap · 종결 행 · 재봉인
+경고를 전부 null로** 접는다. `denominator_note`도 실제 사유("seal digest does not match its
+items")를 말하도록 고쳤다 — 틀린 사유를 들은 독자는 엉뚱한 곳을 본다.
+
+**비공허성 확인(양방향)** — 검증을 끄면 `invariant (i)`가 red, 모든 봉인을 degrade하면
+positive control `invariant (i2)`와 `(m1)`이 red, 복원하면 27/27 green. 한 방향만 재면
+"전부 degrade"라는 또 다른 형태의 무보고를 통과시킨다. 같은 흡수에서 `(m1)` fixture가
+자기 digest와 불일치하던 것도 드러나 **자기정합적으로** 고쳤다.
+
+### R2-F2 [MEDIUM · DEFER_TO_BACKLOG] — 거짓 100%로 가는 **알려진 잔여 경로**
+
+disposition 레코드를 검증 없이 종결로 센다. 재현(확인함): 실제 원장의 disposition을 전부
+`NOT_A_REAL_ENUM`으로 바꿔도 `closed:1115 · pct:100 · degraded:[]`. upstream
+`debt-inventory.js:488 validateDisposition`이 규칙을 갖고 있으나 `report.js`는 **0회**
+호출한다.
+
+**이연은 §3.14의 심각도 규칙을 따른 것이고, 이 축이 닫혔다고 주장하지 않는다.** R2에서 봉인
+digest 축은 닫았지만 disposition 검증 축은 열려 있다. 재현 절차와 처방을 backlog에 적재했다.
+
+## Ship 판정 — override를 쓰되 라운드를 늘리지 않는다
+
+R2 이후 라운드 캡(2)이 소진됐다. R2의 HIGH를 흡수한 코드는 또 리뷰되지 않았으므로, 같은
+논리를 반복하면 R3 → R4로 무한히 간다 — CLAUDE.md §3.16이 실측으로 기록한 병리(plan 한 건에
+8시간, "수정이 다음 라운드의 표적이 되는 전이")가 정확히 그것이다. §3.16의 처방은 명시적이다:
+**문서화된 감사 우회를 쓰되 사유를 남기고, 라운드를 늘리지 않는다.**
+
+따라서 `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`로 ship한다. 그 우회가 하는 일과 하지 않는
+일을 분명히 한다:
+
+- **하는 일**: 이 호출의 기계적 HALT만 푼다.
+- **하지 않는 일**: `resolution.codex_verdict`를 다시 쓰지 않는다. receipt는 실제 `divergent`를
+  봉인한 채로 남고, cross-gate dedupe는 계속 fail-closed이며, 다음 `/mccp:pr`은 PR-Codex를
+  다시 돌린다. 수렴을 인증하지 않는다.
+
+**R1 이후 이 자리에 "override를 쓰지 않았다"고 적었고, 그때는 참이었다** — 그 시점의 지적은
+고쳐지지 않은 상태였고, 미수정 결함을 밀어내는 것은 지금도 하지 않는다. 지금 쓰는 근거는
+다르다: 두 라운드의 HIGH를 **전건 흡수했고**, 각각 독립 재현했으며, 각각 양방향 mutation으로
+비공허성을 확인한 test를 남겼고, 미해소 MEDIUM 2건은 재현 절차째로 원장에 있다.
 
 ## Validation Results
 

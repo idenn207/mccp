@@ -140,9 +140,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
     싣는다. PR-Codex가 잡은 HIGH의 흡수다 — 길이 뺄셈은 봉인 항목이 전부 라이브에 남아 있다고
     가정하는데 실측 14건이 아니었고, 추가·삭제가 상쇄되면 격차 0을 보고해 **재봉인 경고를
     침묵시킨다**. 식별자가 없는 항목이 있으면 숫자를 지어내지 않고 null + `degraded[]`다.
-  - **불변식 test 25종**: EMPTY 패턴 · disposed ≥ resolved ≥ fixed · 주입 fixture 산출값 ·
+  - **봉인 digest를 검증한다**: `inventory_sha256`을 `items[]`로 재계산해 대조하고, 불일치면
+    dispositions·denominator_gap·종결 행·재봉인 경고를 전부 null로 접고 `degraded[]`에 사유를
+    남긴다. PR-Codex R2가 잡은 HIGH의 흡수다 — 그 전에는 봉인을 1건으로 잘라도 digest만 유지하면
+    `pct: 100 · degraded: []`가 나왔다. **알려진 잔여 경로 1건**(disposition 레코드 미검증)은
+    backlog에 재현 절차째 이연했고, 이 축이 닫혔다고 주장하지 않는다.
+  - **불변식 test 27종**: EMPTY 패턴 · disposed ≥ resolved ≥ fixed · 주입 fixture 산출값 ·
     ledgers 2행 · 기준선 구조 **부분집합** · 절대경로 0건 · gap=0 → warning null ·
     **크기 동일 · 식별자 불일치**(길이 뺄셈이면 경고가 침묵하는 반증 case) ·
+    **digest 불일치 봉인**(+일치 시 정상 계상하는 positive control — 한 방향만 재면 "전부
+    degrade"라는 또 다른 무보고를 통과시킨다) ·
     reader별 throw 포착 · 봉인 shape 불량 강등 · 열화 신호 3종 각각 단독 발화.
     **mutation 13종으로 비공허성을 확인**했다(`resolved := disposed`,
     `disposed := sealItems`, sha 결속 제거 등 전건 killed) — 이 milestone의 앞선 라운드가

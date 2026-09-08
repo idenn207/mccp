@@ -299,6 +299,16 @@ disposition 원장에서 `dispositions`만 null이고 ledger 행과 재봉인 �
 **Validation 7이 편집을 금지한 upstream 파일**이라 backlog로 이연했다. override는 쓰지
 않았다. 상세는 [보고서](../PRPs/reports/closure-accounting-m1-report.md)의 `## PR-Codex R1`.
 
+**5차 — PR-Codex R2(2026-09-08).** R1의 HIGH를 고치자 `denominator_gap`의 의미가 바뀌었고 그
+코드는 미리뷰였다. ship gate의 복구 지침 1순위대로 `MCCP_GATE_ROUND_CAP=2`로 재발화시켰고, R2가
+**다른 축의 HIGH**를 냈다 — `inventory_sha256`을 재계산 없이 신뢰해, 봉인을 1건으로 잘라도
+digest만 유지하면 `closed:1 total:1 pct:100 · degraded:[]`가 나왔다(재현 확인). 손상된 봉인이
+완벽한 종결 점수를 내는 두 번째 경로다. `inventoryHash` 재계산·대조를 넣고 불일치 시 관련 수치를
+전부 null로 접었으며, 양방향 mutation으로 test 비공허성을 확인했다(검증 끄면 `(i)` red, 전부
+degrade하면 `(i2)`·`(m1)` red). MEDIUM(disposition 미검증 — 거짓 100%의 **알려진 잔여 경로**)은
+재현 절차째 backlog로 이연했다. 이후 캡이 소진돼 §3.16대로 라운드를 늘리지 않고
+`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`로 ship하며, 그 우회는 verdict를 재작성하지 않는다.
+
 **남는 델타** — R3 잔여 수정 이후의 본문과 코드는 **다시 리뷰되지 않았다.** 라운드 캡이
 소진됐고(§3.16) 재리뷰가 기본 선택지가 아니므로, 그 사실을 여기 적는 것으로 닫는다.
 구현 착수 전에 필요한 것은 재리뷰가 아니라(캡 소진) 이 절의 정직한 존재다.

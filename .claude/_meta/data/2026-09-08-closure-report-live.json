@@ -12,17 +12,17 @@
     "age_days": 7
   },
   "live": {
-    "items": 2806,
+    "items": 2807,
     "by_source": {
-      "backlog": 1573,
+      "backlog": 1574,
       "findings": 1231,
       "fix-task": 2
     }
   },
   "denominator_gap": {
-    "count": 1705,
-    "pct": 60.76,
-    "net_change": 1691,
+    "count": 1706,
+    "pct": 60.78,
+    "net_change": 1692,
     "sealed_not_live": 14
   },
   "dispositions": {

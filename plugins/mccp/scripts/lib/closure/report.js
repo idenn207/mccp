@@ -235,6 +235,37 @@ function buildClosureReport(repoRoot) {
   const disposedCount = folded.size;
 
   // Check if dispositions ledger has malformed lines
+  // PR-Codex R2 F1 (HIGH, absorbed) — VERIFY the seal digest before trusting the
+  // denominator it labels. `inventory_sha256` was read and echoed but never
+  // recomputed, so a parseable truncation or a merge that kept the old digest
+  // changed the denominator while retaining its binding. Reproduced against the
+  // real seal: keeping only the first item yielded `closed: 1, total: 1, pct: 100`
+  // with `degraded: []` — a fresh route to the same comfortable 100% this
+  // milestone exists to remove. Upstream `verifyDispositions` already guards this
+  // via inventoryHash; the report simply omitted the check.
+  //
+  // Verification is skipped only when the collector does not expose the hash (a
+  // mocked module in tests) or the seal declares no digest — we never invent a
+  // verdict we cannot compute.
+  let sealDigestMismatch = null;
+  if (inventorySha && typeof debtInv.inventoryHash === 'function') {
+    try {
+      const recomputed = debtInv.inventoryHash(sealDoc.items || []);
+      if (recomputed !== inventorySha) {
+        sealDigestMismatch = {
+          name: 'seal-digest',
+          reason: 'sealed inventory_sha256 does not match a recomputation over items[] — '
+            + 'the seal is corrupt or truncated, so its denominator cannot be trusted',
+        };
+      }
+    } catch (_e) {
+      sealDigestMismatch = {
+        name: 'seal-digest',
+        reason: 'sealed inventory_sha256 could not be recomputed over items[]',
+      };
+    }
+  }
+
   let disposalDegraded = null;
   if (dispoDoc.malformed && dispoDoc.malformed > 0) {
     disposalDegraded = {
@@ -396,14 +427,21 @@ function buildClosureReport(repoRoot) {
   // measurement, and the confident one is the one a reader quotes.
   ledgers.push({
     name: 'disposition-ledger',
-    closed: disposalDegraded ? null : disposedCount,
-    total: disposalDegraded ? null : sealItems,
-    pct: (!disposalDegraded && sealItems > 0)
+    closed: (disposalDegraded || sealDigestMismatch) ? null : disposedCount,
+    total: (disposalDegraded || sealDigestMismatch) ? null : sealItems,
+    pct: (!disposalDegraded && !sealDigestMismatch && sealItems > 0)
       ? parseFloat((disposedCount * 100 / sealItems).toFixed(2))
       : null,
-    denominator_note: disposalDegraded
+    // The note must name the ACTUAL reason: a corrupt seal and a malformed
+    // ledger are different failures, and a reader who is told the wrong one
+    // looks in the wrong place.
+    denominator_note: (disposalDegraded || sealDigestMismatch)
       ? 'sealed inventory at ' + (sealedAtCommit || 'unknown')
-        + ' — NOT COUNTED (ledger has malformed lines; see degraded)'
+        + ' — NOT COUNTED ('
+        + (sealDigestMismatch
+          ? 'seal digest does not match its items'
+          : 'ledger has malformed lines')
+        + '; see degraded)'
       : 'sealed inventory at ' + (sealedAtCommit || 'unknown'),
   });
 
@@ -422,7 +460,7 @@ function buildClosureReport(repoRoot) {
   // the warning quotes a disposition count, and quoting a number the row above
   // just declared NOT COUNTED is the same contradiction in a second place.
   let resealWarning = null;
-  if (gapCount > 0 && !disposalDegraded) {
+  if (gapCount > 0 && !disposalDegraded && !sealDigestMismatch) {
     resealWarning = (
       'Re-sealing is M2 responsibility. Calling re-seal now will unbind all ' +
       disposedCount + ' disposition records from the old inventory ' +
@@ -435,6 +473,7 @@ function buildClosureReport(repoRoot) {
   if (findingsError) allDegraded.push(findingsError);
   for (const d of findingsDegraded) allDegraded.push(d);
   if (disposalDegraded) allDegraded.push(disposalDegraded);
+  if (sealDigestMismatch) allDegraded.push(sealDigestMismatch);
   if (liveInventoryDegraded) allDegraded.push(liveInventoryDegraded);
   // PR-Codex R1 F1 — an unidentifiable item makes the sealed/live set difference
   // unanswerable. Say so instead of returning a number that is quietly wrong.
@@ -446,7 +485,9 @@ function buildClosureReport(repoRoot) {
   }
 
   // When degradation exists, render affected counts as null rather than silently-short
-  const finalDenominatorGap = allDegraded.length > 0 && liveInventoryDegraded
+  // A corrupt seal poisons the sealed id set, so the gap computed against it is
+  // not a smaller-but-honest number — it is unknown. Null it with the rest.
+  const finalDenominatorGap = (allDegraded.length > 0 && liveInventoryDegraded) || sealDigestMismatch
     ? null
     : {
       count: gapCount,
@@ -471,7 +512,7 @@ function buildClosureReport(repoRoot) {
       by_source: liveBySource,
     },
     denominator_gap: finalDenominatorGap,
-    dispositions: allDegraded.length > 0 && disposalDegraded ? null : {
+    dispositions: (disposalDegraded || sealDigestMismatch) ? null : {
       total: sealItems,
       by_disposition: dispositionsByType,
       disposed: disposedCount,

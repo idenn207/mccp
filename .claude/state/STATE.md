@@ -2,7 +2,7 @@
 state_version: 1
 task_fingerprint: review-record-linkage-m3
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T06:53:42.745Z
+updated_at: 2026-09-08T07:07:20.945Z
 last_event: stop_loop_pass
 last_event_at: 2026-09-04T06:53:42.745Z
 unsafe_checkpoint: false
@@ -11,6 +11,8 @@ session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
 dep_check_at: 2026-09-02T08:20:55.566Z
+escalate_pending: true
+escalate_pending_decision_id: review-record-linkage-m7b
 ---
 ## Goal
 review-record-linkage M3 — bidirectional-link. plan 게이트 3라운드 전부 divergent, 라운드 예산 소진(3/3). 구현 착수는 Risk R11(층간 링크 신원 앵커 미해결)로 차단됨.
@@ -44,4 +46,4 @@ R11을 **별도 축**으로 연다 — 층간 링크의 신원 앵커 설계를 
 - codex 사용량 한도 2026-09-07 재설정 — 그때까지 dual-review는 same_family degraded
 
 ## Last Updated
-2026-09-04T06:53:42.745Z
+2026-09-08T07:07:20.945Z

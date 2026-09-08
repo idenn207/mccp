@@ -80,7 +80,7 @@ M5의 인계는 ship만 그 경로에서 돌면 된다고 읽혔다. **그것으
 | `docs/review-record-linkage/frozen-baseline.md` | UPDATE | 라이브 절에 M7 실값. **동결 블록은 바이트 불변**(M5 DD5) |
 | `.claude/prds/review-record-linkage.prd.md` | UPDATE | M7 행 status + Plan 셀 |
 | `.claude/plans/review-record-linkage-m7.plan.md` | UPDATE | 이 파일. 게이트가 리뷰 기록을 주입한다 |
-| `.claude/PRPs/reports/review-record-linkage-m7-report.md` | CREATE | 구현 보고 (라이브 실값을 명령·출력째로) |
+| `.claude/PRPs/reports/review-record-linkage-m7-report.md` | UPDATE | 구현 보고 (라이브 실값을 명령·출력째로). **CREATE가 아니다** — 직전 사이클이 종료 보고로 이미 만들었고(`11b08ed`), L1 `C3_CREATE_EXISTS`가 그 사실을 잡았다 |
 | `CHANGELOG.md` | UPDATE | `## [Unreleased]` 아래 누적 (UI11 — 번호 미선언) |
 | `.claude/plans/codex-findings-backlog.md` | UPDATE | §3.14 이연 채널 |
 

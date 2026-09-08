@@ -289,9 +289,27 @@ function haltDeps() {
   };
 }
 
+// PR-Codex R2 F2 — **경계가 되는 control 문자는 지우지 말고 공백으로 접는다.**
+//
+// `ABS_PATH_TOKEN_RE`의 경계 클래스는 `[\s'\"`(\[=,]` 이고 JS `\s` 에는 `\u000b`(VT)와
+// `\u000c`(FF)가 들어간다. 그런데 그 둘은 `RESIDUAL_CONTROL_RE` 에도 들어 있어 **삭제**
+// 대상이다. 그래서 control 을 먼저 지우면 masker 가 요구하는 경계가 함께 사라지고
+// `failed\u000b/home/private/credentials.json` 이 마스킹 없이 통과한다. 실측:
+//   control 삭제 먼저 → `failed/home/private/credentials.json` (원문 노출)
+//   경계 보존 후 마스킹 → `failed <outside-repo:credentials.json>`
+//
+// 이것이 정확히 아래 `narrowReason` 주석이 "존재하지 않는다"고 단언한 입력이다. 그
+// 단언의 근거였던 "control 제거는 경로 후보를 늘리기만 한다"는 `\t` 처럼 공백으로
+// 접히는 문자에만 성립하고, 삭제되는 문자에는 성립하지 않는다.
+//
+// `\t` 를 이미 공백으로 접고 있으므로 같은 처리를 이 둘로 넓히는 것이 최소 수정이다.
+// 집합이 완전한 이유: `RESIDUAL_CONTROL_RE` ∩ JS `\s` = {`\u000b`, `\u000c`} 이다
+// (`\n`·`\r` 은 RESIDUAL 범위 밖이라 이미 보존되고, `\u00a0` 는 `\u007f-\u009f` 밖이다).
+const BOUNDARY_CONTROL_RE = /[\t\u000b\u000c]/g;
+
 function scrubControl(text, deps) {
   if (typeof text !== 'string' || text.length === 0) return '';
-  return deps.stripAnsi(text).replace(/\t/g, ' ').replace(RESIDUAL_CONTROL_RE, '');
+  return deps.stripAnsi(text).replace(BOUNDARY_CONTROL_RE, ' ').replace(RESIDUAL_CONTROL_RE, '');
 }
 
 // DD7 — 순서가 계약이다: ANSI/control 제거 → 경로 스크럽 → 절삭.

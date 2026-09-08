@@ -588,6 +588,7 @@ module.exports = {
   discoverRepoRoot,
   commonDirOf,
   commonDirInfoOf,
+  isAbsentFsError,
   sharedEventsEnabled,
   classifyWorkUnitKind,
   eventToJsonLine,

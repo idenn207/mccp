@@ -164,8 +164,25 @@ function scanSessionActivity(repoRoot) {
 
     const scanDirs = [];
     const seenDirs = new Set();
+    // orchestrator-step-wiring M3 (PR-Codex R2 F1) — **probe도 실패를 삼키면 안 된다.**
+    //
+    // 해소기(`commonDirInfoOf`)를 고쳐도 여기서 `fs.existsSync`를 쓰면 같은 구멍이 한
+    // 층 아래에 남는다: `existsSync`는 부재와 **접근 거부**를 똑같이 `false`로 접으므로,
+    // 해소는 성공했는데 공유 디렉토리의 조상이 traversal을 막으면 corpus 전체가 조용히
+    // 후보에서 빠진다. 그 상태에서 로컬 착수·완주 이벤트만 남으면 A1이 100%까지
+    // 올라가면서 `ok:true` · `degraded:false` · `integrity_ok:true`로 보고된다 —
+    // 이 milestone이 없애려는 실패 그대로다(PR-Codex R2 F1: EACCES 조상으로 실증).
+    //
+    // 판정 축은 해소기와 **같은 술어**를 쓴다(`isAbsentFsError`). 두 벌로 두면 한쪽만
+    // 넓어져 축이 조용히 어긋난다.
     for (const c of candidates) {
-      if (!fs.existsSync(c.dir)) continue;
+      try {
+        fs.statSync(c.dir);
+      } catch (err) {
+        // 후보가 실재하지 않는 것은 정상이다 — 셋 중 있는 것만 스캔한다.
+        if (!mswEvents.isAbsentFsError(err)) result.degraded = true;
+        continue;
+      }
       const key = canonical(c.dir);
       if (seenDirs.has(key)) continue;
       seenDirs.add(key);

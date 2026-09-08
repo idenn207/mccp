@@ -746,6 +746,36 @@ test('(17) an ANSI sequence fused to an absolute path does not smuggle it past t
     'the JSON consumer receives the same masking. measured: ' + j.stdout);
 });
 
+// ── (17b) PR-Codex R2 F2 — 그 재정렬이 만든 반대 방향의 구멍 ─────────────────
+//
+// (17)의 수정은 "control 제거는 경로 후보를 늘리기만 한다"는 근거 위에 섰고, 그
+// 근거는 `\t`처럼 **공백으로 접히는** 문자에만 성립한다. `\u000b`(VT)와 `\u000c`(FF)는
+// JS `\s`에 속해 `ABS_PATH_TOKEN_RE`의 경계가 되는데 `RESIDUAL_CONTROL_RE`가 그것을
+// **삭제**하므로, 재정렬 후에는 경계가 사라져 절대경로가 마스킹 없이 통과했다.
+// 실측(수정 전): `failed\u000b/home/...` → `failed/home/someone/private/key.json`.
+//
+// `chain_progress`는 git-tracked STATE.md에 실려 PR로 유입되므로 이 누출은 저장소
+// 밖으로 나간다. 아래 두 케이스가 (17)과 **동시에** 성립해야 순서 계약이 참이 된다.
+for (const [label, code] of [['vertical tab', 0x0b], ['form feed', 0x0c]]) {
+  test('(17b) a ' + label + ' boundary is preserved so the path still gets masked', () => {
+    const repo = mkRepo('ws-ctl-' + code.toString(16));
+    plantChainProgress(repo, [{
+      step: 'implement', status: 'halted', receipt_path: null,
+      ts: '2026-04-01T00:00:00.000Z', halt_site: '3.preflight',
+      reason: 'failed' + String.fromCharCode(code) + '/home/someone/private/key.json',
+    }]);
+
+    const r = run(repo, ['last-halt']);
+    assert.strictEqual(r.status, 0);
+    const out = (r.stdout || '').trim();
+    assert.ok(!/\/home\/someone\/private\/key\.json/.test(out),
+      'deleting a whitespace control byte removes the boundary the masker needs, and the '
+      + 'absolute path then ships verbatim. measured: ' + JSON.stringify(out));
+    assert.match(out, /outside-repo:key\.json/,
+      'the boundary must be folded to a space, not dropped');
+  });
+}
+
 // ── (18) santa R4 — 커버리지 회계는 read 축과 parse 축을 모두 덮는다 ─────────
 //
 // R2가 errno 축을 닫았지만 같은 실패 모드가 parse 채널로 그대로 도착했다: 최신 halt를

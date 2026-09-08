@@ -931,6 +931,55 @@ test('(F1) legitimate absence stays undegraded — the guard must not fire on a 
     'a repo with no shared location must still report an undegraded scan');
 });
 
+// PR-Codex R2 F1 — 해소가 **성공한 뒤** 그 디렉토리를 열지 못하는 경우.
+//
+// `commonDirInfoOf`만 고치면 구멍이 한 층 아래(`existsSync` probe)에 남는다.
+// `existsSync`는 부재와 접근 거부를 똑같이 false로 접으므로, 공유 corpus가 통째로
+// 빠진 채 A1이 로컬 이벤트만으로 100%까지 올라가면서 온전한 집계로 보고된다.
+test('(F1) an unreadable shared dir after successful resolution degrades the scan',
+  { skip: isRoot() }, () => {
+    const fx = mkFixture('m3sharedeacces');
+    const shared = sharedDirOf(fx);
+    fs.mkdirSync(shared, { recursive: true });
+    // 공유 corpus에는 **미완료** 작업 단위가 있다. 이것이 빠지면 분모가 깎여 A1이 위로 뜬다.
+    writeLine(shared, 'sh-open', {
+      kind: 'task_started', session_id: 'sh-open', work_unit: 'u-unfinished',
+      work_unit_kind: 'milestone', ts: '2026-06-01T00:00:00.000Z', event_id: 'sh-t',
+    });
+    // 로컬에는 착수+완주가 짝으로 있다 — 공유가 빠지면 완주율이 100%가 된다.
+    const local = localDirOf(fx.main);
+    writeLine(local, 'loc', {
+      kind: 'task_started', session_id: 'loc', work_unit: 'u-done',
+      work_unit_kind: 'milestone', ts: '2026-06-01T00:00:00.000Z', event_id: 'lo-t',
+    });
+    writeLine(local, 'loc', {
+      kind: 'task_completed', session_id: 'loc', work_unit: 'u-done',
+      work_unit_kind: 'milestone', ts: '2026-06-01T01:00:00.000Z', pr_number: 1, event_id: 'lo-c',
+    });
+
+    // 막는 것은 **조상**이다. 공유 디렉토리 자신을 0o000으로 두면 부모의 +x 만으로
+    // `statSync`가 성립해 결함이 재현되지 않는다(실측: 그 형태는 수정 전 코드에서도
+    // 통과했다). `SHARED_SUBPATH`가 `mccp/msw-events`라 중간 `mccp`를 막으면 git dir
+    // 해소(`<gitDir>/HEAD`·`objects`)는 건드리지 않은 채 probe만 EACCES가 된다.
+    const ancestor = path.join(fx.gitDir, 'mccp');
+    assert.equal(mswEvents.commonDirInfoOf(fx.main).error, null,
+      'the git dir resolves fine; this test is about the probe that follows it');
+    fs.chmodSync(ancestor, 0o000);
+    try {
+      assert.throws(() => fs.statSync(shared), /EACCES/,
+        'the injection must actually deny traversal, or this test proves nothing');
+      assert.equal(mswEvents.commonDirInfoOf(fx.main).error, null,
+        'resolution must still succeed — otherwise this would re-test the R1 axis');
+
+      const scan = scanSessionActivity(fx.main);
+      assert.equal(scan.degraded, true,
+        'a shared corpus that cannot be opened is not an absent one — folding both into '
+        + 'existsSync()===false is how a partial denominator gets reported as trustworthy');
+    } finally {
+      fs.chmodSync(ancestor, 0o755);
+    }
+  });
+
 // `commondir` **부재**도 부재다 — linked worktree가 아닌 gitdir가 그렇다.
 test('(F1) a missing commondir resolves normally rather than degrading', () => {
   const fx = mkFixture('m3nocommondir');

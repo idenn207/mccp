@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: orchestrator-step-wiring-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T02:19:02.437Z
+updated_at: 2026-09-08T00:54:33.569Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-04T02:19:02.437Z
+last_event_at: 2026-09-08T00:54:33.569Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,39 +12,37 @@ chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/174
 chain_progress: |
   {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
-dep_check_at: 2026-09-03T04:12:39.177Z
+dep_check_at: 2026-09-08T00:29:03.739Z
 escalate_pending: true
-escalate_pending_decision_id: orchestrator-step-wiring-m1
+escalate_pending_decision_id: orchestrator-step-wiring-m3-rev2
 ---
 ## Goal
-orchestrator-step-wiring M2 (halt-step-recording) — base 재머지 + goal-detect 수정 완료. /mccp:pr 진입 대기.
+orchestrator-step-wiring M3 (instrumentation-closeout) — 구현·게이트 완료. santa-loop escalation 후 /mccp:pr 진입 대기.
 
 ## Plan
-- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1 complete, M2는 머지 전까지 in-progress (사용자 판정 2026-09-04)
-- plan: .claude/plans/orchestrator-step-wiring-m2.plan.md · 결과 .claude/PRPs/reports/orchestrator-step-wiring-m2-report.md
-- version: 자식 브랜치는 plugin.json version을 선언하지 않는다(우산 결정 1). main의 version-declaration-guard가 이제 기계로 강제하며 통과 확인
-- M1은 PR #174로 머지됐고 이 브랜치가 그 위에 쌓인다
+- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1·M2 complete, M3는 머지 전까지 in-progress
+- plan: .claude/plans/orchestrator-step-wiring-m3-rev2.plan.md · 결과 .claude/PRPs/reports/orchestrator-step-wiring-m3-report.md
+- version: 브랜치는 plugin.json version을 선언하지 않는다(우산 결정 1). version-declaration-guard 통과 확인
 
 ## Done
-- M2 구현 + 로컬 code-review 전건 흡수 (HIGH 2 · MEDIUM 3 · LOW 6)
-- origin/main 40커밋 재머지 — 충돌 4건(backlog·CHANGELOG·fix-task-applied·STATE) 파일 단위 해소. §3.5.1 검증: main 파일 누락 0 · 신규 삭제 0
-- goal-detect 수정: 2경로 Plan 셀 언펜스 실패로 milestone-close가 실재 plan을 plan-missing 처리하던 결함. A/B 실측 36→39 해소, 유실 0. test 3건 추가
-- 재검증: goal-detect 30 pass · M2/lock 76 pass · state 217 · derive 147 · receipt 715 · hooks 31 · env-contract lint L1~L12 ok · version-declaration-guard ok
+- Task 1·2·4·5·6·7·8 완료. in-scope 11 suite 204 pass / 0 fail · state 217 pass · env-contract L1~L12 ok
+- Implement-Codex 재진입: round-cap-reached(1/1) — Codex 미발화, divergent로 봉인(위조 없음). design-critique R0 CONVERGED · grounding anchor_clean · routed 18건
+- Task 9는 조건부 미수행 — escalate_pending의 decision이 이미 M3-rev2(살아 있는 알람)라 clear하지 않았다(Codex F3)
+- Task 10은 관측 불가 — 설치 cache 1.33.6에 M1(A1_AXIS_KINDS 0건)·M2(work.md record-step 0건) 배선이 없어 완주해도 옛 본문이 돈다
 
 ## In Progress
-없음 — PR 대기.
+없음 — santa-loop escalation 대기
 
 ## Next Step
-/mccp:pr --args=--decision orchestrator-step-wiring-m2. 머지 확인 후 PRD M2 status를 complete로 정정한다.
+/mccp:santa-loop (gate-receipt: mccp-implement-codex/orchestrator-step-wiring-m3-rev2) → /mccp:prp-commit → /mccp:pr
 
 ## Last Decision
-M2 status는 머지 전까지 in-progress로 둔다. complete면 archive-complete/scan.js가 archivable:true를 내고(2/2), 그 상태에서 archive가 돌면 plan이 archived/로 옮겨져 /mccp:pr 2.5.8·2.5.9의 plan staleness 가드가 이 사이클을 스스로 막는다(§3.11 가드 2 자기차단). scanner 자신도 M2를 evidence_verdict=not-shipped로 판정했다.
+Task 9의 clear를 수행하지 않는다. escalate_pending_decision_id가 M1이 아니라 이 사이클의 M3-rev2이고, 무조건 clear는 미해소 알람을 M1 머지를 근거로 지우는 것이 된다. Acceptance의 '두 소비 표면 침묵' 항목은 그 결과로 이번 사이클에 미충족이며 report에 그대로 적었다.
 
 ## Open Questions
-- supersession 배선(Step 3.verify · Phase 3)은 test와 합성 실행으로만 검증됐다 — 라이브 /mccp:work 완주 관측은 다음 사이클
-- lib/tests 전체는 여전히 green이 아니다 — plan-review-cli-emit.test.js 4건 + meta-research.test.js:583. 둘 다 선재이며 backlog 등재. 전자는 라운드 원장을 오염시키므로 PR 전에 돌리지 않는다
-- goal-detect 잔여 2축(archived PRD 열 정렬 · 빈 셀 reason 분리)은 backlog에 남았다
-- codex 사용량 한도(2026-09-07 해제)로 그때까지 모델 다양성 제약
+- 위치 독립성(M1 acceptance)은 이 환경에서 라이브 반증 불가 — 공유 corpus .git/mccp가 존재하지 않고 모든 task_started가 worktree-local에 착지한다. 저장소 코드는 정상(오라클이 shared를 반환)이고 원인은 cache 배포 간극이다. backlog HIGH 기등재
+- derive/tests/mask.test.js 1건 red는 선재 — HEAD 트리에서도 동일 실패. toggle_usage/B3가 절대경로를 마스킹 밖으로 흘린다. M3 사거리 밖
+- cross-gate dedupe는 divergent에서 닫혀 있으므로 /mccp:pr에서 PR-Codex가 반드시 발화한다
 
 ## Last Updated
-2026-09-04T02:19:02.437Z
+2026-09-08T00:54:33.569Z

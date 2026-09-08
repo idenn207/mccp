@@ -43,14 +43,13 @@ M1은 A1의 집계 경계를 저장소 전체로 올렸고 M2는 halt 지점을 
 |---|---|---|
 | `plugins/mccp/scripts/lib/msw-metrics/index.js` | UPDATE | A1 spike 가드가 기준선 부재를 spike로 읽지 않게 한다 (Task 1) · A2 분자를 분모와 같은 모집단에서 뽑는다 (Task 4) |
 | `plugins/mccp/scripts/lib/msw-metrics/cli.js` | UPDATE | `a1` 배너 한 줄에 잠든 spike 가드를 토큰으로 표면화한다 — 사유 필드가 어느 렌더 경로에도 닿지 않는 것을 막는다 (Task 1) |
-| `plugins/mccp/scripts/derive/sources/session-activity.js` | UPDATE | 공유 위치 이벤트가 `sessions` 맵과 `concurrent_pairs_count`를 만들지 않게 한다 (Task 5) |
-| `plugins/mccp/scripts/derive/sources/findings.js` | UPDATE | `remediation_pr` 조인이 공유 corpus를 보게 한다 (Task 3) |
+| `plugins/mccp/scripts/derive/sources/session-activity.js` | UPDATE | 공유 위치에서 읽은 **비-A1 kind**가 세션 축 엔트리를 만들지 못하게 한다 — writer의 kind 게이트에 대한 reader 측 defence-in-depth (Task 5) |
 | `plugins/mccp/scripts/lib/work-orchestrator.js` | UPDATE | `worktree=` 구성요소를 `safeField`에 통과시킨다 — 텍스트·JSON 양 경로 (Task 2) |
 | `plugins/mccp/scripts/lib/env-contract/registry.js` | UPDATE | `MCCP_MSW_EVENTS_SHARED`의 영속 사유를 note에 기록한다 (Task 6) |
 | `plugins/mccp/scripts/lib/tests/msw-metrics.test.js` | UPDATE | Task 1·4의 반증 test |
 | `plugins/mccp/scripts/lib/tests/msw-metrics-b2.test.js` | UPDATE | Task 5의 B2 오염 반증 test |
 | `plugins/mccp/scripts/lib/tests/work-halt-record.test.js` | UPDATE | Task 2의 `worktree=` 좁히기 test (텍스트·JSON) |
-| `plugins/mccp/scripts/lib/tests/msw-events-path.test.js` | UPDATE | Task 3의 findings 공유 조인 test |
+| `plugins/mccp/scripts/lib/tests/msw-a1-boundary.test.js` | UPDATE | Task 5의 경계 반증 test — M1 경계 acceptance가 도는 곳이 여기다 |
 | `.claude/state/STATE.md` | UPDATE | 끝난 milestone(M1)에 고정된 `escalate_pending`을 해소한다 (Task 9) |
 | `.claude/prds/orchestrator-step-wiring.prd.md` | UPDATE | M3 행 추가 · Open Questions 1~5 확정 기록 (Task 7) |
 | `.claude/plans/codex-findings-backlog.md` | UPDATE | 해소된 stale 행 정리 · M3에서 닫은 행 표시 (Task 8) |
@@ -65,17 +64,48 @@ M1은 A1의 집계 경계를 저장소 전체로 올렸고 M2는 halt 지점을 
 정책 변경이기 때문이고, 임계를 올리지 않는 이유는 그것이 폭발 시점을 미룰 뿐 부호를 고치지
 않기 때문이다.
 
-**DD2 — 기준선 producer는 만들지 않는다.** 가드가 잠든 상태임을 정직하게 표기하되 기준선을
-persist하는 경로는 이 milestone에서 만들지 않는다. 그것은 "직전 주기 대비"라는 새 시간축을
-도입하는 일이고 A1 계약에 그 축이 없다. 잠든 가드는 `invalid`가 아니라 계측 결과 옆의
-사유로 남는다 — `forward-only` 계열의 정직 표기(`index.js:140-152`)와 같은 형태다.
+**DD2 — 기준선 producer는 만들지 않는다. 그 대가는 가드가 영구히 잠든다는 것이고, 그것을
+숨기지 않는다.** 기준선을 persist하는 경로는 이 milestone에서 만들지 않는다 — "직전 주기 대비"는
+새 시간축이고 A1 계약에 그 축이 없다. 잠든 가드는 `invalid`가 아니라 계측 결과 옆의 사유로
+남는다(`index.js:140-152`의 `forward-only` 정직 표기와 같은 형태).
 
-**DD3 — 공유 위치는 A1 축에만 기여한다. 그것을 reader에서 강제한다.** M1의 DD8은 격리를
-*writer*와 *migration*에만 걸었고 reader에는 kind 가드가 없다. 그래서 오늘 공유 디렉토리의
-어떤 kind든 `sessions[sessionId]` 엔트리를 만들고, 그 맵이 `concurrent_pairs_count`를 낳고,
-그것이 **B2의 분모**다. 즉 DD8의 격리 주장은 소비처가 실재하는 상태로 거짓이다. M3는 그
-주장을 참으로 만든다 — 공유 디렉토리에서 읽은 이벤트는 A1 축 집합(`startedWorkUnits` ·
-`completedWorkUnits` · granularity 표식)에만 기여하고 세션 축에는 기여하지 않는다.
+**그 대가를 정확히 적는다** (L2 invariant/HIGH · security/MEDIUM · test/MEDIUM 흡수). DD1의 부호
+정정 뒤 `unitSpikeFlag`가 발화하려면 `model._priorStartupCount`가 있어야 하는데, 그 필드는
+저장소 전체에서 **읽는 곳 1곳 · 쓰는 곳 0곳**이다(실측 grep — 나머지 매치는 plan·backlog·리뷰
+산문뿐). DD2가 producer를 만들지 않기로 확정하므로, **M3 이후 anti-gaming 가드는 어떤 실
+입력으로도 도달 불가**다. 즉 DD1이 "삭제하지 않는 이유는 정책 변경이기 때문"이라 적은 그 정책
+변경이 결과적으로 일어난다 — 다만 코드가 아니라 입력 부재로 일어나고, 부호가 바로잡혀 있으므로
+producer가 생기는 날 가드는 **되살아난다**. 지워 버린 가드는 되살아나지 못한다는 점이 이 선택의
+유일한 근거이며, 그 이상을 주장하지 않는다.
+
+따라서 Task 1의 짝 단언 중 두 번째(`기준선 10` → `invalid`)는 **계약 test가 아니라 부호
+test**다. production이 도달할 수 없는 분기를 고정하므로 회귀 그물이 아니고, 부호를 되돌리는
+편집을 붉게 만드는 것이 그 역할의 전부다. test 주석이 그렇게 적어야 하며, "anti-gaming 축이
+온전하다"는 보증으로 읽히면 안 된다. 이 이연은 Task 8의 신규 backlog 항목으로 **등재된다**(§3.16
+— 조용히 버리지 않는다).
+
+**DD3 — DD8의 격리는 오늘 writer 한 축에만 걸려 있다. reader에 두 번째 축을 세운다.**
+이 자리에는 원래 "공유 디렉토리의 어떤 kind든 `sessions[sessionId]` 엔트리를 만들고, 그 맵이
+`concurrent_pairs_count`를 낳으므로 DD8의 격리 주장은 소비처가 실재하는 상태로 거짓이다"라고
+적혀 있었다. **그 문장은 거짓이었다** — L2 패널(test/HIGH · security/MEDIUM)이 반증했고 실측으로
+확인했다. `msw-events.js:419`가 `A1_AXIS_KINDS`(`task_started`·`task_completed`·`task_ship_sealed`)
+셋만 공유 위치로 라우팅하고 `migrations/msw-events-common-dir.js:453`도 비-A1을 skip한다. 그리고
+`session-activity.js`의 `spanOf`는 `session_start` 이벤트가 없으면 `null`을 돌려주며
+`concurrent_pairs_count`는 span에서만 증가하는데, `session_start`는 A1 축이 아니므로 공유 위치에
+**구조적으로 존재할 수 없다.** 따라서 **오늘 B2 분모 오염은 0이다.**
+
+그래서 Task 5는 *실재하는 결함의 수정*이 아니라 **defence-in-depth**로 재정의된다. 오늘 격리를
+지키는 것은 writer의 kind 게이트 하나뿐이고, reader에는 대응하는 가드가 없다. `A1_AXIS_KINDS`에
+kind가 하나 추가되거나 세션 축 이벤트가 어떤 경로로든 공유 위치에 닿는 순간 B2는 **조용히**
+깨지며, 그때 그것을 붉게 만들 단언이 저장소에 없다. reader 측 가드는 그 단일 실패점을 둘로
+만든다.
+
+**경계는 `dirIsShared`가 아니라 kind다** (security/MEDIUM 흡수). 공유 위치에는 **자기
+worktree가 쓴** A1 이벤트도 들어가므로(`msw-events.js:418-423`) "공유 디렉토리에서 읽었다"를
+"외래다"와 등치하면 자기 세션까지 B2 분모에서 사라진다 — 오늘 없는 오염을 막으려다 실재하는
+집계를 깎는 것이다. 가드는 출처 디렉토리가 아니라 **kind가 A1 축인가**로 판정한다. 그러면
+writer가 보내는 것과 reader가 받는 것이 같은 술어를 쓰고, 두 축이 같은 정의 위에서 서로를
+검사한다.
 
 **DD4 — 좁히기는 열거가 아니라 경로다.** Task 2의 수정은 "`worktree`도 목록에 추가"가 아니라
 **배너 줄을 조립하는 모든 값이 같은 함수를 지난다**는 형태여야 한다. 열거로 막으면 여섯 번째
@@ -101,23 +131,31 @@ registry 행 포맷에 만기 열이 없으므로 새 열을 만들지 않고 no
   invalid를 유발하지 못하게 한다. spike는 **기준선이 존재하고** 그에 비해 급증했을 때만
   주장한다. 기준선이 없으면 가드는 판정하지 않고, 그 사실이 관측 가능해야 한다 —
   A1 결과에 잠든 가드를 나타내는 사유 필드를 present-only로 싣는다.
-- **필드를 싣는 것만으로는 미완이다 — 렌더 경로를 함께 연다** (design-critique R0 A #1,
-  흡수). 오늘 A1의 사유를 읽는 표면은 `renderer/verdict.js:93-96` 하나뿐이고 그것은
-  `status==='invalid'`로 가드돼 있다. Task 1이 status를 `computed`로 바꾸는 순간 그 경로가
-  닫히므로, 조치를 취하지 않으면 **오늘 (오탐으로나마) 헤드라인에 뜨던 신호가 M3 이후
-  0개 표면**이 된다. 운영자는 anti-gaming 가드가 잠들었다는 사실을 알 길 없이
-  `status=computed`만 본다. 그것은 이 PRD가 자기 Risks 표 첫 줄에 "가장 높은 위험"으로
-  적은 실패(계측을 올려놓고 소비 회로를 안 붙임)를 그대로 재현하는 것이다.
-  따라서 `msw-metrics/cli.js`의 `a1` 한 줄에 잠든 가드를 **한 토큰으로** 덧붙인다
-  (`status=computed · spike-guard=dormant` 형태). 배너는 한 줄 예산이 있으므로 사유
-  원문이 아니라 고정 토큰이다.
+- **필드를 싣는 것만으로는 미완이다 — 렌더 경로를 함께 연다.** 근거는 아래처럼 정정한다
+  (L2 architect/MEDIUM 흡수). 이 자리에는 design-critique R0 A #1을 받아 "오늘 (오탐으로나마)
+  헤드라인에 뜨던 신호가 M3 이후 0개 표면이 된다"고 적혀 있었는데 **그 서술은 거짓이다** —
+  이 계획 자신이 startupCount는 오늘 23이라고 적으므로 `startupCount > 50` 가드는 애초에
+  발화하지 않고, A1은 `invalid`가 아니며, `renderer/verdict.js:93-96`의 헤드라인 경로는
+  **지금도 A1에 대해 닫혀 있다.** 잃는 표면은 없다.
+  실제 근거는 미래형이다: DD2대로 가드는 영구히 잠들고, 잠들었다는 사실을 말하는 표면이
+  하나도 없으면 운영자는 `status=computed`만 보고 anti-gaming 축이 살아 있다고 읽는다.
+  그것이 이 PRD Risks 첫 줄의 실패(계측을 올려놓고 소비 회로를 안 붙임)다.
+- **토큰의 발화 조건을 명시한다** (같은 finding의 두 번째 축). `msw-metrics/cli.js`의 `a1`
+  한 줄에 붙이는 `spike-guard=dormant`는 **기준선이 부재하는 동안 항상** 출력한다 —
+  `startupCount` 값과 무관하다. 임계 초과에서만 내면 그 조건은 오늘 도달하지 않아 토큰이
+  다시 0개 표면이 되고, 이 Task는 표면을 열었다고 주장하면서 아무것도 열지 않은 것이 된다.
+  DD2대로 부재는 영구 상태이므로 이 토큰은 사실상 상수이고, 그것이 정확히 전달하려는
+  사실이다(잠들어 있다). 배너는 한 줄 예산이므로 사유 원문이 아니라 고정 토큰 하나다.
 - **Mirror**: `index.js:140-152` — producer 부재를 `computed 0`으로 위장하지 않고
   사유 문자열과 함께 표기하는 형태. 배너 측은 `cli.js`의 기존 `status=` 토큰 조립 형태.
 - **Validate**: `startupCount=51` · 기준선 부재 → `status='computed'`(오늘 `invalid`) ·
   `startupCount=51` · 기준선 10 → `status='invalid'` · `invalid_reason='unit_count_spike_suspected'`.
-  두 단언이 짝으로 있어야 한다 — 앞만 있으면 가드를 지운 것과 구별되지 않는다.
-  세 번째로 **가시성**을 단언한다: 기준선 부재 + 51에서 `cli.js a1` 출력에 dormant 토큰이
-  실제로 나타난다.
+  두 단언이 짝으로 있어야 한다 — 앞만 있으면 가드를 지운 것과 구별되지 않는다. **두 번째
+  단언에는 DD2가 정한 주석을 붙인다**: 이것은 부호 test이지 계약 test가 아니며 production이
+  도달할 수 없는 분기를 고정한다.
+  세 번째로 **가시성**을 단언한다: 기준선 부재에서 `cli.js a1` 출력에 dormant 토큰이 실제로
+  나타난다 — `startupCount`가 임계 아래(예: 23)일 때도 나타나야 한다. 51에서만 단언하면
+  오늘 도달하지 않는 조건만 검사하게 된다.
 
 ### Task 2: 배너로 나가는 모든 값이 같은 좁히기를 지난다
 - **Action**: `work-orchestrator.js`의 `formatHaltLine`(:415)과 JSON emit(:582) 양쪽에서
@@ -135,32 +173,61 @@ registry 행 포맷에 만기 열이 없으므로 새 열을 만들지 않고 no
   JSON 경로 **양쪽**에서 raw ESC가 0건임을 단언. 단언 대상은 `worktree=`라는 이름이 아니라
   *조립된 출력 전체에 C0/C1 제어문자가 없다*(DD4).
 
-### Task 3: `findings.js`가 다른 reader와 같은 방식으로 공유 corpus를 본다
-- **Action**: `derive/sources/findings.js:37`의 직접 `path.join`을 `plugins/mccp/scripts/derive/sources/session-activity.js:119-131`과
-  같은 형태로 바꾼다 — local + `commonDirOf(repoRoot)` 기반 공유 위치 둘 다 스캔, 토글 미읽기,
-  해소 실패는 후보 미추가로 접기, `event_id` 기반 dedupe.
-- **Mirror**: `m8-coverage-gate.js:187-197` — 이미 같은 판단을 내린 두 번째 선례.
-- **Validate**: 공유 디렉토리에만 있는 `remediation_pr` 레코드가 finding 조인에 나타난다.
-  토글 off에서도 나타난다(reader는 토글을 읽지 않는다).
+> **Task 3은 삭제됐다 — L2 패널이 전제를 반증했다.**
+> (Task 번호는 재사용하지 않는다. 뒤 Task를 재번호하면 리뷰 기록·backlog의 참조가 끊긴다.)
+
+원래 이 Task는 `derive/sources/findings.js:37`의 직접 `path.join`을 공유 corpus까지 스캔하도록
+넓히려 했다. **삭제한다.** 전제가 거짓이기 때문이다(L2 test/HIGH · security/MEDIUM ·
+invariant/MEDIUM, 실측 확인):
+
+- `remediation_pr`은 `A1_AXIS_KINDS`에 없다. `msw-events.js:419`가 비-A1 kind를 공유 위치로
+  보내지 않고 `migrations/msw-events-common-dir.js:453`도 skip하므로, **어떤 producer도 그
+  레코드를 공유 위치에 쓰지 않는다.** 넓혀도 읽을 것이 없는 dead read다.
+- 더 나쁜 것은 방향이다. 그 경로에 그 kind가 존재할 수 있는 유일한 출처는 손편집이거나 정상
+  ingress를 거치지 않은 쓰기이므로, C1 귀속 커버리지(`with_remediation_pr`)의 신뢰 경계를
+  CLI 초크 포인트 **밖으로** 넓히게 된다.
+- 그리고 같은 계획 안에서 DD3와 정면 모순이다 — DD3는 공유 위치가 A1 축에만 기여한다고
+  못박는데 이 Task는 비-A1 축 reader를 그 corpus에 연결한다.
+
+원 Validate("공유 디렉토리에만 있는 `remediation_pr` 레코드가 조인에 나타난다")는 writer도
+migration도 만들 수 없는 fixture를 손으로 심어야만 성립했다 — 그 자체가 전제가 거짓이라는
+신호였다. Task 번호는 비우지 않고 이 기록으로 남긴다(뒤 Task를 재번호하면 리뷰 기록·backlog의
+참조가 끊긴다).
 
 ### Task 4: A2의 분자와 분모가 같은 모집단을 읽는다
 - **Action**: `msw-metrics/index.js` `computeA2`에서 `samples`를 `sessions`가 아니라
-  Task 5a가 만든 `localSessions`에서 뽑는다. 오늘 무해한 이유(`context_remaining_pct`가
+  Task 5가 지키는 `localSessions`에서 뽑는다. 오늘 무해한 이유(`context_remaining_pct`가
   로컬 `session_end`에서만 온다)는 **강제되지 않은 우연**이므로 코드로 고정한다.
 - **Mirror**: 같은 함수 `:216-218`의 `localSessions` 해소 + `sessions_local` 부재 fallback.
 - **Validate**: 공유 위치에서 온 외래 세션에 `context_remaining_pct`가 실린 fixture에서
   그 값이 분자에 들어가지 않는다. `sessions_local` 부재(구 소스) fallback은 오늘 동작 유지.
 
-### Task 5: reader가 DD8의 격리 주장을 실제로 강제한다
-- **Action**: `plugins/mccp/scripts/derive/sources/session-activity.js`의 per-line 루프에서 **공유 디렉토리 출처**
-  (`dirIsShared`)인 이벤트가 `sessions[sessionId]` 엔트리를 만들지 않게 한다. 그 이벤트는
-  A1 축 집합에만 기여한다. `observed_local` 표식은 이미 있으므로(`:211`) 그 옆에 엔트리
-  **생성** 자체를 가르는 경계를 둔다.
+### Task 5: DD8의 격리에 reader 측 두 번째 축을 세운다 (defence-in-depth)
+- **이것은 실재하는 오염의 수정이 아니다** (DD3 참조 — L2가 원 전제를 반증했고 실측 확인).
+  오늘 B2 분모 오염은 **0**이다. 이 Task가 닫는 것은 오염이 아니라 **단일 실패점**이다:
+  격리를 지키는 것이 writer의 kind 게이트 하나뿐이라, `A1_AXIS_KINDS`에 kind가 추가되거나
+  세션 축 이벤트가 어떤 경로로든 공유 위치에 닿으면 B2가 조용히 깨지고 그것을 붉게 만들
+  단언이 없다.
+- **Action**: `plugins/mccp/scripts/derive/sources/session-activity.js`의 per-line 루프에서
+  **kind가 A1 축이 아닌** 이벤트가 공유 위치에서 읽혔을 때 `sessions[sessionId]` 엔트리를
+  만들지 않게 한다. 판정 술어는 writer와 **같은 것**(`A1_AXIS_KINDS` 멤버십)이어야 하며,
+  reader가 자기 사본을 새로 열거하면 두 축이 갈려 검사가 성립하지 않는다 — writer 모듈이
+  그 집합을 export하고 reader가 그것을 읽는 형태로 한다.
+- **경계는 `dirIsShared`가 아니다** (L2 security/MEDIUM 흡수). 공유 위치에는 **자기
+  worktree가 쓴** A1 이벤트도 들어가므로(`msw-events.js:418-423`), "공유에서 읽음"을
+  "외래"로 등치해 엔트리 생성을 막으면 자기 세션까지 B2 분모에서 사라진다. 오늘 없는 오염을
+  막으려다 실재하는 집계를 깎는 것이라 **순손실**이다.
 - **Mirror**: 같은 파일 `:110-118`의 CL-5 back-compat 판단 — "남의 디렉토리를 스캔하는 것이
   정확히 방지 대상"이라는 같은 논리의 worktree 판.
-- **Validate**: 공유 디렉토리에만 존재하는 외래 세션 2건이 있는 fixture에서
-  `concurrent_pairs_count`가 그 둘로 인해 증가하지 않는다(= B2 분모 불변). 같은 fixture에서
-  A1의 `task_startups_count`는 **그대로 증가한다** — 격리는 A1을 죽이지 않는다.
+- **Validate**: 세 단언이 **함께** 있어야 한다 —
+  1. 공유 위치에 비-A1 kind(예: `session_start`+`session_end`)를 심은 fixture에서
+     `concurrent_pairs_count`가 증가하지 않는다. 이 fixture는 오늘의 writer가 만들 수 없는
+     형태이며, 그것이 이 단언의 **목적**이다 — 미래에 그 상태가 생겼을 때 붉어지는 그물이다.
+     test 주석에 그렇게 적는다(오늘의 회귀를 잡는 test로 읽히면 안 된다).
+  2. 공유 위치의 **A1 kind** 이벤트는 `task_startups_count`를 그대로 증가시킨다 — 격리가
+     A1을 죽이지 않는다.
+  3. 공유 위치에 A1 이벤트만 남긴 **자기 세션**이 B2 분모에서 사라지지 않는다 — 위
+     security 축의 반증 단언. 1번만 있으면 `dirIsShared` 구현과 구별되지 않는다.
 
 ### Task 6: 토글의 영속 사유를 registry에 기록한다
 - **Action**: `env-contract/registry.js:201`의 `MCCP_MSW_EVENTS_SHARED` 행 note에
@@ -190,13 +257,35 @@ registry 행 포맷에 만기 열이 없으므로 새 열을 만들지 않고 no
   (a) `meta-research.test.js:583` red — 실측 45/45 green,
   (b) m8-coverage-gate의 토글 의존 — `m8-coverage-gate.js:187-197`이 이미 토글을 읽지 않는다.
   M3가 닫는 행에도 같은 표시를 단다. **행을 삭제하지 않는다** — 이 원장은 append-only다.
-- **새로 등재할 것 2건** (M3가 관측했으나 사거리 밖이라 닫지 않는다):
+- **새로 등재할 것** (M3가 관측했으나 사거리 밖이라 닫지 않는다). 앞의 둘은 원안이고,
+  나머지는 이 계획의 plan 게이트 L2 패널이 낸 MEDIUM·LOW를 §3.14대로 이연한 것이다 —
+  흡수한 HIGH와 같은 축인 지적은 그 흡수에 포함됐으므로 여기 중복 등재하지 않는다:
   (a) **escalation clear 경로가 수명 끝난 decision에 도달 불가** — `receipt/write.js:1240-1252`가
       *같은 `decision_id`의 후속 clean receipt*를 요구하므로, 머지되어 끝난 milestone의 알람은
       영구히 해제되지 않는다. Task 9는 이번 인스턴스만 데이터로 해소하고 구조는 남긴다.
       소유 축은 escalation/fix-task 수명주기(UI4 경계)
   (b) **공유 corpus 읽기 상한 부재** — DD6의 근거와 함께. 오늘 523 이벤트로 100MB 경고선에서
       세 자릿수 배 떨어져 있어 관측 가능한 문제가 아니다
+  (c) **A1 anti-gaming 가드가 M3 이후 영구 dormant** (DD2) — 부호는 바로잡히지만 기준선
+      producer가 없어 도달 불가. 되살리려면 `_priorStartupCount` producer라는 새 시간축이
+      필요하고 그것은 A1 계약 밖이다. 소유 축은 msw-metrics A1
+  (d) **round-cap 예산이 PRD 슬러그에 묶여 milestone 간에 공유된다** — 한 PRD의 N번째
+      milestone은 앞선 milestone들이 쓴 예산의 잔량을 물려받는다. 예산의 의미 단위는
+      *리뷰받는 본문*인데 키는 *PRD*다. 여기에 L2 invariant/MEDIUM이 지적한 감사 공백이
+      따라붙는다 — 캡에 막힌 뒤 plan 경로로 재진입하면 새 키의 원장이 `rounds_so_far=0`이라,
+      **앞선 차단이 ship 감사가 읽는 원장에 흔적을 남기지 않는다**(plan 산문에만 남고
+      receipt가 그것을 anchor하지 않는다). 소유 축은 review-loop-bypass /
+      env-contract-integrity — 2026-09-04 HIGH 행(캡 pin)과 같은 축이다
+  (e) **Task 9 acceptance의 amber 축이 오늘 반증 불가** (L2 architect·invariant/MEDIUM) —
+      `renderer/verdict.js:127`은 `fixTask && escalate_pending`을 요구하는데 이 저장소에는
+      `.claude/state/fix-task.md`가 없어(`fix-task-applied.md`만 존재) amber는 값과 무관하게
+      이미 침묵 중이다. 즉 그 항목은 '해소함'과 '아무것도 안 함'을 구별하지 못한다. Task 9는
+      실제로 반응하는 표면(`state-injector.js:145`)으로 판정하고, 이 관측은 이연한다
+  (f) 그 밖의 L2 MEDIUM·LOW — Task 9의 `escalate_pending`을 이 사이클 자신의 receipt write가
+      되살릴 수 있고 순서 보장이 없다(test/MEDIUM) · Task 4/5 착지 후 `sessions` vs
+      `sessions_local` 구분이 런타임 항진명제가 된다(architect/LOW) · Risks의 Task 3 mitigation이
+      존재하지 않는 `event_id` dedupe를 인용했다(invariant/LOW — Task 3 삭제로 소멸하나
+      기록은 남긴다). 원문과 증거는 `.claude/reviews/plan-review-orchestrator-step-wiring-m3.md`
 - **Mirror**: backlog의 기존 해소 표기 관례를 따른다(신규 형식을 만들지 않는다).
 - **Validate**: `node plugins/mccp/scripts/derive/sources/backlog.js`가 여전히 전 행을
   파싱한다(4열 고정 — 5번째 열은 기존 행 전부를 파서에서 사라지게 한다).
@@ -242,7 +331,11 @@ registry 행 포맷에 만기 열이 없으므로 새 열을 만들지 않고 no
 ## Validation
 
 ```bash
-# 1. 범위 내 test suite 전수 (baseline: 101 pass / 0 fail — 2026-09-04 실측)
+# 1. 범위 내 test suite 전수
+#    아래 3종(session-activity / msw-a1-boundary / msw-m8-producers)은 L2 test/HIGH가 지적해
+#    추가했다. Task 5가 바꾸는 `derive/sources/session-activity.js`를 실제로 require하는 test가
+#    그 셋인데 전부 lib/tests/ 아래에 있어, 원안의 목록에도 item 2의 derive/tests/* glob에도
+#    걸리지 않았다 — M1 경계 acceptance가 회귀 그물 **밖**이었다.
 MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 \
   plugins/mccp/scripts/lib/tests/msw-metrics.test.js \
   plugins/mccp/scripts/lib/tests/msw-metrics-acceptance.test.js \
@@ -251,7 +344,10 @@ MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 \
   plugins/mccp/scripts/lib/tests/work-command-body.test.js \
   plugins/mccp/scripts/lib/tests/work-halt-record.test.js \
   plugins/mccp/scripts/lib/tests/work-orchestrator.test.js \
-  plugins/mccp/scripts/lib/tests/msw-events-path.test.js
+  plugins/mccp/scripts/lib/tests/msw-events-path.test.js \
+  plugins/mccp/scripts/lib/tests/session-activity.test.js \
+  plugins/mccp/scripts/lib/tests/msw-a1-boundary.test.js \
+  plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js
 
 # 2. derive / state 회귀
 MCCP_CODEX_DISABLED=1 node --test --test-concurrency=2 plugins/mccp/scripts/derive/tests/*.test.js
@@ -295,12 +391,11 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Task 5의 reader 격리가 A1까지 죽인다 — 공유 위치가 A1의 유일한 corpus이므로 경계를 잘못 그으면 M1이 되돌아간다 | 중 | Validate가 **짝으로** 단언한다: B2 분모 불변 **그리고** A1 분모 증가. 앞만 단언하면 A1을 죽인 것과 구별되지 않는다 |
+| Task 5의 reader 가드가 A1이나 자기 세션까지 죽인다 — 공유 위치가 A1의 유일한 corpus이고 거기엔 자기 worktree 이벤트도 있다 | 중 | 경계를 `dirIsShared`가 아니라 kind로 잡고(DD3), Validate가 **셋을 함께** 단언한다: 비-A1 차단 · A1 분모 증가 · 자기 세션 보존. 앞 하나만 단언하면 `dirIsShared` 구현과 구별되지 않는다 |
 | Task 1이 가드를 사실상 삭제한 것이 된다 | 중 | 두 번째 단언(기준선 존재 시 spike 발화)이 없으면 Task 1은 미완이다. Validate 4는 첫 축만 보므로 test 쪽에 두 축을 모두 둔다 |
 | M1·M2의 acceptance가 조용히 회귀한다 | 중 | Validation 3(위치 독립성)과 `work-command-body.test.js` 전건이 회귀 그물. 둘 다 M3가 건드리는 파일을 지난다 |
-| 이 계획의 plan 게이트가 라운드 소진으로 차단된다 | **확실** | 실측 확인됨 — slug `orchestrator-step-wiring`에 panel 3라운드, 실효 cap 1. UI5대로 우회하지 않고 받아들이며 `## Gate Record`에 기록한다. 원인(캡 pin)은 UI4로 범위 밖 |
+| 이 계획의 plan 게이트가 승인 receipt 없이 끝난다 | **확실** | 실현됨 — 2차 진입의 L2 패널이 `divergent`(pass 1/4)를 냈고 캡 1이 소진돼 재리뷰는 기계가 거부한다. §3.16대로 1라운드를 triage(HIGH 3건 흡수 · 나머지 이연)하고 진행하며, verdict를 위조하지 않는다. `## Gate Record` 참조 |
 | backlog 정리가 행을 소실시킨다 | 낮음 | Task 8이 삭제를 금지하고 표시만 단다. Validate가 파서 전 행 인식을 확인 |
-| Task 3의 findings 공유 스캔이 중복 계상한다 | 낮음 | `plugins/mccp/scripts/derive/sources/session-activity.js`의 `event_id` dedupe와 같은 형태를 쓴다. 순서 극성(첫 디렉토리 전건 수용)도 같이 따른다 |
 
 ## Acceptance
 
@@ -309,11 +404,14 @@ git diff --diff-filter=D --name-only origin/main...HEAD
 - [ ] Patterns mirrored, not reinvented
 - [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
 - [ ] **A1 spike 가드**: `startupCount=51` · 기준선 부재에서 `status='computed'`이고,
-      기준선 존재 시 급증에서는 `status='invalid'`다 — 두 단언이 모두 존재한다
-- [ ] **A1 가드의 가시성**: 잠든 가드가 `cli.js a1` 출력에 실제로 나타난다. 필드를 실었으나
-      어느 표면에도 뜨지 않으면 Task 1은 미완이다 — 이 PRD Risks 첫 줄이 지목한 실패다
-- [ ] **reader 격리**: 공유 위치 외래 세션이 `concurrent_pairs_count`를 증가시키지 않으면서
-      A1 `task_startups_count`는 증가시킨다 — 같은 fixture에서 두 단언
+      기준선 존재 시 급증에서는 `status='invalid'`다 — 두 단언이 모두 존재하고, 두 번째에는
+      "부호 test이지 계약 test가 아니다"(DD2)는 주석이 붙어 있다
+- [ ] **A1 가드의 가시성**: 잠든 가드가 `cli.js a1` 출력에 실제로 나타난다 — `startupCount`가
+      임계 아래(오늘 23)일 때도 나타난다. 51에서만 나타나면 오늘 도달하지 않는 조건만 검사한
+      것이고 Task 1은 미완이다 — 이 PRD Risks 첫 줄이 지목한 실패다
+- [ ] **reader 가드(defence-in-depth)**: 공유 위치의 **비-A1 kind**가 `concurrent_pairs_count`를
+      증가시키지 않고, 같은 위치의 **A1 kind**는 `task_startups_count`를 증가시키며, A1
+      이벤트만 남긴 **자기 세션**은 B2 분모에 남는다 — 세 단언이 함께 존재한다
 - [ ] **배너 좁히기**: 제어문자를 심은 worktree 이름이 텍스트·JSON 양 경로에서 raw로
       나오지 않는다
 - [ ] **위치 독립성 회귀 없음**: 세 위치에서 같은 A1 값 (M1 acceptance 재확인)
@@ -393,8 +491,11 @@ routing mode: `auto` (implement 단계에서 유효). plan 단계는 **recommend
 
 ## Gate Record
 
-이 계획의 plan 게이트는 **L2 패널에 도달하지 못했다.** 사유·대가·판단을 그대로 남긴다
+이 계획의 plan 게이트는 **두 번 진입했다.** 두 진입은 같은 본문에 대한 재리뷰가 아니라
+**서로 다른 원장 키**에 대한 각각의 1라운드다(§3.16). 사유·대가·판단을 그대로 남긴다
 (UI5 — 우회하지 않고 받아들이되 기록한다).
+
+### 1차 진입 — PRD 슬러그, 패널 미도달
 
 | 단계 | 결과 |
 |---|---|
@@ -407,46 +508,123 @@ routing mode: `auto` (implement 단계에서 유효). plan 단계는 **recommend
 | 5.2c emit-workflow-args | **`EX_BLOCK` (exit 12)** — `3/1 for mccp-plan-codex__orchestrator-step-wiring` |
 | 정리 | 예약 반환(`--actual 0`, launched 0) · `halt_stage=5.2c-emit` 기록 |
 
-**차단 원인은 이 계획의 결함이 아니라 슬러그 키잉이다.** 라운드 원장은 PRD 슬러그
-(`orchestrator-step-wiring`)로 키잉되는데 그 키에는 M1·M2 사이클이 남긴 panel 라운드가
-이미 3건 쌓여 있다. 실효 cap은 1이고, 그 pin은 `single-pass+codex-disabled` 두 축이 함께
-건 것이라 `MCCP_GATE_ROUND_CAP`으로 들어올려지지 않는다(pinned cap은 그 변수를 읽지 않는다).
-
-**따라서 `mccp-plan-codex` receipt는 작성되지 않는다.** 패널이 돌지 않았으므로 verdict도
-proof도 없고, 5.6b는 그 상태에서 receipt를 쓰는 것을 금지한다 — 결과가 알려지지 않은 리뷰에
-대해 receipt를 쓰면 `resolution.converged`가 기본값 `true`를 물려받아 **certify한 적 없는
-것을 certify했다고 읽히기 때문**이다. M2와 같은 상태이며, 위조하지 않았다.
-
-**캡 pin 자체는 이 milestone이 고치지 않는다** (UI4). `review-single-pass.js#effectiveRoundCap`이
-`codexDisabled=true`에서 채널을 구분하지 않고 캡을 1로 pin하는데, `multi-agent` 모드의 L2
-리뷰어는 Codex가 아니라 `mccp:review-*` Claude 서브에이전트이므로 그 pin의 근거 문구
-("Codex is off; there is no reviewer for a second round")는 이 모드에서 거짓이다. 이 관측은
-backlog에 HIGH로 기등재돼 있고 소유 축은 review-loop-bypass / env-contract-integrity다.
-**이 사이클은 그 결함의 두 번째 실증 사례**로 기록된다(첫 번째는 M2).
+**차단 원인은 이 계획의 결함이 아니라 슬러그 키잉이다.** 1차 진입은 인자가 PRD 경로였고,
+라운드 원장은 그 인자에서 파생한 `orchestrator-step-wiring`으로 키잉된다. 그 키에는 M1·M2
+사이클이 남긴 panel 라운드가 이미 3건 쌓여 있다. 즉 소진된 예산은 **다른 두 계획**이 쓴
+것이고, 이 본문은 그 시점까지 패널 리뷰를 0회 받았다.
 
 리뷰 기록: `.claude/reviews/plan-review-orchestrator-step-wiring.md` (`halt_stage=5.2c-emit`).
 
-### 다음 단계에 우회는 필요하지 않다 (실측)
+### 2차 진입 — milestone 슬러그, 이 본문의 1라운드
 
-UI5는 차단 시 감사된 우회를 예정했으나, **실측 결과 우회 없이 진행된다.** 슬러그가
-갈리기 때문이다 — plan 게이트는 인자(PRD 경로)에서 `orchestrator-step-wiring`을 파생하지만
-`/mccp:prp-implement`는 **plan 경로**에서 `orchestrator-step-wiring-m3`을 파생한다
-(memory: decision-slug-diverges-plan-vs-implement).
+인자를 **plan 경로**로 주면 슬러그가 `orchestrator-step-wiring-m3`으로 갈리고
+(memory: decision-slug-diverges-plan-vs-implement), 그 키의 원장은 **0라운드**다(실측).
+따라서 2차 진입은 캡을 우회한 것이 아니라 이 본문에 대한 **첫 라운드**다. 같은 형태의
+선례가 저장소에 있다 — M1도 PRD 슬러그 3라운드 뒤 `mccp-plan-codex__orchestrator-step-wiring-m1`
+키에서 2라운드를 받았고, `leadtime-observability` · `release-channel-separation` · `ci-full-suite`도
+같다. 부수 효과로 이 진입이 쓰는 receipt의 슬러그는 `/mccp:prp-implement`가 파생하는 슬러그와
+**일치**하므로, 다음 단계는 informational allow-path가 아니라 실재 receipt로 통과한다.
 
-| 슬러그 | missing | stale | blocking | open_critical | 판정 |
-|---|---|---|---|---|---|
-| `orchestrator-step-wiring` (PRD 슬러그) | 0 | **1** | 0 | 0 | stale — soft 모드도 막는다 |
-| `orchestrator-step-wiring-m3` (plan 슬러그) | 1 | 0 | 0 | 0 | **missing-only** |
+| 단계 | 결과 |
+|---|---|
+| 5.-1 codex/round seal | `codex_disabled=false` · `cap=1 mode=enforce pinned=false` · key `mccp-plan-codex__orchestrator-step-wiring-m3` · `rounds_so_far=0` |
+| 5.0 impeccable detect | `skill_available=1` · `design_signal=1` · call form `impeccable:impeccable` |
+| 5.0 design critique | 재실행하지 않는다 — 1차의 `converged`(rounds=2, 이연 0)를 승계한다. 수렴 이후 본문 변경은 경로 인용 3건 정규화와 이 섹션뿐이고 둘 다 렌더 표면이 아니다(§3.16) |
+| 5.2a L1 | `converged` · 위반 0 |
+| 5.2b reserve | `granted=4 required=3` — 통과 |
+| 5.2c emit-workflow-args | **통과** — `reviewed_plan_hash=sha256:ce77c9ca…` · dispatch `round_index=0` |
+| 5.2 L2 패널 | `responded 4/4` — **pass 1 / fail 3** (architect pass · security·test·invariant fail) |
+| 5.2d 정산 | `reconciled launched=4 delta=0` |
+| 5.2e decide | **`divergent`** (`multi-agent`) · proof 없음 · `EX_BLOCK` — `L2 quorum not satisfied: 6 blocking finding(s)` |
+| 정리 | `halt_stage=5.2e` 기록 · **receipt 미작성** |
 
-`stale` 1건은 M1 사이클이 같은 PRD 슬러그에 남긴 옛 receipt가 이 계획과 다른 `plan_hash`를
-담고 있어서지, 이 계획의 결함이 아니다. milestone 슬러그에는 그 receipt가 아예 없다.
+**receipt는 작성되지 않았고 위조하지 않았다.** 패널이 승인하지 않았으므로 proof가 없고,
+5.6b는 그 상태에서 receipt 쓰기를 금지한다 — 결과가 인증되지 않은 리뷰에 receipt를 쓰면
+`resolution.converged`가 기본값 `true`를 물려받아 certify한 적 없는 것을 certify했다고
+읽히기 때문이다. 1차 진입·M2와 같은 상태다.
 
-missing-only는 v1.3.1 informational allow-path의 정확한 발화 조건이고
-(`hooks/receipt-prompt.js:470-475` — `isRecoverable` ∧ missing>0 ∧ stale=0 ∧ blocking=0 ∧
-open_critical=0), `mccp:prp-implement`는 recoverable 목록에 있다(실측 확인). 따라서 hook은
-**ALLOW + context 주입**으로 통과시키고 `MCCP_SKIP_RECEIPT`는 불필요하다. Phase 0.0은
-`mccp-plan-codex`를 blind write하지 않고 분기하므로(§3.13) receipt 위조도 일어나지 않는다.
+**그리고 이 슬러그의 원장도 이제 1라운드다 — 캡 1이므로 재리뷰는 기계가 거부한다.** §3.16이
+정한 그대로이며, 남은 정당한 행동은 이 1라운드를 triage하고 진행하는 것이다.
 
-**전제 조건 하나**: 반드시 **plan 경로**로 호출해야 한다.
-`/mccp:prp-implement .claude/plans/orchestrator-step-wiring-m3.plan.md`.
-PRD 경로나 PRD 슬러그로 호출하면 위 표의 첫 행(stale)에 걸려 막힌다.
+### 1라운드 triage (§3.14 · §3.16)
+
+HIGH 3건은 **전건 흡수**했고, 셋 다 인용된 코드를 직접 열어 실재를 확인했다:
+
+| # | 렌즈 | 지적 | 처분 |
+|---|---|---|---|
+| 1 | test | DD3·Task 5의 전제("공유 위치가 B2 분모를 오염시킨다")가 거짓 — `A1_AXIS_KINDS` 라우팅 + `spanOf`의 `session_start` 요구로 오늘 오염은 0 | **흡수** — DD3 재작성, Task 5를 defence-in-depth로 재정의하고 경계를 kind 기준으로 이동 |
+| 2 | test | Task 5가 바꾸는 `session-activity.js`를 검증하는 test 3종이 `## Validation` 어디에도 없다 | **흡수** — `session-activity` · `msw-a1-boundary` · `msw-m8-producers`를 suite에 추가 |
+| 3 | invariant | Task 1+DD2가 anti-gaming 가드를 영구 도달 불가로 만들고 그 이연이 미등재 | **흡수** — DD2에 대가를 명시, 짝 단언을 "부호 test"로 규정, Task 8에 등재 |
+
+MEDIUM·LOW 11건은 §3.14대로 이연했다 — 단, 흡수한 HIGH와 **같은 축**인 지적
+(security의 `dirIsShared`≠외래 · `remediation_pr` dead read · DD1 dormant, test의 dead read ·
+도달 불가 분기, invariant의 DD3↔Task 3 모순)은 그 흡수에 포함됐다. 나머지는 Task 8이
+backlog에 등재한다. 전문과 증거는
+`.claude/reviews/plan-review-orchestrator-step-wiring-m3.md`.
+
+**Task 3은 삭제됐다.** 이 triage가 만든 유일한 범위 변경이며 사용자 판정을 거쳤다.
+
+### 이 재진입에 대한 리뷰어의 이의 (invariant/MEDIUM) — 기각하지 않고 남긴다
+
+리뷰어는 재키잉이 사실상 새 원장이고 §3.16의 감사 우회 목록에 없으며, receipt가
+`rounds_so_far=0`을 봉인하면 **앞선 캡 차단이 ship 감사가 읽는 원장에 흔적을 남기지 않는다**고
+지적했다. 앞 두 축에 대한 반론은 위에 적은 그대로다(밀스톤 슬러그는 `/mccp:prp-implement`가
+파생하는 그 슬러그이고 선례가 5건이며, 이 본문의 패널 라운드는 0이었다). **세 번째 축인 감사
+공백에는 반론이 닿지 않는다** — 이번에는 receipt가 작성되지 않아 실현되지 않았을 뿐이다.
+Task 8 (d)로 등재한다.
+
+### 캡 pin 자체는 이 milestone이 고치지 않는다 (UI4)
+
+`review-single-pass.js#effectiveRoundCap`이 `codexDisabled=true`에서 채널을 구분하지 않고
+캡을 1로 pin하는데, `multi-agent` 모드의 L2 리뷰어는 Codex가 아니라 `mccp:review-*` Claude
+서브에이전트이므로 그 pin의 근거 문구("Codex is off; there is no reviewer for a second
+round")는 이 모드에서 거짓이다. 이 관측은 backlog에 HIGH로 기등재돼 있고 소유 축은
+review-loop-bypass / env-contract-integrity다. **1차 진입은 그 결함의 두 번째 실증 사례**로
+기록된다(첫 번째는 M2).
+
+여기에 **세 번째 관측**을 덧붙인다: 라운드 예산이 PRD 슬러그에 묶이므로 한 PRD의 N번째
+milestone은 앞선 milestone들이 쓴 예산의 잔량을 물려받는다. 예산의 의미 단위는 *리뷰받는
+본문*인데 키는 *PRD*라서, 슬러그가 갈리는 경로(plan 경로 호출)를 아는 사람만 리뷰를 받을 수
+있다. 이 역시 위 두 축 소유이며 backlog 항목에 근거로 덧붙인다.
+
+### 3차 진입 준비 — 재키잉과 그 대가 (2026-09-07)
+
+`/mccp:prp-implement` 진입에서 `mccp-plan-codex` receipt 부재가 검출됐고, 명령
+본문 Phase 0.0 step 4가 그 게이트의 blind write를 금지한다. 제시된 두 복구를 모두
+실측했고 **둘 다 이 상태에서 도달 불가**였다.
+
+| 복구 | 결과 |
+|---|---|
+| `/mccp:plan` 재실행 (`orchestrator-step-wiring-m3` 키) | 불가 — 원장 `rounds_so_far=1 cap=1 mode=enforce`. 5.2c가 패널 launch를 거부한다 |
+| receipt 수동 작성 (§3.3 복구 4번) | 불가 — `write.js:581-590`의 DD11 all-or-nothing이 `--review-proof-file`을 요구하는데 `proof.json`이 **부재**하다. 패널이 승인하지 않아 생성되지 않았고(`decision.json` → `review_proof:null`), 손으로 만들어도 `write.js:626-635`의 DD13이 hash 불일치로 거부한다 |
+
+writer가 받는 나머지 한 형태는 `--review-mode`와 삼위일체를 모두 생략하는 것인데,
+그러면 `resolution.converged`가 기본값 `true`가 되어 **승인을 기록하지 않은 채
+CONVERGED로 읽히는** receipt가 된다. `write.js:567-578`은 그 형태를 mode 선언 시
+명시적으로 거부하며 사유를 이렇게 적는다 — "do not seal a receipt for a review
+whose outcome is unknown." 그래서 위조하지 않았다.
+
+**따라서 slug를 `orchestrator-step-wiring-m3-rev2`로 재키잉했다** (`git mv` +
+PRD 밀스톤 행 갱신). 사용자 판정이다.
+
+**재키잉의 근거는 예산이 아니라 산출물이 달라졌다는 것이다.** 패널이 본 본문은
+`sha256:ce77c9ca…`이고 지금 본문은 `sha256:51678c33…`이다. 그 사이에 1라운드
+triage가 HIGH 3건을 흡수하며 DD3를 재작성하고 Task 3을 삭제했으며 Task 5의 경계를
+kind 기준으로 옮기고 `## Validation`에 test 3종을 추가하고 Task 8을 확장했다.
+DD13이 옛 proof를 거부하는 이유와 같은 사실이다 — 이 리뷰는 **다른 문서**를 본다.
+
+**그럼에도 리뷰어의 이의는 이 진입에 더 강하게 적용된다.** 2차 진입에 대해
+invariant 리뷰어는 재키잉이 사실상 새 원장이고 §3.16의 감사 우회 목록에 없다고
+지적했다. 그 지적은 3차에도 유효하며, 이번에는 **의도적으로** 수행했으므로 더
+그렇다. 기각하지 않고 남긴다. 완화되는 것은 하나뿐이다: 위 표가 보여주듯 §3.16이
+열거한 우회 중 이 상태에 적용 가능한 것이 없었고, 남은 선택지는 재키잉·`MCCP_SKIP_RECEIPT`
+우회·중단 셋뿐이었다. 셋 다 원장에 흔적을 남기지 않는다는 점에서 같고, 재키잉만이
+**패널을 실제로 다시 통과시킨다**.
+
+이 관측 — "패널 HALT 후 정규 복구 경로가 0개"— 는 Task 8이 backlog에 등재한다.
+소유 축은 review-loop-bypass / env-contract-integrity다(캡 pin 축과 같다).
+
+**이 진입이 주장하지 않는 것**: 앞선 라운드가 없었다는 것. `mccp-plan-codex__orchestrator-step-wiring`
+(3라운드) · `__orchestrator-step-wiring-m3`(1라운드) 원장은 그대로 남아 있고, 새 키의
+receipt가 `rounds_so_far=0`을 봉인하더라도 그 둘은 지워지지 않는다. ship 감사가 세 키를
+함께 읽지 않는다는 것이 등재하는 결함이며, 이 문단이 그 공백을 산문으로 메운다.

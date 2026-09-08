@@ -279,6 +279,46 @@ F10은 backlog 잔량을 산문에서 79로, 열거에서 90으로 적었다(두
 - [x] **D2 결정** — 흡수로 기록하고 열어 둔다 (사용자 판정 2026-09-04)
 - [x] **D1 처리** — Task 6을 M7 `live-firing-execution`으로 분리, M5 outcome에서 라이브
       실값 주장 제거 (사용자 판정 2026-09-08 · 위 D3)
-- [ ] M5 ship (`/mccp:pr`) — 상류 receipt 2건이 소실 상태이므로 감사 우회 필요
-- [ ] **M7** — 새 슬러그로 plan 게이트를 **구현 전에** 완주 → plan receipt 발행 →
-      `claude --plugin-dir <worktree>/plugins/mccp` 세션에서 ship → 검사 1~4 재측정
+- [ ] **다음 세션: 새 슬러그로 전체 체인 재실행** (사용자 판정 2026-09-08)
+
+### 인계 — 왜 이 사이클이 ship하지 못했는가 (2026-09-08, 재도출 불필요)
+
+`/mccp:pr`은 **완주할 수 없다.** 실측한 정지 지점과 그 이유:
+
+| 지점 | 결과 |
+|---|---|
+| 2.5.7 finalize | `mccp-pr-codex` receipt 작성됨 (working tree) |
+| 2.5.8 chain-check (`mccp:code-review`) | missing `mccp-pr-codex` → 2.5.7이 해소. 통과 |
+| 2.5.9 ship-gate (`mccp:pr`) | missing `mccp-plan-codex` + `mccp-implement-codex` → `ok=false` → **HALT** |
+| Phase 3 PUSH | 도달 못 함 |
+
+`validate-cmd.js`가 읽는 env는 7개(`MCCP_DESIGN_CRITIQUE_MAX_RETRY` ·
+`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` · `MCCP_FORCE_PR_WITHOUT_IMPECCABLE` ·
+`MCCP_FORCE_PR_WITHOUT_SECURITY_REVIEWER` · `MCCP_INTENT_MISLABEL` ·
+`MCCP_PR_SKIP_DESIGN_CRITIQUE_CHAIN` · `MCCP_SKIP_INTENT_GATE`)이고 **누락 상류 receipt를
+강등하는 것은 하나도 없다.** `MCCP_SKIP_RECEIPT`·`MCCP_RECEIPT_GATE_MODE`는 그 파일에 0회
+등장한다 — 둘은 hook/preflight 층 전용이고 2.5.9는 명령 본문 안이라 그 층을 지났다.
+
+그러므로 `/mccp:pr`을 다시 시도하지 마라. 2.5.9 HALT가 확정이라 Codex 라운드(최대 900초)만
+소모한다.
+
+### 다음 세션이 할 일
+
+1. **M7 `live-firing-execution` plan을 새 슬러그로 작성한다.** 그 plan의 CREATE 대상은
+   아직 존재하지 않으므로 L1 `C3_CREATE_EXISTS`가 발생하지 않고, plan 게이트가 정상
+   완주해 `mccp-plan-codex` receipt를 발행한다 — 이것이 링크의 발원지다(D3 (b) 참조).
+2. 이 브랜치(`review-record-linkage-m5`, HEAD `1a952bf`)의 M5 코드는 그 사이클 안에서
+   함께 머지한다. 별도 ship을 시도하지 않는다.
+3. ship은 `claude --plugin-dir <worktree>/plugins/mccp` 세션에서 완주한다
+   ([dogfood-install.md](../../../docs/dogfood-install.md)). 완주 전후로
+   `installed_plugins.json` sha256 불변을 확인한다.
+   - 완주 전 baseline(2026-09-08): sha256 `26925fd8b72568ea…` ·
+     `install_skew.state=behind` 181 커밋 · `linkage.bidirectional=0` `denominator=null`
+4. 그 뒤 Task 6의 네 검사를 재측정한다.
+
+### 열린 질문 — M5 status
+
+PRD의 M5는 `complete`인데 **이 코드는 아직 머지되지 않았다.** 이 PRD에서 `complete`는
+지금까지 "ship됨"을 뜻했으므로(M3·M4 선례) 현재 표기는 앞서 있다. 다음 세션에서 둘 중
+하나로 정한다: (i) M7 PR에 함께 머지되므로 `complete` 유지, (ii) 머지 전까지
+`in-progress`로 되돌린다. 이 사이클은 판정하지 않고 기록만 한다.

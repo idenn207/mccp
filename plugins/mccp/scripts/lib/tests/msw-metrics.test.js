@@ -956,7 +956,9 @@ test('A1 (M3 Task 1): with a baseline present the guard still fires', () => {
 });
 
 test('A1 (M3 Task 1): the dormant marker does not wait for the threshold', () => {
-  // 임계 아래(오늘의 실제 영역)에서도 실려야 한다. 51에서만 단언하면 오늘 도달하지
+  // 임계 아래에서도 실려야 한다(23은 임의의 sub-threshold 값이다 — 오늘의 실측값은
+  // 3이고, 이 단언은 특정 수가 아니라 "임계 미만"이라는 성질에만 의존한다).
+  // 51에서만 단언하면 오늘 도달하지
   // 않는 조건만 검사하게 되고, 배너 토큰도 같은 이유로 0개 표면이 된다.
   const a1 = computeMetrics(a1Model(23))[A1_WORK_COMPLETION_RATE];
   assert.equal(a1.status, 'computed');
@@ -1046,12 +1048,52 @@ test('A1 (santa R3): a degraded scan cannot publish a trusted completion rate', 
     'the reason names the axis, so the operator can act. measured: ' + a1.invalid_reason);
 });
 
-test('A1 (santa R3): a scan error is reported verbatim, not folded into a generic reason', () => {
-  const a1 = computeMetrics(a1DegradedModel({ degraded: false, error: 'EACCES on shard 3' }))[A1_WORK_COMPLETION_RATE];
+// santa R4 (reviewer A/LOW) — R3의 이 test는 `ok:true` + `error` 라는 **오늘 도달
+// 불가한** 모양을 만들고 "verbatim 보고"를 계약으로 못박았다. `scanSessionActivity`는
+// `error`를 바깥 catch 에서만 세우고 그 catch 가 `ok:false`도 함께 세우므로, 앞선
+// `!ok` 가드가 먼저 반환한다. 게다가 verbatim 은 **틀린 계약**이었다:
+// `invalid_reason`은 `derive/mask.js`가 지나가지 않는 필드라 `err.message`의
+// 절대경로가 그대로 모델에 실린다(현재 red 인 `mask.test.js`가 `metrics.B3`에서
+// 정확히 그 부류를 지목한다). 그래서 단언을 뒤집는다 — 사유는 전달하되 **마스킹해서**
+// 전달한다. 모양이 오늘 도달 불가라는 사실은 여기 적어 두고, 그럼에도 분기를 남기는
+// 이유는 미래의 편집이 `error`만 세우게 되는 날 침묵하지 않기 위해서다.
+test('A1 (santa R4): a scan error reaches invalid_reason with absolute paths masked', () => {
+  const a1 = computeMetrics(a1DegradedModel({
+    degraded: false, error: 'EACCES on /home/someone/private/shard-3.jsonl',
+  }))[A1_WORK_COMPLETION_RATE];
   assert.equal(a1.status, 'invalid');
-  assert.equal(a1.invalid_reason, 'EACCES on shard 3',
-    'absence, unreadability and damage are different facts; collapsing them is the '
-    + 'defect computeA3 already documents');
+  assert.ok(!/\/home\/someone\/private/.test(String(a1.invalid_reason)),
+    'invalid_reason is not on any masker path, so the metric must mask it itself. '
+    + 'measured: ' + a1.invalid_reason);
+  assert.match(String(a1.invalid_reason), /EACCES/,
+    'the operator still learns what failed — masking is not deletion');
+});
+
+test('A1 (santa R4): malformed event lines are an integrity fact, not a silent loss', () => {
+  const a1 = computeMetrics(a1DegradedModel({ degraded: false, invalid_count: 1 }))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid',
+    'a line that could not be parsed may have been a task_started; the denominator is '
+    + 'then short and the rate biased upward, with nothing marking it. measured: ' + a1.status);
+  assert.equal(a1.integrity_ok, false);
+  assert.match(String(a1.invalid_reason), /malformed event line/);
+});
+
+test('A2/B2 (santa R4): the same source damage reaches the sibling metrics', () => {
+  // R3은 이 선례를 A1 한 곳에만 적용했다. 같은 source를 읽는 지표가 같은 손상에
+  // 다르게 반응하면 어느 쪽이 계약인지 말할 수 없다.
+  const m = computeMetrics(a1DegradedModel());
+  assert.equal(m[A2_CONTEXT_REMAINING].status, 'invalid',
+    'A2 percentiles from a partially-read corpus are not trustworthy either');
+  assert.equal(m[A2_CONTEXT_REMAINING].integrity_ok, false);
+  assert.equal(m[B2_CONCURRENT_CONFLICTS].status, 'invalid',
+    'B2 can report a computed zero conflicts while the shard that held them was unread');
+  assert.equal(m[B2_CONCURRENT_CONFLICTS].integrity_ok, false);
+});
+
+test('A2/B2 (santa R4): a healthy scan is untouched by the shared guard', () => {
+  const m = computeMetrics(a1Model(3));
+  assert.notEqual(m[A2_CONTEXT_REMAINING].status, 'invalid');
+  assert.notEqual(m[B2_CONCURRENT_CONFLICTS].status, 'invalid');
 });
 
 test('A1 (santa R3): a healthy scan is untouched by the degraded branch', () => {

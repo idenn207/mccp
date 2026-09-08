@@ -715,3 +715,100 @@ test('(16) the same scrub applies on the --json path', () => {
     'every field the reader narrows, not just reason. measured: '
     + JSON.stringify(parsed.work_unit));
 });
+
+// ── (17) santa R4 — 좁히기 두 단계의 상대 순서가 계약이다 ────────────────────
+//
+// `ABS_PATH_TOKEN_RE`는 경로 앞에 문자열 시작이나 공백류 중 하나를 요구한다. ESC는
+// 그 집합에 없으므로 ANSI 시퀀스가 경로에 **붙어** 있으면 경로 스크럽이 그것을 지나치고,
+// 그 뒤 control 제거가 ANSI를 걷어내면 마스킹되지 않은 절대경로가 남는다. 두 단계가
+// 각자 제 일을 하는데 순서 때문에 정확히 그 사이로 빠져나가는 형태다.
+
+test('(17) an ANSI sequence fused to an absolute path does not smuggle it past the scrub', () => {
+  const repo = mkRepo('ansi-path');
+  const ESC = String.fromCharCode(27);
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-04-01T00:00:00.000Z', halt_site: '3.preflight',
+    reason: ESC + '[31m' + '/home/someone/private/key.json' + ESC + '[0m',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.ok(!/\/home\/someone\/private\/key\.json/.test(out),
+    'path scrub before control removal lets an ESC-adjacent path through, and the '
+    + 'control removal then exposes it. measured: ' + JSON.stringify(out));
+  assert.match(out, /outside-repo:key\.json/,
+    'the value is masked rather than dropped, same as a bare path');
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.ok(!/\/home\/someone\/private/.test(String(JSON.parse(j.stdout).reason)),
+    'the JSON consumer receives the same masking. measured: ' + j.stdout);
+});
+
+// ── (18) santa R4 — 커버리지 회계는 read 축과 parse 축을 모두 덮는다 ─────────
+//
+// R2가 errno 축을 닫았지만 같은 실패 모드가 parse 채널로 그대로 도착했다: 최신 halt를
+// 가진 worktree의 chain_progress가 파손이면 그 worktree가 전역 최댓값 비교에서 조용히
+// 빠지고, 다른 worktree의 더 오래된 halt가 자격 없이 나간다.
+
+test('(18) a corrupt chain_progress in another worktree is a coverage gap, not absence', () => {
+  const repo = mkRepo('parse-gap');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-corrupt');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'corrupt18', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+  // 이웃 worktree: frontmatter는 파싱되고 chain_progress가 **존재하는데** JSON이 아니다.
+  stateWriter.update(wt, {});
+  const wp = path.join(wt, '.claude', 'state', 'STATE.md');
+  fs.writeFileSync(wp, fs.readFileSync(wp, 'utf8')
+    .replace(/^---\r?\n/, '---\nchain_progress: |\n  {"steps": [ TRUNCATED\n'));
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.match(out, /step=implement/, 'the partial answer is still given');
+  assert.match(out, /coverage=incomplete\(1\)/,
+    'the older halt must not be presented as the global newest without qualification — '
+    + 'this is the R2 failure mode arriving through the parse channel. measured: '
+    + JSON.stringify(out));
+  assert.match(r.stderr || '', /unreadable \(PARSE\)/,
+    'the token distinguishes the parse axis from an errno. measured: '
+    + JSON.stringify((r.stderr || '').trim()));
+});
+
+test('(18) an alien STATE.md schema stays silent — a version difference is not damage', () => {
+  // 이 침묵은 test (12)가 세운 계약이고 R4는 그것을 바꾸지 않는다. `parseStateMd`는
+  // 다른 `state_version`에도 `frontmatter:null`을 돌려주므로, 그 경로를 커버리지 구멍으로
+  // 세면 오래 산 이웃 worktree 하나가 **모든** worktree의 배너를 오염시킨다. 손상으로
+  // 세는 것은 chain_progress가 존재하는데 JSON이 아닌 경우뿐이다.
+  const repo = mkRepo('alien-quiet');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-alien');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'alien18', wt]);
+  const alien = path.join(wt, '.claude', 'state');
+  fs.mkdirSync(alien, { recursive: true });
+  fs.writeFileSync(path.join(alien, 'STATE.md'),
+    '---\nstate_version: 9\ntask_fingerprint: x\n---\n\n## Goal\nx\n');
+
+  plantChainProgress(repo, [{
+    step: 'commit', status: 'halted', receipt_path: null,
+    ts: '2026-02-01T00:00:00.000Z', halt_site: '2t.commit', reason: 'local',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  assert.ok(!/coverage=/.test((r.stdout || '').trim()),
+    'a neighbour on another schema version is ordinary, not a gap. measured: '
+    + JSON.stringify((r.stdout || '').trim()));
+  assert.ok(!/coverage incomplete/.test(r.stderr || ''),
+    'and it must not reach stderr either — the banner reads stderr when stdout is empty');
+});

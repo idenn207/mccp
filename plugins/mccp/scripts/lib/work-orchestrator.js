@@ -294,12 +294,25 @@ function scrubControl(text, deps) {
   return deps.stripAnsi(text).replace(/\t/g, ' ').replace(RESIDUAL_CONTROL_RE, '');
 }
 
-// DD7 — 순서가 계약이다: 경로 스크럽 → ANSI/control 제거 → 절삭.
-// 앞의 둘이 길이를 바꾸므로 절삭이 마지막이어야 200자 계약이 최종 문자열 기준으로
-// 성립한다.
+// DD7 — 순서가 계약이다: ANSI/control 제거 → 경로 스크럽 → 절삭.
+// 절삭이 마지막인 이유는 앞의 둘이 길이를 바꾸므로 200자 계약이 최종 문자열 기준으로
+// 성립해야 하기 때문이다. 그 근거는 앞 두 단계의 **상대 순서**에 대해서는 아무 말도
+// 하지 않았고, 그 자리에 있던 순서(경로 → control)는 틀렸다.
+//
+// santa R4 (reviewer B/HIGH — 재현됨) — `ABS_PATH_TOKEN_RE`는 경로 앞에
+// 문자열 시작이나 `[\s'"`(\[=,]` 중 하나를 요구한다(`derive/mask.js`). ESC는 그
+// 집합에 없으므로 `ESC[31m/home/u/private/key.json`에서 `/` 바로 앞 문자는 `m`이고
+// 매칭이 **일어나지 않는다**. 그 뒤 `scrubControl`이 ANSI 시퀀스를 통째로 지우면
+// 남는 것은 마스킹되지 않은 절대경로다 — 즉 두 단계가 각자 제 일을 하는데 순서
+// 때문에 경로가 정확히 그 사이로 빠져나갔다. 실측:
+//   경로 먼저 → `ESC[31m/home/u/private/key.json` (무변경) → ANSI 제거 → 원문 노출
+//   control 먼저 → `/home/u/private/key.json` → 경로 스크럽 → `<outside-repo:key.json>`
+//
+// 반대 방향의 위험은 없다: control 제거가 만들어 내는 것은 **더 많은** 경로 후보이지
+// 더 적은 후보가 아니므로, 순서를 바꿔 마스킹을 놓치는 입력은 존재하지 않는다.
 function narrowReason(text, repoRoot, deps) {
   if (typeof text !== 'string' || text.length === 0) return '';
-  return deps.oneLineExcerpt(scrubControl(deps.mask.scrubAbsPaths(text, repoRoot), deps));
+  return deps.oneLineExcerpt(deps.mask.scrubAbsPaths(scrubControl(text, deps), repoRoot));
 }
 
 // review M1 — reader 측 재강제는 **읽는 모든 필드**에 걸린다. `scrubControl` 은
@@ -390,10 +403,27 @@ function resolveWorkUnit(repoRoot, explicit, deps) {
 // 고르면 한 번 막힌 뒤로 모든 진입에 무기한 같은 줄이 뜬다. 그래서 후보는 그
 // worktree chain_progress 의 **마지막 항목이 halted 일 때만** 이다 — 뒤에 어떤 step
 // 이든 기록됐다면 그 halt 는 지나간 것으로 본다.
-function trailingHalt(frontmatter) {
+// santa R4 (reviewer A/MEDIUM · reviewer B/HIGH) — `onParseError`는 read 축과 **다른
+// 축**이고, 둘을 가르는 선은 "이 reader 가 모르는 것"과 "손상된 것"이다.
+//
+// `readStateFrontmatter` 가 frontmatter 를 못 얻는 경우는 보고하지 **않는다**: 다른
+// `state_version` 을 쓰는 이웃 worktree 의 STATE.md 가 정확히 그 형태이고(실측:
+// `parseStateMd` 가 `frontmatter:null` 반환), 그것은 손상이 아니라 버전 차이다 —
+// 흔하고, 정상이고, test (12) 가 그 침묵을 계약으로 못박는다.
+//
+// 반면 여기는 frontmatter 가 **파싱됐고** `chain_progress` 가 **존재하는데** 그 값이
+// JSON 이 아닌 경우다. 그것은 버전 차이로 설명되지 않는 손상이고, 그 worktree 가 전역
+// 최댓값 비교에서 조용히 빠지면 다른 worktree 의 더 오래된 halt 가 최신인 양 나간다 —
+// R2 가 errno 축에서 닫은 바로 그 실패 모드가 parse 채널로 도착한 것이다.
+function trailingHalt(frontmatter, onParseError) {
   if (!frontmatter || typeof frontmatter.chain_progress !== 'string') return null;
   let log;
-  try { log = JSON.parse(frontmatter.chain_progress); } catch (_e) { return null; }
+  try {
+    log = JSON.parse(frontmatter.chain_progress);
+  } catch (_e) {
+    if (typeof onParseError === 'function') onParseError();
+    return null;
+  }
   const steps = log && Array.isArray(log.steps) ? log.steps : null;
   if (!steps || steps.length === 0) return null;
   const last = steps[steps.length - 1];
@@ -434,7 +464,11 @@ function collectLastHalt(repoRoot, deps) {
     try {
       hit = trailingHalt(readStateFrontmatter(w.path, deps, function (code) {
         unreadable.push(errnoToken(code));
-      }));
+      }), function () {
+        // 토큰은 errno 와 같은 열거 규율을 지난다 — 이 배열은 stderr 로 그대로 나가고,
+        // 두 축을 한 배열에 담되 사유는 구별 가능해야 한다.
+        unreadable.push('PARSE');
+      });
     } catch (_e) { continue; }
     if (!hit || typeof hit.ts !== 'string') continue;
     if (!best || hit.ts > best.entry.ts) best = { entry: hit, worktree: w.path };
@@ -465,8 +499,8 @@ function formatHaltLine(best, repoRoot, deps) {
   let line = parts.join(' ');
   if (!deps.worktrees.isSelfWorktree(best.worktree, repoRoot)) {
     // 규율은 둘이다: 모든 값이 같은 경로를 지난다, **그리고** 빈 값이면 구성요소째
-    // 생략한다. `safeField`는 `oneLineExcerpt(scrubControl(...))`이라 제어문자만으로
-    // 이루어진 basename을 빈 문자열로 접는데, 출력 조건이 값이 아니라
+    // 생략한다. `safeField`는 `narrowReason`(control 제거 → 경로 스크럽 → 절삭)이라
+    // 제어문자만으로 이루어진 basename을 빈 문자열로 접는데, 출력 조건이 값이 아니라
     // `!isSelfWorktree(...)`라서 그대로 두면 라벨만 남은 `· worktree=`가 나간다.
     // 위 `reason`이 이미 값 기반 가드를 쓰는 것과 같은 형태로 맞춘다.
     const worktreeName = safeField(path.basename(best.worktree), deps, repoRoot);

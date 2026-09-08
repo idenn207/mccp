@@ -99,6 +99,55 @@ function computeMetrics(model) {
   return metrics;
 }
 
+// santa R3 (reviewer B/HIGH) → santa R4 (reviewer B/HIGH, 범위 확장) —
+// `ok` 와 `degraded` 와 `invalid_count` 는 서로 다른 사실이고, 셋 중 뒤의 둘은
+// "센 값이 corpus 전체에서 나오지 않았다"를 뜻한다. source 는 fail-open per-source 라
+// shard 하나를 못 읽어도(`degraded`) 줄 하나가 파손돼도(`invalid_count`) 나머지로
+// 계속 세는데, 소비자가 그 상태를 버리면 부분 corpus 에서 나온 값이
+// `status:'computed'` + `integrity_ok:true` 로 발행된다. 잃은 이벤트가
+// `task_started` 였다면 분모가 조용히 깎여 완주율이 **위로** 편향되고, 그 수치는
+// 아무 자격 없이 신뢰된다.
+//
+// 판정은 `computeA3` 가 세운 선례를 따른다(그 분기 주석): 무결성 위반은 producer
+// 부재보다 강한 신호이므로 **먼저** 판정하고, 부재·판독불가·손상을 한 통에 넣지
+// 않는다. R3 은 이 선례를 A1 한 곳에만 적용했고, R4 리뷰가 A2·B2 가 같은 구멍을
+// 그대로 갖고 있음을 지적했다 — 같은 source 를 읽는 지표가 같은 손상에 다르게
+// 반응하면 어느 쪽이 계약인지 말할 수 없으므로 술어를 하나로 올린다.
+//
+// **대가를 숨기지 않는다**(reviewer A/R4 suggestion): 이 source 의 `degraded` 는
+// 최대 세 디렉토리에 걸친 `.jsonl` **하나**만 못 읽어도 서고, 그 범위는 단일
+// 아티팩트를 읽는 A3 보다 넓다. 즉 공유 corpus 의 shard 하나가 손상되면 세 지표가
+// 모든 위치에서 동시에 `invalid` 가 된다. 그것이 fail-closed 의 값이고, 대신
+// `invalid_reason` 이 무엇 때문인지 말한다.
+//
+// `error` 는 마스킹해서 싣는다: `invalid_reason` 은 `derive/mask.js` 가 지나가지
+// 않는 필드이고(현재 red 인 `mask.test.js` 가 `metrics.B3.invalid_reason` 을 정확히
+// 그 누출 부류로 지목한다), `err.message` 는 절대경로를 담는다.
+function degradedSessionActivityMetric(id, src) {
+  const invalidLines = Number.isFinite(src.invalid_count) ? src.invalid_count : 0;
+  if (!src.degraded && !src.error && invalidLines <= 0) return null;
+  let reason;
+  if (src.error) {
+    try {
+      reason = require('../../derive/mask').scrubAbsPaths(String(src.error), process.cwd());
+    } catch (_e) { reason = 'source error (unreportable)'; }
+  } else if (src.degraded) {
+    reason = id + ' source degraded (event shard unreadable)';
+  } else {
+    reason = id + ' source partially parsed (' + invalidLines + ' malformed event line(s))';
+  }
+  return {
+    id: id,
+    numerator: null,
+    denominator: null,
+    value: null,
+    integrity_ok: false,
+    invalid_reason: reason,
+    status: 'invalid',
+    coverage: src.producer_coverage || 'unknown',
+  };
+}
+
 function computeA1(model) {
   // A1 work completion: startup/completion events from session-activity source
   const sessionActivity = model.sources?.session_activity;
@@ -106,28 +155,8 @@ function computeA1(model) {
     return insufficientMetric(A1_WORK_COMPLETION_RATE, 'session_activity source unavailable');
   }
 
-  // santa R3 (reviewer B/HIGH) — `ok` 와 `degraded` 는 다른 사실이다. source 는 shard
-  // 하나를 못 읽으면 `degraded` 를 세우고 **나머지로 계속 센다**(fail-open per-source).
-  // 그 상태를 소비자가 버리면 A1 은 부분 corpus 에서 나온 비율을 `status:'computed'`
-  // + `integrity_ok:true` 로 발행한다 — 못 읽은 shard 에 미완료 단위가 들어 있으면
-  // 분모가 조용히 깎여 완주율이 **위로** 편향되고, 그 수치는 아무 자격 없이 신뢰된다.
-  //
-  // 이 판정은 `computeA3` 가 이미 세운 선례를 그대로 따른다(아래 `src.degraded ||
-  // src.error` 분기 + 그 주석): 무결성 위반은 producer 부재보다 강한 신호이므로
-  // **먼저** 판정하고, 부재·판독불가·손상을 한 통에 넣지 않는다. A1 만 그 선례에서
-  // 빠져 있었다. 방향은 fail-closed 다 — 지표는 모를 때 답하지 않는 편이 낫다.
-  if (sessionActivity.degraded || sessionActivity.error) {
-    return {
-      id: A1_WORK_COMPLETION_RATE,
-      numerator: null,
-      denominator: null,
-      value: null,
-      integrity_ok: false,
-      invalid_reason: sessionActivity.error || 'A1 source degraded (event shard unreadable)',
-      status: 'invalid',
-      coverage: sessionActivity.producer_coverage || 'unknown',
-    };
-  }
+  const a1Degraded = degradedSessionActivityMetric(A1_WORK_COMPLETION_RATE, sessionActivity);
+  if (a1Degraded) return a1Degraded;
 
   const startupCount = sessionActivity.task_startups_count || 0;
   const completedCount = sessionActivity.task_completions_count || 0;
@@ -252,6 +281,9 @@ function computeA2(model) {
   if (!sessionActivity || !sessionActivity.ok) {
     return insufficientMetric(A2_CONTEXT_REMAINING, 'session_activity source unavailable');
   }
+
+  const a2Degraded = degradedSessionActivityMetric(A2_CONTEXT_REMAINING, sessionActivity);
+  if (a2Degraded) return a2Degraded;
 
   const sessions = sessionActivity.sessions || [];
 
@@ -596,6 +628,9 @@ function computeB2(model) {
   if (!sessionActivity || !sessionActivity.ok) {
     return insufficientMetric(B2_CONCURRENT_CONFLICTS, 'session_activity source unavailable');
   }
+
+  const b2Degraded = degradedSessionActivityMetric(B2_CONCURRENT_CONFLICTS, sessionActivity);
+  if (b2Degraded) return b2Degraded;
 
   const concurrentPairs = sessionActivity.concurrent_pairs_count || 0;
   const producerPresent = !!sessionActivity.collision_producer_present;

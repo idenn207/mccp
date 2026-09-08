@@ -559,7 +559,8 @@ HIGH 3건은 **전건 흡수**했고, 셋 다 인용된 코드를 직접 열어 
 | 2 | test | Task 5가 바꾸는 `session-activity.js`를 검증하는 test 3종이 `## Validation` 어디에도 없다 | **흡수** — `session-activity` · `msw-a1-boundary` · `msw-m8-producers`를 suite에 추가 |
 | 3 | invariant | Task 1+DD2가 anti-gaming 가드를 영구 도달 불가로 만들고 그 이연이 미등재 | **흡수** — DD2에 대가를 명시, 짝 단언을 "부호 test"로 규정, Task 8에 등재 |
 
-MEDIUM·LOW 11건은 §3.14대로 이연했다 — 단, 흡수한 HIGH와 **같은 축**인 지적
+MEDIUM·LOW 13건(MEDIUM 11 + LOW 2 — santa R4 정정. 이전에 적힌 11은 MEDIUM만 센 수였고,
+LOW 2건은 Task 8 (f)에 열거돼 있어 유실되지 않았으나 합계가 원장과 어긋났다)은 §3.14대로 이연했다 — 단, 흡수한 HIGH와 **같은 축**인 지적
 (security의 `dirIsShared`≠외래 · `remediation_pr` dead read · DD1 dormant, test의 dead read ·
 도달 불가 분기, invariant의 DD3↔Task 3 모순)은 그 흡수에 포함됐다. 나머지는 Task 8이
 backlog에 등재한다. 전문과 증거는

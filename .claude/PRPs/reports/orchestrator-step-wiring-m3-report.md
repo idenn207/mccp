@@ -184,7 +184,7 @@ in-scope 11 suite 합계 **204 pass / 0 fail**.
 - [x] Validation passes (선재 1건 제외 — 사유 기록)
 - [x] Patterns mirrored, not reinvented
 - [x] A1 spike 가드 짝 단언 + DD2 주석
-- [x] A1 가드 가시성 — 임계 아래(23)에서도 `spike-guard=dormant` 출력 실측
+- [x] A1 가드 가시성 — 임계 아래(실측 3 · santa R4 정정, 이전에 23으로 적혔던 값)에서도 `spike-guard=dormant` 출력 실측
 - [x] reader 가드 세 단언
 - [x] 배너 좁히기 — 텍스트·JSON 양 경로
 - [x] PRD M3 행 + Open Questions 5건 확정

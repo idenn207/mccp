@@ -127,7 +127,18 @@ function scanSessionActivity(repoRoot) {
       const common = mswEvents.commonDirOf(repoRoot);
       if (common) sharedDir = path.join(common, mswEvents.SHARED_SUBPATH);
     } catch (_e) {
-      sharedDir = null;   // 해소 실패는 후보 미추가로 접힌다 (throw 금지)
+      // santa R4 (reviewer B/HIGH) — throw 하지 않는 것은 옳지만, **조용히** 접는 것은
+      // 아니었다. 이 실패는 공유 corpus **전체**가 후보에서 빠진다는 뜻이고, 그
+      // corpus 에 미완료 작업 단위가 있으면 A1 분모가 통째로 깎여 완주율이 위로
+      // 편향된다 — 그런데 결과는 `ok:true` · `degraded:false` 라 소비자가 그것을
+      // 온전한 집계로 읽는다. 공유 위치가 **없는** 저장소(정상)와 공유 위치를
+      // **못 읽은** 저장소(손상)가 같은 값을 내던 것이다.
+      //
+      // `degraded` 는 shard 하나를 못 읽었을 때 서는 표식이고 이쪽은 그보다 큰
+      // 손실이므로 같은 표식으로 충분하다(더 강한 표식을 새로 만들면 소비자 셋이
+      // 각자 해석해야 한다). 후보 미추가라는 동작 자체는 그대로다.
+      sharedDir = null;
+      result.degraded = true;
     }
 
     // `shared` 표식은 Task 5a가 쓴다 — 세션이 **로컬에서 관측됐는지**를 판정해야

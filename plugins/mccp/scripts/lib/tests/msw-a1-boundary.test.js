@@ -308,7 +308,9 @@ test('A2 denominator counts only locally-observed sessions, and B2 stays put', (
   }
 
   const scan = scanSessionActivity(fx.main);
-  assert.equal(scan.sessions.length, 5, 'the session map has no kind guard — all five appear');
+  assert.equal(scan.sessions.length, 5, 'the guard admits A1-axis kinds by design, and these foreign events are '
+    + 'task_started — so all five entries appear. a message claiming the map has no '
+    + 'kind guard would send a future reader after the wrong cause');
   assert.equal(scan.sessions_local.length, 2, 'but only two were observed in a worktree-local candidate');
 
   const a2 = metricsMod.computeMetrics({ sources: { session_activity: scan } })[metricsMod.A2_CONTEXT_REMAINING];
@@ -833,4 +835,40 @@ test('(santa R3) local evidence events still feed the counters — the discrimin
     'the guard is (dirIsShared AND non-A1-kind), never kind alone');
   assert.equal(scan.collision_producer_present, true);
   assert.equal(scan.conflict_prevented_count, 1);
+});
+
+// ── santa R4 — 공유 위치를 "없다"와 "못 읽었다"가 같은 값을 내면 안 된다 ─────
+//
+// `commonDirOf` 해소가 실패하면 공유 corpus **전체**가 후보에서 빠지는데, 그 결과가
+// `ok:true` · `degraded:false`라 소비자는 온전한 집계로 읽는다. 공유 위치가 없는
+// 저장소(정상)와 못 읽은 저장소(손상)가 구별되지 않던 것이다.
+
+test('(santa R4) a shared-corpus resolution failure is recorded as degradation', () => {
+  const fx = mkFixture('m3sharedfail');
+  const t0 = '2026-06-01T00:00:00.000Z';
+  writeLine(localDirOf(fx.main), 'loc-only', {
+    kind: 'task_started', session_id: 'loc-only', work_unit: 'u-local',
+    work_unit_kind: 'milestone', ts: t0, event_id: 'lo-t',
+  });
+
+  const mod = require('../../state/msw-events');
+  const real = mod.commonDirOf;
+  let scan;
+  try {
+    mod.commonDirOf = function () { throw new Error('EACCES reading git metadata'); };
+    // require 캐시를 공유하므로 source 모듈이 같은 객체를 본다.
+    delete require.cache[require.resolve('../../derive/sources/session-activity')];
+    const { scanSessionActivity: rescan } = require('../../derive/sources/session-activity');
+    scan = rescan(fx.main);
+  } finally {
+    mod.commonDirOf = real;
+    delete require.cache[require.resolve('../../derive/sources/session-activity')];
+  }
+
+  assert.equal(scan.degraded, true,
+    'the whole shared corpus dropped out; reporting ok with no degradation makes an '
+    + 'unreadable repository indistinguishable from one that simply has no shared dir');
+  const m = metricsMod.computeMetrics({ sources: { session_activity: scan } });
+  assert.equal(m[metricsMod.A1_WORK_COMPLETION_RATE].status, 'invalid',
+    'and the metric must not publish a rate from what is left');
 });

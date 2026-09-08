@@ -180,3 +180,111 @@ copy 금지). `goal-phase-lock.js`는 두 사본이 **바이트 동일**이라 l
 - 머지 후 PRD Delivery Milestones의 M3 status를 `complete`로 flip → PRD 전체 완료 →
   `/mccp:archive-complete` 자격
 - backlog 잔여 HIGH 2건(cache 배포 간극 · escalation clear 영구 도달 불가)은 별도 사이클 소유
+
+---
+
+## Addendum — 같은 세션의 후속 실측 (2026-09-08, 위 본문 이후)
+
+위 본문은 milestone-close 실행 시점의 기록이다. 그 직후 같은 세션에서 축을 더 팠고
+**판정 두 건이 바뀌었으며 새 차단 하나가 드러났다.** 본문을 고치지 않고 여기서 갱신한다 —
+무엇이 왜 달라졌는지가 함께 남아야 한다.
+
+### 갱신된 acceptance 집계: 8 충족 → **10 충족 · 1 부분 · 2 미충족**
+
+| # | 절 | 본문 판정 | 갱신 | 근거 |
+|---|---|---|---|---|
+| 9 | 위치 독립성 회귀 없음 | 미충족 | **충족** | 아래 A |
+| 11 | escalation 해소 | 미충족(의도된 비수행) | **경로 확정** — 4번과 같은 지점에서 닫힌다 | 아래 B |
+| 4 | 게이트/경로 1회 완주 | 미충족 | 미충족(변동 없음) — 새 차단 발견, 아래 C |
+| 12 | 라이브 관측 | 미충족 | 미충족(변동 없음) — cache 배포 간극 |
+
+나머지 9개 항목은 재실행으로 재확인했다: in-scope 11 suite **223 pass / 0 fail**(본문이 인용한
+report 기록 204보다 높다 — santa R2~R4 추가분) · state 217 pass · derive 146 pass / 1 fail(선재
+`mask.test.js`, main 이 머지한 CI 격리 목록에 이미 등재) · env-contract L1~L12 ok · V4 spike 가드
+`computed`+`dormant` · version guard `ok`.
+
+### A. acceptance 9 — 저장소가 이미 해결 도구를 담고 있었다
+
+본문 근거였던 report V3 는 "공유 corpus 가 존재조차 하지 않는다 → 환경 결함"이라 적었다. 관측은
+정확했으나 **진단이 불완전했다.** reader 가 로컬 ∪ 공유를 읽는 것은 버그가 아니라 명시된 호환
+설계이고, 위치 독립성에는 과거 로컬 corpus 의 1회 수집이 추가로 필요하다 — 그 도구를 M1 Task 3
+이 이미 만들어 뒀다(`migrations/msw-events-common-dir.js`, 헤더가 이 상태를 정확히 서술한다).
+
+실행(원본 미삭제 · idempotent · marker `state: complete`): candidates 25 · new_lines 25 ·
+invalid 0 · unreadable 0. 이후 plan `## Validation` 3 이 지정한 정본 측정:
+
+```
+$ cd <위치> && node <c2>/plugins/mccp/scripts/derive/cli.js run --json → metrics.A1
+mccp                          status=computed value=0.07692307692307693 1/13
+c2-orchestrator-step-wiring   status=computed value=0.07692307692307693 1/13
+c3-ci-full-suite              status=computed value=0.07692307692307693 1/13
+```
+
+세 위치가 같다(수집 전: `-/1` · `-/3` · `1/4`). 분모 13 은 PRD `## Evidence` 의 저장소 전체
+baseline(착수 13)과 정확히 일치한다.
+
+**수명 조건을 숨기지 않는다**: 이 수렴은 **일회성**이다. 설치 cache `1.33.6` 의
+`resolveEventsDir()` 에 공유 분기가 없어 새 이벤트는 여전히 worktree-local 에 착지하므로, 이벤트가
+쌓이면 다시 갈린다. 항구 해소는 이 PR 이 머지되어 cache 가 M1 배선을 담는 것이고, 그때까지는 같은
+마이그레이션을 다시 돌리면 된다.
+
+### B. acceptance 11 — "영구 도달 불가"는 과했다
+
+본문(과 report Task 9)은 clear 가 구조적으로 도달 불가라 적었다. 코드를 추적하니 경로가 있다 —
+[write.js](../../plugins/mccp/scripts/receipt/write.js) `:1240-1247` 의 역방향 경로는 *같은
+decision_id* 에 escalate 하지 않는 receipt 가 쓰이면 플래그를 내린다. 실측:
+
+```
+mccp-plan-codex        escalate=true  trigger=divergent_unresolved
+mccp-implement-codex   escalate=true  trigger=divergent_unresolved
+mccp-santa-review      escalate=true  trigger=divergent_unresolved
+mccp-pr-codex verdict=converged → escalate=false
+```
+
+정확한 진술은 **"이 사이클의 게이트가 전부 divergent 라 아직 도달하지 않았다"** 이지 영구 불가가
+아니다. `/mccp:pr` 이 converged 한 `mccp-pr-codex` receipt 를 쓰면 자동으로 내려간다 — 즉
+acceptance 11 은 acceptance 4 와 **같은 지점에서** 닫힌다. 별도 조치 항목이 아니다.
+
+### C. 새 차단 — DD13 이 `/mccp:pr` 을 막고 있고, 그것이 옳다
+
+본문 시점에는 몰랐던 것: `/mccp:pr` 이 stale receipt 2건에 막혀 있다
+(`receipt_plan_hash 6818cd91… ≠ current b4385c9e…`). **원인은 이 closure 의 스탬프가 아니다** —
+스탬프는 수행하지 않았고, 어긋남은 santa-loop R3(`a7d1d3a`)·R4(`1a8b763`) 가 plan 본문을 **실질
+편집**한 데서 온다(A1 census 23→3 정정 · DD2 대가 명시 · MEDIUM 합계 정정). 즉 리뷰된 본문과
+ship 될 본문이 실제로 다르다.
+
+그리고 **재anchor 는 이 receipt 에 대해 정직한 선택지가 아니다.** 두 receipt 는 축이 다르다:
+
+| receipt | 축 | 봉인 |
+|---|---|---|
+| `mccp-plan-codex` | **review** | `review_source: multi-agent` · `review_proof.reviewed_plan_hash: 6818cd91…` |
+| `mccp-implement-codex` | codex | `codex_verdict: divergent` · proof 없음 |
+
+`write.js` 가 review 축 재봉인을 스스로 거부하며 복구법까지 적어 뒀다:
+
+> `plan changed after L2 reviewed it (DD13) … The review does not describe the artifact being
+> sealed. Recovery: rerun the L2 review against the current plan — **do NOT reseal, that would
+> certify an unreviewed version.**`
+
+`--codex-verdict` 로 축을 갈아타는 것도 `contradictory receipt` 로 거부된다. 통과시키려면 proof 의
+`reviewed_plan_hash` 를 손대야 하고 그것이 §3.16 이 금지한 receipt 위조다. 따라서 backlog
+2026-08-16 HIGH 행이 처방으로 인용한 "M4 선례 — verdict 무변경 재anchor"는 **codex 축 receipt 에만
+유효**하며 review 축에는 적용되지 않는다. 그 행에 이 구분을 등재했다.
+
+재실행 경로도 예산에 막힌다 — 두 게이트 원장 모두 `rounds_so_far: 1` 이고
+`MCCP_GATE_ROUND_CAP=1` 이다. `MCCP_SKIP_RECEIPT=1` 은 stale 을 우회하지 못한다(실측:
+여전히 `ok:false stale:2`; `validate-cmd.js` 는 그 변수를 읽지 않고 `preflight.js` 만 읽는다).
+
+**결론**: 이 지점부터는 운영자 결정이다. 어느 경로를 택하든 dedupe 는 `divergent` 에서 닫혀 있어
+`/mccp:pr` 에서 PR-Codex 가 반드시 발화한다 — dual-review 가 우회되는 경로는 후보에 없다.
+
+### D. base 병합과 머지 차단 게이트 (신규 제약)
+
+`origin/main`(`e5d274c`)을 병합했다(merge commit `b460ff5`). §3.5.1 절차 준수 — main 신규 84 파일
+**전건 보존**(missing 0) · 삭제 0건 · rename 5건은 leadtime-observability 아카이브 이동. 충돌 2건은
+`codex-findings-backlog.md`(append 표, 양쪽 보존 — 파서 1619행 invalid 0) 와 `STATE.md`(이 worktree
+것 채택). 병합은 plan 해시를 바꾸지 않았다.
+
+main 이 그 사이 ci-full-suite M3(PR #185)를 머지해 전수 스위트가 **머지 차단 게이트**가 됐다.
+로컬 실행 결과 `blocked: false` · `reasons: []` · 386 files · failing 0 · coverage 98.47% ·
+56.7s — 이 브랜치는 그 게이트를 통과한다.

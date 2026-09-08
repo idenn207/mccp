@@ -905,3 +905,103 @@ test('A3: an unimportable tiktoken degrades to a status, not an unhandled crash'
       'an unimportable tokenizer must say so in not_delivered_reason');
   }
 });
+
+// ── orchestrator-step-wiring M3 (Task 1 · DD1) — A1 spike 가드의 부호 ──────────
+//
+// 두 단언은 **짝**이어야 한다. 앞만 있으면 "가드를 지웠다"와 구별되지 않는다.
+
+function a1Model(startupCount, priorStartupCount) {
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        task_startups_count: startupCount,
+        task_completions_count: 1,
+        startups_producer_present: true,
+        completions_producer_present: true,
+        sessions: [],
+        sessions_local: [],
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+  if (priorStartupCount !== undefined) model._priorStartupCount = priorStartupCount;
+  return model;
+}
+
+test('A1 (M3 Task 1): a missing baseline is not evidence of a spike', () => {
+  const a1 = computeMetrics(a1Model(51))[A1_WORK_COMPLETION_RATE];
+  assert.notEqual(a1.status, 'invalid',
+    'the pre-M3 condition (`startupCount > 50 && !model._priorStartupCount`) was a time bomb: '
+    + 'M1 made the denominator monotonically increasing, so crossing the threshold killed A1 '
+    + 'at exactly the point the metric starts to mean something');
+  assert.equal(a1.status, 'computed');
+  assert.equal(a1.spike_guard, 'dormant',
+    'the guard not judging must be SAID, not merely not-invalid — a silent pass reads as '
+    + '"the anti-gaming axis is live"');
+  assert.ok(typeof a1.spike_guard_reason === 'string' && a1.spike_guard_reason.length > 0);
+});
+
+test('A1 (M3 Task 1): with a baseline present the guard still fires', () => {
+  // 이것은 **부호 test이지 계약 test가 아니다**. DD2가 기준선 producer를 만들지
+  // 않기로 확정했으므로 이 분기는 production 입력으로 도달 불가이고, 여기 심는
+  // `_priorStartupCount`는 어떤 실 derive 모델도 만들 수 없다. 그럼에도 짝으로
+  // 두는 이유는 위 단언 단독으로는 "부호를 고쳤다"와 "가드를 지웠다"가 구별되지
+  // 않기 때문이다. 영구 dormant라는 대가는 backlog (c)에 등재돼 있다.
+  const a1 = computeMetrics(a1Model(51, 10))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid');
+  assert.equal(a1.invalid_reason, 'unit_count_spike_suspected');
+  assert.equal(a1.spike_guard, undefined,
+    'present-only: when the guard CAN judge there is nothing dormant to report');
+});
+
+test('A1 (M3 Task 1): the dormant marker does not wait for the threshold', () => {
+  // 임계 아래(오늘의 실제 영역)에서도 실려야 한다. 51에서만 단언하면 오늘 도달하지
+  // 않는 조건만 검사하게 되고, 배너 토큰도 같은 이유로 0개 표면이 된다.
+  const a1 = computeMetrics(a1Model(23))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'computed');
+  assert.equal(a1.spike_guard, 'dormant');
+});
+
+// ── orchestrator-step-wiring M3 (Task 4) — A2 분자와 분모의 모집단 일치 ────────
+
+test('A2 (M3 Task 4): the numerator reads the same population as the denominator', () => {
+  // 이 fixture는 **코드 계약 test**다. Task 5가 착지한 뒤 실 producer는 공유 위치의
+  // 외래 세션에 `context_remaining_pct`를 실을 수 없다(`session_end`는 A1 축 밖이라
+  // 세션 맵에 들어가지 못한다). 그래서 이 model은 손으로 조립한다 — 고정하려는 것은
+  // 도달 가능한 상태가 아니라 **`computeA2`가 어느 집합을 읽는가**이고, 오늘 무해한
+  // 이유가 강제되지 않은 우연이라는 것이 Task 4의 전제 그대로다.
+  const scan = {
+    ok: true,
+    sessions: [
+      { session_id: 'loc-1', context_remaining_pct: 40, observed_local: true },
+      { session_id: 'for-1', context_remaining_pct: 90, observed_local: false },
+    ],
+    sessions_local: [
+      { session_id: 'loc-1', context_remaining_pct: 40, observed_local: true },
+    ],
+    producer_coverage: 'session-activity',
+  };
+  const a2 = computeMetrics({ sources: { session_activity: scan } })[A2_CONTEXT_REMAINING];
+  assert.equal(a2.numerator, 1,
+    'a numerator of 2 would take a sample from a session this location never observed, '
+    + 'while the denominator counts only the one it did');
+  assert.deepEqual(a2.value, { p50: 40, p95: 40 },
+    'the foreign 90 must not move the percentiles');
+});
+
+test('A2 (M3 Task 4): the sessions_local fallback keeps its pre-M3 behaviour', () => {
+  // 구 소스(이 필드를 모르는 producer)에서는 분자·분모가 함께 `sessions`로 접힌다.
+  // Task 4가 그 fallback까지 바꾸면 레거시 모델의 A2가 조용히 비어 버린다.
+  const legacy = {
+    ok: true,
+    sessions: [
+      { session_id: 'a', context_remaining_pct: 55 },
+      { session_id: 'b', context_remaining_pct: null },
+    ],
+    producer_coverage: 'session-activity',
+  };
+  const a2 = computeMetrics({ sources: { session_activity: legacy } })[A2_CONTEXT_REMAINING];
+  assert.equal(a2.numerator, 1);
+  assert.equal(a2.denominator, 2);
+});

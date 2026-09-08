@@ -111,8 +111,32 @@ function computeA1(model) {
 
   // Anti-gaming: unit count spike (直前週期比 비정상 증가)
   // Check: if startupCount >> prior recorded, flag분할 의심
-  const unitSpikeFlag = startupCount > 50 && !model._priorStartupCount
-    ? 'unit_count_spike_suspected' : null;
+  //
+  // orchestrator-step-wiring M3 (Task 1 · DD1) — 부호를 바로잡는다. 기준선 **부재**는
+  // 급증의 증거가 아니라 "비교할 것이 없다"이다. 원래 조건
+  // (`startupCount > 50 && !model._priorStartupCount`)은 M1이 집계 경계를 저장소
+  // 전체로 올려 분모가 단조 증가하게 된 뒤로 시한폭탄이었다 — 임계를 넘는 순간
+  // A1을 통째로 `invalid`로 죽인다. 지표가 통계적 의미를 갖기 시작하는 바로 그
+  // 지점에서.
+  //
+  // DD2 — 기준선 producer(`_priorStartupCount` writer)는 이 milestone에서 만들지
+  // 않는다. 따라서 이 가드는 실 corpus에서 **영구히 잠든다**. 그것은 대가이고,
+  // 숨기지 않는다: 아래 `spike_guard`가 그 사실을 결과에 싣고 `cli.js`의 a1 배너가
+  // 토큰으로 내보낸다. anti-gaming 축의 복원은 backlog (c) 소유다.
+  const priorStartupCount = model._priorStartupCount;
+  const spikeBaselinePresent = Number.isFinite(priorStartupCount) && priorStartupCount > 0;
+  const unitSpikeFlag =
+    (startupCount > 50 && spikeBaselinePresent && startupCount > priorStartupCount)
+      ? 'unit_count_spike_suspected' : null;
+
+  // present-only. 기준선이 있어 가드가 실제로 판정할 수 있으면 키 자체가 없다 —
+  // `:140-152`가 producer 부재를 `computed 0`으로 위장하지 않는 것과 같은 계열이다.
+  // 모르는 것을 아는 것처럼 쓰지 않고, 모른다는 사실에 이름을 준다.
+  const spikeGuardFields = spikeBaselinePresent ? {} : {
+    spike_guard: 'dormant',
+    spike_guard_reason:
+      'no _priorStartupCount baseline is recorded, so the anti-gaming spike guard cannot judge',
+  };
 
   // Anti-gaming: inverted timestamps (착수 시각 > 지시 시각)
   const inversionFlag = sessionActivity.inversion_detected ? 'timestamp_inversion_detected' : null;
@@ -129,6 +153,7 @@ function computeA1(model) {
       invalid_reason: invalidReason,
       status: 'invalid',
       coverage: sessionActivity.producer_coverage || 'unknown',
+      ...spikeGuardFields,
     };
   }
 
@@ -147,6 +172,7 @@ function computeA1(model) {
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
       sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+      ...spikeGuardFields,
     };
   }
 
@@ -166,6 +192,7 @@ function computeA1(model) {
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
       sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+      ...spikeGuardFields,
     };
   }
 
@@ -181,6 +208,7 @@ function computeA1(model) {
     // DD5 병기 축 — 봉인됐으나 완주 기록이 없는 작업 단위 수. 값 셀이 아니라
     // 대시보드의 `A1 커버리지:` 줄로 나간다(DD11: 값 셀은 한 지표만 담는다).
     sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+    ...spikeGuardFields,
   };
 }
 
@@ -225,7 +253,12 @@ function computeA2(model) {
   // 평균은 내지 않는다(§A2 계약) — p50·p95만 보고한다. 표본 수는 값 셀이 아니라
   // `coReportDetails()`의 `A2 상세:` 줄로 나간다(DD11: percentile 분기는 이미
   // 두 사실로 차 있다).
-  const samples = sessions
+  // orchestrator-step-wiring M3 (Task 4) — 분자를 **분모와 같은 모집단**에서 뽑는다.
+  // 오늘 무해한 이유(`context_remaining_pct`가 로컬 `session_end`에서만 온다)는
+  // 강제되지 않은 우연이었다: `session_end`는 `A1_AXIS_KINDS` 밖이라 공유 위치에
+  // 도달하는 경로가 없을 뿐, `sessions`를 읽는 한 그 사실이 바뀌면 분자가 조용히
+  // 오염된다. 위 `localSessions`가 이미 분모다 — 분자도 같은 집합에서 읽는다.
+  const samples = localSessions
     .map((s) => (s && s.context_remaining_pct))
     .filter((v) => Number.isFinite(v))
     .sort((a, b) => a - b);

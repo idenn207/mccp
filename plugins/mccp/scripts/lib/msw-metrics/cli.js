@@ -328,8 +328,18 @@ function cmdA1(argv) {
       : (Math.round(a1.value * 1000) / 10) + '%';
     const num = (a1.numerator === null || a1.numerator === undefined) ? '-' : a1.numerator;
     const den = (a1.denominator === null || a1.denominator === undefined) ? '-' : a1.denominator;
+    // orchestrator-step-wiring M3 (Task 1) — 잠든 anti-gaming 가드를 한 줄 배너에
+    // 표면화한다. 필드만 싣고 렌더 경로를 열지 않으면 운영자는 `status=computed`만
+    // 보고 그 축이 살아 있다고 읽는다 — 이 PRD Risks 첫 줄의 실패 그대로다.
+    //
+    // 발화 조건은 **기준선 부재 그 자체**이지 `startupCount` 값이 아니다. 임계
+    // 초과에서만 내면 그 조건은 오늘 도달하지 않아(23) 토큰이 다시 0개 표면이
+    // 되고, 이 Task는 표면을 열었다고 주장하면서 아무것도 열지 않은 것이 된다.
+    // DD2대로 부재는 영구 상태이므로 이 토큰은 사실상 상수이고, 그것이 정확히
+    // 전달하려는 사실이다. 배너는 한 줄 예산이라 사유 원문이 아니라 고정 토큰 하나다.
+    const spikeGuard = a1.spike_guard === 'dormant' ? ' · spike-guard=dormant' : '';
     process.stdout.write('A1 작업 단위 완주율 ' + pct + ' (' + num + '/' + den
-      + ' · status=' + a1.status + ')\n');
+      + ' · status=' + a1.status + spikeGuard + ')\n');
     return 0;
   } catch (err) {
     // F9 — 절대경로를 흘리지 않는다. 무엇이 실패했는지만 말한다.

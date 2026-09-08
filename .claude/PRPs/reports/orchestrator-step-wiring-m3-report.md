@@ -199,3 +199,125 @@ in-scope 11 suite 합계 **204 pass / 0 fail**.
 - [ ] `/mccp:santa-loop` — `fix-task-applied.md`가 지시하는 dual-reviewer escalation
 - [ ] `/mccp:prp-commit`
 - [ ] `/mccp:pr` — dedupe가 `divergent`에서 닫혀 있으므로 PR-Codex가 발화한다
+
+---
+
+## Addendum — 2026-09-08 closure 세션 실측 (사후 추가)
+
+이 절은 report 본문이 쓰인 뒤(14:58) `/mccp:milestone-close` 세션에서 재측정한 결과다.
+본문의 판정 중 **두 건이 뒤집혔고**, 뒤집힌 근거를 함께 남긴다.
+
+### A. 회귀 재실행 — 본문보다 강한 결과
+
+| 축 | 본문 기록 | 재측정 (2026-09-08, Linux node v22.23.2) |
+|---|---|---|
+| in-scope 11 suite | 204 pass / 0 fail | **223 pass / 0 fail** (santa R2~R4 추가분 포함) |
+| state | 217 pass / 0 fail | 217 pass / 0 fail |
+| derive | fail 1 (선재) | 146 pass / **fail 1** — 동일. `mask.test.js "default derive emits masked model"` |
+| V4 spike 가드 | `computed` | `computed` · `spike_guard=dormant` |
+| V5 env-contract | L1~L12 ok | L1~L12 ok |
+| V7 version guard | `ok` | `ok: no version declaration on this branch` |
+| V8 삭제 검증 | 0건 | 0건 |
+
+`derive/tests/mask.test.js` 는 main 이 머지한 ci-full-suite M3 의 **격리 목록에 이미 등재**돼 있다
+(`.github/test-suite-exclusions.json`, ticket `backlog:ci-full-suite-linux-red-mask`, 사유
+"Linux-only red … green on Windows local"). 즉 이 red 는 머지 차단 게이트를 막지 않는다.
+
+### B. **acceptance 9(위치 독립성) — 미충족 → 충족으로 뒤집힘**
+
+본문 V3 는 "미성립. 공유 corpus `<git-common-dir>/mccp/msw-events` 가 존재조차 하지 않는다"
+고 적었다. 그 관측은 그 시점에 정확했으나 **원인 진단이 불완전했다** — 저장소는 이 상태의
+해소 도구를 이미 담고 있었다. M1 Task 3 이 만든
+[msw-events-common-dir.js](../../../plugins/mccp/scripts/migrations/msw-events-common-dir.js) 가
+그것이고, 헤더가 문제를 정확히 서술한다:
+
+> reader가 두 위치를 다 읽으므로 유실은 없지만, **A1 baseline이 위치마다 다른 상태**는 그대로다
+> — 이 milestone의 표제 성질이 성립하려면 과거 corpus도 한 곳에 모여야 한다.
+
+즉 reader 가 로컬 ∪ 공유를 읽는 것은 **버그가 아니라 명시된 호환 설계**이고, 위치 독립성에는
+과거 로컬 corpus 의 1회 수집이 추가로 필요하다. 그 수집을 실행했다(원본 미삭제 · idempotent ·
+marker `state: complete`):
+
+```
+$ node plugins/mccp/scripts/migrations/msw-events-common-dir.js
+candidates: 25 · new_lines: 25 · skipped_non_a1: 301 · invalid: 0 · unreadable: []
+sources: mccp 0 · c0 4 · c1 4 · c11 3 · c2 4 · c3 8 · meta-claude-p-invocation 2
+```
+
+수집 후 plan `## Validation` 3 이 지정한 정본 측정을 세 위치에서 돌린 결과:
+
+```
+$ cd <위치> && node <c2>/plugins/mccp/scripts/derive/cli.js run --json  → metrics.A1
+mccp                          status=computed value=0.07692307692307693 1/13 spike_guard=dormant
+c2-orchestrator-step-wiring   status=computed value=0.07692307692307693 1/13 spike_guard=dormant
+c3-ci-full-suite              status=computed value=0.07692307692307693 1/13 spike_guard=dormant
+```
+
+**세 위치가 같은 값이다.** 분모 13 은 PRD `## Evidence` 가 기록한 저장소 전체 baseline
+("착수 13 · 완주 5 = 38.5%")의 **착수 13 과 정확히 일치**한다. 수집 전 값은 `-/1` · `-/3` ·
+`1/4` 였다.
+
+**충족의 수명에는 조건이 붙는다 (숨기지 않는다).** 이 수렴은 **일회성**이다 — 설치 cache
+`1.33.6` 의 `resolveEventsDir()` 에는 공유 kind/토글/common-dir 분기가 없어 **새 이벤트는
+여전히 worktree-local 에 착지**한다. 따라서 이벤트가 더 쌓이면 세 위치는 다시 갈린다. 항구적
+해소 조건은 이 PR 이 머지되고 사용자 cache 가 M1 배선을 담는 것이며, 그때까지 재수렴이
+필요하면 같은 마이그레이션을 다시 돌리면 된다(idempotent). 즉 **저장소 코드는 이 acceptance
+를 만족하고, 남는 것은 배포다.**
+
+### C. **acceptance 11(escalation 해소) — 해소 경로가 특정됐다**
+
+본문 Task 9 는 "구조적 결함(수명이 끝난 decision 에는 후속 clean receipt 가 없어 clear 가
+영구 도달 불가)"이라 적었다. 코드를 추적하니 **도달 경로가 있다** —
+[write.js:1240-1247](../../../plugins/mccp/scripts/receipt/write.js) 의 역방향 경로는 *같은
+decision_id* 에 대해 escalate 하지 않는 receipt 가 쓰이면 플래그를 내린다. 실측:
+
+```
+$ node -e '… escalate-detector.detectFromReceipt …'
+mccp-plan-codex        escalate=true  trigger=divergent_unresolved
+mccp-implement-codex   escalate=true  trigger=divergent_unresolved
+mccp-santa-review      escalate=true  trigger=divergent_unresolved
+mccp-pr-codex verdict=converged → escalate=false
+```
+
+즉 `/mccp:pr` 이 이 decision 에 대해 **converged 한 `mccp-pr-codex` receipt** 를 쓰면
+`escalate_pending` 은 자동으로 내려간다. acceptance 11 은 acceptance 4 와 **같은 지점에서**
+닫히며, 별도 조치가 필요한 항목이 아니다. 본문의 "영구 도달 불가"는 과했고, 정확한 진술은
+**"이 사이클의 게이트가 전부 divergent 라 아직 도달하지 않았다"** 이다.
+
+### D. base 병합과 머지 차단 게이트 (신규 제약)
+
+`origin/main` 이 이 브랜치보다 앞서 나가 병합했다(`e5d274c`, merge commit `b460ff5`).
+main 이 그 사이 **ci-full-suite M3(PR #185)** 를 머지해 전수 스위트가 **머지 차단 게이트로
+승격**됐고, 이 브랜치도 그 게이트를 받는다. 로컬 실행 결과:
+
+```
+$ node scripts/test-suite/run.js --exclude-from .github/test-suite-exclusions.json --json
+ok: true · exit_code: 0 · files_total: 386 · files_excluded: 6 · failing: [] · wall_clock 56.7s
+$ node scripts/test-suite/gate.js …
+blocked: false · reasons: []
+message: gate PASSED: measurement complete, suite green, coverage accounted, no residual leakage.
+coverage: 98.47% (386/392)
+```
+
+병합 자체는 §3.5.1 절차를 따랐다 — main 신규 84 파일 **전건 보존 확인**(missing 0), 삭제 0건,
+rename 5건은 leadtime-observability 아카이브 이동. 충돌 2건은 `codex-findings-backlog.md`
+(append 표 — 양쪽 보존, 파서 1619행 · invalid 0) 와 `STATE.md`(이 worktree 것 채택).
+병합은 plan 해시를 **바꾸지 않았다**(`b4385c9e` 유지).
+
+부수 관측 — 격리 목록의 `msw-m8-producers.test.js` 는 "Linux red, orchestrator-step-wiring 축
+귀속"으로 등재됐는데 이 호스트(Linux node v22.23.2)에서 **18 pass / 0 fail** 이다. 격리가
+낡았을 수 있으나 `max_excluded_files: 6` 이 pin 돼 있어 해제는 ci-full-suite 축의 조율된
+변경을 요구한다. 이 사이클에서 손대지 않고 관측만 기록한다.
+
+### E. 갱신된 acceptance 집계
+
+| 판정 | 본문 | Addendum 이후 |
+|---|---|---|
+| 충족 | 8 | **10** (9번·11번 판정 갱신 — 11번은 `/mccp:pr` 에서 닫히는 것이 확정됨) |
+| 부분 | 1 | 1 (Task 9 조건부 미수행 · Task 10 미관측) |
+| 미충족 | 4 | **2** — 4번(게이트 완주, `/mccp:pr` 대기) · 12번(라이브 관측, cache 배포 간극) |
+
+12번은 `claude --plugin-dir <worktree>/plugins/mccp` 로 `/mccp:work` 를 완주해야 성립하며
+(docs/dogfood-install.md), 그것은 운영자가 별도 세션에서 실행할 일이다. **합성 record-step 을
+주입해 충족시키지 않았다** — 계측 축의 acceptance 를 그 계측 corpus 를 조작해 만족시키는 것은
+순환이며 지표 4(halt 기록률)를 오염시킨다.

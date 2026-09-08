@@ -4963,6 +4963,31 @@ v1.4.0 multi-session — Milestone 2 ship (cross-session discovery). M1(PR #43, 
 - **`renderer/index.js` + `markdown.js` + `html.js`** — 6번째 section(`active-sessions`) wire-up. anchors 목록 + section composer destructure 모두 갱신. 기존 5 section 동작 회귀 0.
 - **plugin.json version bump** `1.6.0 → 1.7.0`.
 
+### release-channel-separation M4 — residual-closure
+
+M1~M3이 자기 산출물 안에 **명시로 이연한 부채**를 닫는다. 새 기능은 없고 채널의 강제 표면만 넓어진다. 첫 릴리스 컷은 여전히 일어나지 않았고 M4가 그것을 일으키지 않는다. **번호를 선언하지 않는다**(우산 결정 1) — `plugins/mccp/.claude-plugin/plugin.json` diff 0줄.
+
+#### Added
+
+- **`scripts/release-manifest-guard.js`** + **`scripts/tests/release-manifest-guard.test.js`** — 릴리스 좌표 파일(`.claude-plugin/marketplace.json`)의 형태 단언을 소유하는 상시 가드. 6축: `source.source==='git-subdir'` · **`source.url` 값** · `source.path` · `source.ref==='release'` · **`sha` 키 부재** · **`mccp` 엔트리 유일성**. `url`을 존재가 아니라 값으로 재는 이유는 그것이 이 파일에서 유일하게 "코드를 어디서 가져오는가"를 정하기 때문이다 — 병합 사고가 그것을 바꾸면 나머지 단언은 전부 통과한다. 읽기·파싱 실패는 통과가 아니라 HALT. 판별력 test 11개(위반 8종 + 방어적 입력 + end-to-end).
+- **`.github/workflows/release-manifest-gate.yml`** — 모든 PR에서 도는 게이트. **`paths` 필터가 없는 것은 누락이 아니라 설계다**: 좁히면 `sha` 핀의 red가 그 PR에서 한 번 발화하고 다음 PR부터 워크플로가 건너뛰어져, "red가 곧 타이머"라는 설계가 죽고 조용한 영구 핀이 되살아난다. test → 가드 순서, 단일 OS(JSON 값만 대조하므로 OS 축이 없다).
+- **`plugins/mccp/scripts/lib/renderer/plugin-version.js`** + tests — 두 footer가 공유하는 단일 파생원. `readPluginVersion()`은 **절대 throw하지 않고** `{version:null, degraded:true, reason}` sentinel로 접힌다(`derive/host-version.js` 형태). semver 검사는 **앵커된 전체 일치**라 manifest의 임의 문자열이 escape 없는 footer로 흘러가지 못한다.
+
+#### Changed
+
+- **`renderer/html.js` · `renderer/markdown.js`** — footer 버전 리터럴 → `footerVersionLabel()` 파생. 릴리스 컷이 움직여야 하는 면이 **다섯에서 셋으로** 준다(manifest · CHANGELOG 노트 · CHANGELOG 항목) — PRD Open Question 2의 답이 예고한 그대로. markdown footer는 `derive-only`·`LLM-free`를 얻어 html 면과 **정보 동등**해진다(PRODUCT.md Design Principle 4).
+- **`scripts/version-declaration-guard.js`** — 4면 → 2면. 두 footer는 **앵커-후-리터럴 2단계**로 판정한다: 앵커(`<footer …page-foot` · `derived from .claude/`)를 못 찾으면 `version-face-missing`(부재는 여전히 위반 — 역방향 단언만 두면 footer 삭제가 통과로 읽힌다), 찾은 뒤 그 줄에 리터럴이 있으면 `version-face-literal-reintroduced`. 리터럴 대조가 남는 면은 `plugin_json`·`changelog_note` 둘.
+- **`.github/workflows/version-declaration-gate.yml`** — `paths`에 `plugin-version.js` + renderer test 2종 등재, test 단계에 **보상 검사** 추가. M4 이전 `i18n-surface.test.js`를 부르는 워크플로는 **5개 중 0개**였다 — "보상 검사가 있다"는 말이 공허했던 지점이다.
+- **`renderer/tests/i18n-surface.test.js`** — markdown footer 단언 회수(전체 줄 형태 pin → 앵커 + 값) + 두 면의 trust token을 **하나의 상수**에서 대조해 재갈라짐을 막는다.
+- **`docs/release-channel.md`** — 6절의 "사이클마다 실행돼야만 작동한다" 약점 문장 은퇴(무엇이 그것을 닫았는지 남긴다), 7절에 브랜치 보호 재측정(`release`·`main` **둘 다** 404 — M3은 `release`만 쟀다) + "형태를 재지 custody를 재지 않는다" 한정 추가.
+- **`.claude/prds/release-channel-separation.prd.md`** — M4 행 추가(`in-progress`), OQ6 신설·종결(`known_marketplaces.json`에 `ref`가 없어 좌표 파일 편집이 머지 즉시 도달하는 잔여의 소유), 소유 파일 목록 갱신 + 병렬 무충돌 주장의 범위를 M1~M3으로 좁힘.
+
+#### Known residuals (backlog 적재)
+
+- 극성 반전의 **간접 참조 우회** — 리터럴을 앵커 줄 밖 상수로 옮기면 가드가 `derived`로 인증한다. 구 4면 설계에는 없던 구멍이며 M4가 새로 연다. 보상은 렌더 **출력**을 보는 `i18n-surface.test.js`(이제 CI에서 실제로 돈다)이고, 정적 스캔의 모듈 참조 단언 승격은 별개 축.
+- 가드는 **형태를 재지 custody를 재지 않는다** — 브랜치 보호 부재와 required status check 미지정은 닫히지 않았다(UI4).
+- `sha` audited escape 부재의 비용 · `plugin-version.js`의 `require` 모듈 캐시 staleness(`/mccp:dashboard` 장수 프로세스).
+
 ## [Unreleased] — v1.4.0 automation modernization axis C (M3)
 
 v1.4.0 PRD `automation-modernization` Milestone 3 ship — Anthropic native `/goal` completion-condition loop integration via cooperative guide pattern. M1+M2+M3 누적으로 PRD M4 (integration template doc) 별도 milestone 불필요 결정 → row status `dropped`. plugin.json version bump은 PR ship 시점 main HEAD 기준으로 결정 (CLAUDE.md §3.7) — 본 entry는 `[Unreleased]`로 두고 PR squash 시 `[X.Y.Z] — YYYY-MM-DD` 로 갱신.

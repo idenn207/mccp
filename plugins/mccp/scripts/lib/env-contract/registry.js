@@ -301,7 +301,7 @@ const RAW = [
   ['MCCP_DESIGN_CRITIQUE_TEST_FORCE_FAIL', 'bool', B, 'off', OFF, 'test-only', 'retired', 'plugins/mccp/commands/plan.md:687', 'test 전용 — critique 강제 실패.'],
   ['MCCP_PERF_INJECT_QUADRATIC', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],
   ['MCCP_TEST_SESSION_START_PATH', 'string', null, null, null, 'test-only', 'retired', 'docs/environment/retired.md:1', 'test 전용, 표면 밖.'],
-  ['MCCP_EXPLORE_CONTROL_PLACEMENT', 'string', null, null, null, 'comment-only', 'retired', 'plugins/mccp/scripts/lib/renderer/html.js:1112', '제거됨 — 주석만 잔존.'],
+  ['MCCP_EXPLORE_CONTROL_PLACEMENT', 'string', null, null, null, 'comment-only', 'retired', 'plugins/mccp/scripts/lib/renderer/html.js:1115', '제거됨 — 주석만 잔존.'],
   ['MCCP_PLAN_REVIEW_', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/plan-review/budget.js:26', '환경변수 아님 — 접두사 오탐.'],
   ['MCCP_DISABLE_VALUES', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:48', '환경변수 아님 — JS 상수.'],
   ['MCCP_IGNORE_BLOCK', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/gitignore-provision.js:60', '환경변수 아님 — JS 상수.'],

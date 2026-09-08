@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: orchestrator-step-wiring-m3-rev2
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-08T05:55:37.690Z
+updated_at: 2026-09-08T06:01:09.116Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-08T05:55:37.690Z
+last_event_at: 2026-09-08T06:01:09.116Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -34,10 +34,10 @@ orchestrator-step-wiring M3 (instrumentation-closeout) — 구현·게이트 완
 없음 — santa-loop escalation 대기
 
 ## Next Step
-/mccp:santa-loop (gate-receipt: mccp-implement-codex/orchestrator-step-wiring-m3-rev2) → /mccp:prp-commit → /mccp:pr
+/mccp:santa-loop 는 cap_reached 로 종료(divergent 봉인). 운영자 판단 필요 — 아래 Last Decision 참조
 
 ## Last Decision
-Task 9의 clear를 수행하지 않는다. escalate_pending_decision_id가 M1이 아니라 이 사이클의 M3-rev2이고, 무조건 clear는 미해소 알람을 M1 머지를 근거로 지우는 것이 된다. Acceptance의 '두 소비 표면 침묵' 항목은 그 결과로 이번 사이클에 미충족이며 report에 그대로 적었다.
+santa-loop 을 라운드 2→4 로 완주했다. R2 HIGH 2건 · R3 HIGH 5건 · R4 HIGH 5건을 전부 흡수하고 판정했으며, 각 수정에 mutation 검증된 회귀 test 를 붙였다. R5 는 MCCP_SANTA_ROUND_CAP=5 가 거부해 exit_reason=cap_reached 로 봉인됐고 review_verdict 는 정직하게 divergent 다 — 즉 마지막 라운드의 수정을 검증한 fresh round 가 없다. push 는 하지 않았다. 다음 선택지는 세 가지이며 전부 운영자 몫이다: (1) 그대로 /mccp:pr 진입 — divergent 봉인이 cross-gate dedupe 를 닫으므로 PR-Codex 가 반드시 발화한다, (2) cap 을 올려 R5 로 R4 수정을 검증, (3) 잔여를 새 사이클로 이연. CLAUDE.md §3.16 은 라운드를 늘리지 않는 쪽을 기본으로 삼는다.
 
 ## Open Questions
 - 위치 독립성(M1 acceptance)은 이 환경에서 라이브 반증 불가 — 공유 corpus .git/mccp가 존재하지 않고 모든 task_started가 worktree-local에 착지한다. 저장소 코드는 정상(오라클이 shared를 반환)이고 원인은 cache 배포 간극이다. backlog HIGH 기등재
@@ -45,4 +45,4 @@ Task 9의 clear를 수행하지 않는다. escalate_pending_decision_id가 M1이
 - cross-gate dedupe는 divergent에서 닫혀 있으므로 /mccp:pr에서 PR-Codex가 반드시 발화한다
 
 ## Last Updated
-2026-09-08T05:55:37.690Z
+2026-09-08T06:01:09.116Z

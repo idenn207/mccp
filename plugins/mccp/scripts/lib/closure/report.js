@@ -287,9 +287,48 @@ function buildClosureReport(repoRoot) {
   const liveItems = (liveInventory.items || []).length;
   const liveBySource = liveInventory.stats ? liveInventory.stats.by_source : {};
 
-  // Calculate gap (denominator is live items, not seal)
-  const gapCount = liveItems - sealItems;
-  const gapPct = liveItems > 0 ? parseFloat((gapCount * 100 / liveItems).toFixed(2)) : null;
+  // Calculate gap (denominator is live items, not seal).
+  //
+  // PR-Codex R1 F1 (HIGH, absorbed) — count unsealed item IDENTITIES, not net
+  // length growth. Subtracting lengths assumes every sealed item is still live,
+  // and it is not: the collector drops closed findings and replaces fix-task
+  // entries, so a disappearing sealed item silently offsets a newly added one.
+  // Measured on this repo at absorption time: lengths gave 1689, identities gave
+  // 1703, and 14 sealed items were no longer live. The pathological case is worse
+  // than an undercount — equal additions and removals report a gap of 0, which
+  // SUPPRESSES the reseal warning while unsealed debt exists. That is the exact
+  // class of comfortable-false-number this milestone exists to remove, so the
+  // instrument must not be able to produce it.
+  //
+  // `count` is therefore |live \ sealed| and is never negative. The old
+  // subtraction survives as `net_change`, which is a different question ("did the
+  // pile grow or shrink?") and CAN be negative — the plan's row-deletion case.
+  const idOf = function (it) {
+    return it && typeof it.item_id === 'string' && it.item_id.length > 0 ? it.item_id : null;
+  };
+  const sealItemsArr = sealDoc.items || [];
+  const liveItemsArr = liveInventory.items || [];
+  const sealIdList = sealItemsArr.map(idOf);
+  const liveIdsAll = liveItemsArr.map(idOf);
+  // An item with no usable identity cannot be compared. Reporting it as "sealed"
+  // would undercount and reporting it as "unsealed" would overcount, so we refuse
+  // to answer rather than guess — same contract as every other read failure here
+  // (degraded[] + null, never 0).
+  const identityIncomplete =
+    sealIdList.some(function (id) { return id === null; }) ||
+    liveIdsAll.some(function (id) { return id === null; });
+  const sealedIdSet = new Set(sealIdList.filter(Boolean));
+  const liveIdSet = new Set(liveIdsAll.filter(Boolean));
+  const gapCount = identityIncomplete
+    ? null
+    : liveIdsAll.filter(function (id) { return !sealedIdSet.has(id); }).length;
+  const sealedNotLive = identityIncomplete
+    ? null
+    : sealIdList.filter(function (id) { return !liveIdSet.has(id); }).length;
+  const netChange = liveItems - sealItems;
+  const gapPct = (gapCount !== null && liveItems > 0)
+    ? parseFloat((gapCount * 100 / liveItems).toFixed(2))
+    : null;
 
   // Read findings registry for ledgers (C5: capture degraded metadata)
   let findingsError = null;
@@ -397,11 +436,24 @@ function buildClosureReport(repoRoot) {
   for (const d of findingsDegraded) allDegraded.push(d);
   if (disposalDegraded) allDegraded.push(disposalDegraded);
   if (liveInventoryDegraded) allDegraded.push(liveInventoryDegraded);
+  // PR-Codex R1 F1 — an unidentifiable item makes the sealed/live set difference
+  // unanswerable. Say so instead of returning a number that is quietly wrong.
+  if (identityIncomplete) {
+    allDegraded.push({
+      name: 'denominator-gap-identity',
+      reason: 'inventory item(s) missing item_id — sealed/live identity comparison not possible',
+    });
+  }
 
   // When degradation exists, render affected counts as null rather than silently-short
   const finalDenominatorGap = allDegraded.length > 0 && liveInventoryDegraded
     ? null
-    : { count: gapCount, pct: gapPct };
+    : {
+      count: gapCount,
+      pct: gapPct,
+      net_change: netChange,
+      sealed_not_live: sealedNotLive,
+    };
 
   const suppressingDispositions = debtInv.SUPPRESSING_DISPOSITIONS;
 

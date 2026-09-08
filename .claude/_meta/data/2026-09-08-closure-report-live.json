@@ -12,16 +12,18 @@
     "age_days": 7
   },
   "live": {
-    "items": 2467,
+    "items": 2806,
     "by_source": {
-      "backlog": 1488,
-      "findings": 978,
-      "fix-task": 1
+      "backlog": 1573,
+      "findings": 1231,
+      "fix-task": 2
     }
   },
   "denominator_gap": {
-    "count": 1352,
-    "pct": 54.8
+    "count": 1705,
+    "pct": 60.76,
+    "net_change": 1691,
+    "sealed_not_live": 14
   },
   "dispositions": {
     "total": 1115,
@@ -53,8 +55,8 @@
     {
       "name": "findings-registry",
       "closed": 19,
-      "total": 997,
-      "pct": 1.91,
+      "total": 1250,
+      "pct": 1.52,
       "denominator_note": "live registry entries"
     }
   ],

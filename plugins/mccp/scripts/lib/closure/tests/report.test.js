@@ -517,7 +517,74 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
   }
 }));
 
-test('invariant (c9): negative gap reports negative pct (not clamped to 0) (C9)', withFixtures((t, report, fixture) => {
+test('invariant (h): equal-sized inventories with DIFFERENT identities report the full unsealed count and still warn (PR-Codex R1 F1)', withFixtures((t, report, fixture) => {
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+
+  // The falsifying case for the length-subtraction bug. Seal and live are the
+  // SAME SIZE (10 each) but share NO item_id: every live item is unsealed debt.
+  //
+  // Under the old `live.length - seal.length` form this is 0 -> reseal_warning
+  // suppressed -> the instrument reports "nothing outside the seal" while the
+  // entire live pile is outside it. That is the comfortable-false-number this
+  // milestone exists to remove, so it must be mechanically impossible.
+  const sealedDoc = {
+    meta: {
+      sealed_at: '2026-09-01T01:21:41.049Z',
+      sealed_at_commit: '9093b08',
+      stats: { by_source: { backlog: 10 } },
+    },
+    inventory_sha256: 'sha256:test',
+    items: Array(10).fill(null).map((_, i) => ({ item_id: 'old:' + i, source: 'backlog' })),
+  };
+
+  Module.prototype.require = function(id) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return {
+        readInventory: () => sealedDoc,
+        buildInventory: () => ({
+          items: Array(10).fill(null).map((_, i) => ({ item_id: 'new:' + i, source: 'backlog' })),
+          stats: { by_source: { backlog: 10 } },
+        }),
+        readDispositions: () => ({
+          ok: true,
+          lines: [
+            { item_id: 'old:0', disposition: 'deferred', inventory_sha256: 'sha256:test' },
+          ],
+        }),
+        SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+        foldDispositions: (lines) => {
+          const m = new Map();
+          for (const l of lines) m.set(l.item_id, l);
+          return m;
+        },
+      };
+    } else if (id === '../../state/findings-registry') {
+      return { readAll: () => ({ findings: [] }) };
+    }
+    return originalRequire.apply(this, arguments);
+  };
+
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const testReport = require('../report.js');
+    const result = testReport.buildClosureReport(process.cwd());
+
+    assert.strictEqual(result.denominator_gap.count, 10,
+      'all 10 live items are outside the seal (identity-based), not 0');
+    assert.strictEqual(result.denominator_gap.net_change, 0,
+      'net_change is 0 here — which is exactly why it cannot be the gap');
+    assert.strictEqual(result.denominator_gap.sealed_not_live, 10,
+      'all 10 sealed items left the live pile');
+    assert.ok(result.reseal_warning,
+      'reseal_warning MUST fire: unsealed debt exists even though the sizes match');
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}));
+
+test('invariant (c9): a shrinking pile reports a negative net_change (not clamped to 0) (C9)', withFixtures((t, report, fixture) => {
   const Module = require('node:module');
   const originalRequire = Module.prototype.require;
 
@@ -555,11 +622,22 @@ test('invariant (c9): negative gap reports negative pct (not clamped to 0) (C9)'
     const testReport = require('../report.js');
     const result = testReport.buildClosureReport(process.cwd());
 
-    // gap = 50 - 100 = -50
-    // pct = -50 / 50 * 100 = -100%
-    assert.strictEqual(result.denominator_gap.count, -50, 'gap should be negative (-50)');
-    const expectedPct = parseFloat((-50 * 100 / 50).toFixed(2));
-    assert.strictEqual(result.denominator_gap.pct, expectedPct, 'gap pct should be negative (' + expectedPct + '), not clamped to 0');
+    // PR-Codex R1 F1 — the negative case moved fields, not meanings. `count` is
+    // now |live \\ sealed| and cannot be negative; the "did the pile shrink?"
+    // question this test was written for is `net_change`, which still must report
+    // the negative rather than clamp to 0 (the plan's row-deletion requirement).
+    //
+    // Both inventories here carry the SAME item_id ('test'), so every live item
+    // is sealed: unsealed count is 0 while net_change is -50. Asserting both is
+    // the point — it pins that the two fields answer different questions.
+    assert.strictEqual(result.denominator_gap.net_change, -50,
+      'net_change should be negative (-50), not clamped to 0');
+    assert.strictEqual(result.denominator_gap.count, 0,
+      'unsealed count is |live \\ sealed| and cannot go negative (all live ids are sealed here)');
+    assert.strictEqual(result.denominator_gap.sealed_not_live, 0,
+      'the sealed id is still live, so nothing left the seal');
+    assert.strictEqual(result.denominator_gap.pct, 0,
+      'pct follows count (0/50), not net_change');
   } finally {
     Module.prototype.require = originalRequire;
     delete require.cache[require.resolve('../report.js')];

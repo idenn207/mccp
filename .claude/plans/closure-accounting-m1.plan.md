@@ -288,6 +288,17 @@ disposition 원장에서 `dispositions`만 null이고 ledger 행과 재봉인 �
 (실패 순서 의존성 · upstream 열거 실패의 latent 0/0 · cwd 결속 test 5건 · `readAll` 비배열
 반환 · table 모드의 note 미렌더).
 
+**4차 — PR-Codex R1(2026-09-08). 그 "남는 델타"가 실제로 결함을 담고 있었다.**
+`/mccp:pr`의 PR-Codex가 발화해 `divergent`를 냈고 ship gate가 push를 차단했다. HIGH 1건은
+실재했고 흡수했다 — `denominator_gap.count`가 길이 뺄셈이라 **봉인 항목이 전부 라이브에
+남아 있다고 가정**했다. 독립 재현: 길이차 1689 대 ID기준 1703, 봉인 14건이 라이브에 부재.
+추가와 삭제가 상쇄되면 격차 0을 보고하고 `reseal_warning`이 침묵하므로, 이 milestone이
+없애려는 병리를 계기 자신이 재생산할 수 있었다. `count`를 `|live \ sealed|`로 바꾸고 옛
+뺄셈은 `net_change`로 분리했으며, 크기는 같고 식별자가 겹치지 않는 fixture로 반증 test를
+추가해 mutation으로 비공허성을 확인했다. MEDIUM 1건(`findings-registry.js` 열거 실패 삼킴)은
+**Validation 7이 편집을 금지한 upstream 파일**이라 backlog로 이연했다. override는 쓰지
+않았다. 상세는 [보고서](../PRPs/reports/closure-accounting-m1-report.md)의 `## PR-Codex R1`.
+
 **남는 델타** — R3 잔여 수정 이후의 본문과 코드는 **다시 리뷰되지 않았다.** 라운드 캡이
 소진됐고(§3.16) 재리뷰가 기본 선택지가 아니므로, 그 사실을 여기 적는 것으로 닫는다.
 구현 착수 전에 필요한 것은 재리뷰가 아니라(캡 소진) 이 절의 정직한 존재다.

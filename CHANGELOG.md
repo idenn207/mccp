@@ -135,8 +135,14 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   - **정직성 규약**: 읽기 실패·부분 판독은 0이 아니라 **null**로 보고하고 `degraded[]`에
     사유를 남긴다. 메시지의 절대경로는 repo-relative 또는 basename으로 접어 git-tracked
     산출물에 실리지 않는다.
-  - **불변식 test 24종**: EMPTY 패턴 · disposed ≥ resolved ≥ fixed · 주입 fixture 산출값 ·
+  - **격차는 길이가 아니라 식별자로 센다**: `denominator_gap.count`는 `|live \ sealed|`이고
+    음수가 될 수 없다. 옛 뺄셈은 다른 질문인 `net_change`로 분리했고 `sealed_not_live`를 함께
+    싣는다. PR-Codex가 잡은 HIGH의 흡수다 — 길이 뺄셈은 봉인 항목이 전부 라이브에 남아 있다고
+    가정하는데 실측 14건이 아니었고, 추가·삭제가 상쇄되면 격차 0을 보고해 **재봉인 경고를
+    침묵시킨다**. 식별자가 없는 항목이 있으면 숫자를 지어내지 않고 null + `degraded[]`다.
+  - **불변식 test 25종**: EMPTY 패턴 · disposed ≥ resolved ≥ fixed · 주입 fixture 산출값 ·
     ledgers 2행 · 기준선 구조 **부분집합** · 절대경로 0건 · gap=0 → warning null ·
+    **크기 동일 · 식별자 불일치**(길이 뺄셈이면 경고가 침묵하는 반증 case) ·
     reader별 throw 포착 · 봉인 shape 불량 강등 · 열화 신호 3종 각각 단독 발화.
     **mutation 13종으로 비공허성을 확인**했다(`resolved := disposed`,
     `disposed := sealItems`, sha 결속 제거 등 전건 killed) — 이 milestone의 앞선 라운드가

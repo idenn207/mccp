@@ -40,15 +40,22 @@ Task 6은 산출물 보존만이 아니라 "같은 실행 시점에 `debt-invent
 본 보고서 작성 시점의 재확인이다.
 
 **보존된 산출물** — `.claude/_meta/data/2026-09-08-closure-report-live.json`
+(**F1 흡수 후 재산출**. 이전 판은 길이 뺄셈으로 계산된 값이라 결함 있는 구현의 출력이었고,
+milestone의 증거로 남길 수 없어 폐기하고 다시 냈다. 폐기된 판의 수치는 아래 측정 이력에 남는다.)
 
-| 축 | 값 |
+| 축 | 값 (2026-09-08T05:25:19Z) |
 |---|---|
 | `seal.sealed_at` / `sealed_at_commit` | `2026-09-01T01:21:41.049Z` / `9093b08` |
-| `seal.items` (봉인 분모) | 1115 (backlog 936 · findings 178 · fix-task 1) |
-| `live.items` (라이브 부채) | 2467 (backlog 1488 · findings 978 · fix-task 1) |
-| `denominator_gap` | **1352 (54.8%)** |
-| `seal.age_days` | 7 |
+| `seal.items` (봉인 분모) | 1115 |
+| `live.items` (라이브 부채) | 2806 |
+| `denominator_gap.count` (**ID 기준 미봉인**) | **1705 (60.76%)** |
+| `denominator_gap.net_change` (길이 차) | 1691 |
+| `denominator_gap.sealed_not_live` | **14** |
 | `degraded[]` | 없음 (세 원장 전부 판독) |
+
+동시점 독립 재계산과 **세 값 전부 일치**한다(`count` 1705 · `sealed_not_live` 14 ·
+`net_change` 1691). 이 대조는 이제 등식 하나가 아니라 셋이고, 그중 `count`와 `net_change`가
+**갈라진다는 사실 자체**가 F1이 실재했다는 증거다 — 옛 구현에서는 둘이 같은 값이었다.
 
 **재확인 (2026-09-08T05:07:32Z)** — `readInventory` / `buildInventory`를 직접 호출해
 같은 순간에 재계산했다.
@@ -67,6 +74,9 @@ Acceptance가 요구한 것은 "돈다"가 아니라 "그 시점의 실제 격�
 **세 번째 측정 — base 머지가 값을 움직였다 (2026-09-08T05:13:02Z).** `origin/main` 9커밋을
 머지하자 격차가 **1352 → 1689**로 움직였다. 머지가 backlog 84행과 ci-full-suite의 findings를
 들여왔기 때문이고, 봉인 분모는 그대로 1115이므로 격차 전부가 라이브 쪽 증가다.
+
+(아래 세 측정은 전부 **옛 의미**, 즉 길이 뺄셈이다. F1 흡수 이후 그 값은 `net_change`라는
+이름으로 계속 관측되며, 그때의 `count`는 각 시점에서 14 정도 더 컸을 것이다.)
 
 | 항목 | 머지 전 (05:07) | 머지 후 (05:13) |
 |---|---|---|
@@ -100,6 +110,61 @@ Acceptance가 요구한 것은 "돈다"가 아니라 "그 시점의 실제 격�
 
 > Re-sealing is M2 responsibility. Calling re-seal now will unbind all 1115 disposition
 > records from the old inventory (they are all bound to `inventory_sha256=sha256:f171a42e…`).
+
+## PR-Codex R1 — 게이트가 실재하는 HIGH를 잡았다
+
+`/mccp:pr`의 PR-Codex가 1라운드 발화해 `divergent`를 냈고, ship gate가 push를 차단했다.
+지적 2건 중 HIGH 1건은 **이 milestone의 신규 코드에 있는 진짜 결함**이었고 그 자리에서
+흡수했다(§3.14). 리뷰어 주장을 그대로 받지 않고 독립 재계산으로 먼저 재현했다.
+
+### F1 [HIGH · ACCEPT_NOW] — 격차를 길이 차가 아니라 식별자로 세라
+
+`report.js`가 `denominator_gap.count`를 `live.items.length − seal.items.length`로 계산했다.
+이는 **봉인 항목이 전부 라이브에 남아 있다고 가정**하는데, 수집기는 닫힌 finding을 제외하고
+fix-task 항목을 교체하므로 사라진 봉인 항목이 새로 늘어난 부채를 상쇄한다.
+
+독립 재현(리뷰어 수치와 일치):
+
+| 측정 | 값 |
+|---|---|
+| 길이 차 (옛 구현) | 1689 |
+| ID 기준 `live \ sealed` | **1703** |
+| 봉인됐으나 라이브에 없음 | **14** |
+
+**최악의 경우가 단순 과소계상보다 나쁘다** — 추가와 삭제가 같은 수면 격차가 `0`으로
+보고되고 그 순간 `reseal_warning`이 **침묵한다**. 미봉인 부채가 실재하는데 계기가
+"봉인 밖에 아무것도 없다"고 말하는 것이고, 그것이 이 PRD가 없애려는 병리 그 자체다.
+
+**흡수**: `count`를 `|live \ sealed|`(음수 불가)로 바꾸고, 옛 뺄셈은 다른 질문
+("더미가 늘었나 줄었나")인 `net_change`로 분리했다. `sealed_not_live`를 함께 싣는다.
+식별자가 없는 항목이 하나라도 있으면 비교가 불가능하므로 **숫자를 지어내지 않고**
+`count`/`sealed_not_live`를 null로 두고 `degraded[]`에 사유를 남긴다.
+
+기준선 구조 대조(Task 4(e))는 **부분집합** 단언이라 필드 추가로 깨지지 않는다.
+
+**비공허성 확인** — 새 test `invariant (h)`는 봉인 10건과 라이브 10건이 **크기는 같고
+식별자는 하나도 겹치지 않는** fixture다. 옛 구현이라면 `count=0` + 경고 침묵이 된다.
+mutation(옛 뺄셈 복원)을 심으니 `invariant (h)`와 `(c9)` 정확히 둘이 red가 되고 복원 시
+25/25 green으로 돌아왔다.
+
+### F2 [MEDIUM · DEFER_TO_BACKLOG]
+
+`findings-registry.js:674-681`의 `listWorkUnits`가 `readdirSync` 실패를 삼켜
+(`catch (_e) { return []; }`) degradation 없이 빈 목록을 돌려준다. 리뷰어가 EACCES를
+주입해 `live.items` 2804 → 1573, findings total 1250 → 0으로 떨어지는 동안 `degraded`가
+계속 비어 있음을 실측했고, 코드를 열어 재확인했다.
+
+**이연 사유는 선호가 아니라 범위다** — 그 파일은 이 plan의 **Validation 7이 편집을 명시
+금지**한 upstream 원장 코드다(리뷰어도 "exists in the current upstream implementation"으로
+귀속했다). 여기서 고치면 M1의 병렬 안전성 주장이 깨진다. `codex-findings-backlog.md`에
+처방과 재현 절차를 함께 적재했다.
+
+### 하지 않은 것
+
+`MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE` override를 쓰지 않았다. 그 우회는 "diff가 상류에서
+이미 적대적으로 리뷰됐다"는 상황을 위한 것이지, **리뷰어가 실재하는 결함을 찾았을 때** 쓰는
+것이 아니다. 게이트는 옳게 막았고, 옳게 막은 게이트를 밀어내는 것이 이 저장소가 없애려는
+행동이다.
 
 ## Validation Results
 

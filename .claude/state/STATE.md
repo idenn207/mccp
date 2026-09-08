@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: closure-accounting-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-08T05:09:23.108Z
+updated_at: 2026-09-08T05:20:34.157Z
 last_event: precompact
-last_event_at: 2026-09-08T05:09:23.108Z
+last_event_at: 2026-09-08T05:20:34.156Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -14,7 +14,7 @@ chain_progress: |
   {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
 dep_check_at: 2026-09-08T02:34:22.371Z
 escalate_pending: true
-escalate_pending_decision_id: orchestrator-step-wiring-m1
+escalate_pending_decision_id: c11-closure-accounting
 ---
 ## Goal
 closure-accounting M1 — closure-report. 세 종결 계기를 하나의 read-only 출력으로 합쳐 봉인 분모와 라이브 부채의 격차를 산출한다. 구현 완료, /mccp:pr 대기.
@@ -47,4 +47,4 @@ mccp-implement-codex receipt 를 사후에 만들어 넣지 않기로 했다. �
 - 이연 5건(MEDIUM 2 · LOW 3)은 codex-findings-backlog.md — 실패 순서 의존성 · upstream 열거 실패의 latent 0/0 · cwd 결속 test 5건 · readAll 비배열 반환 · table 모드 note 미렌더
 
 ## Last Updated
-2026-09-08T05:09:23.108Z
+2026-09-08T05:20:34.157Z

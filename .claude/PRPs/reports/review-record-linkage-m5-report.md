@@ -304,10 +304,19 @@ F10은 backlog 잔량을 산문에서 79로, 열거에서 90으로 적었다(두
 
 ### 다음 세션이 할 일
 
-1. **M7 `live-firing-execution` plan을 새 슬러그로 작성한다.** 그 plan의 CREATE 대상은
+0. **브랜치를 `review-record-linkage-m7`로 만든다** (현재 HEAD에서 분기).
+   **브랜치명이 곧 ship receipt의 슬러그다** — 2026-09-08 실측:
+   `derive-decision --command mccp:pr --args ""`는 브랜치명을 그대로 낸다. 이번
+   사이클이 `c1-review-record-linkage`에서 ship했다면 receipt 슬러그가 그것이 됐을
+   것이고, 기존 ship receipt 9건 중 `c*-` 접두는 0건이다(전부 마일스톤 슬러그).
+1. **M7 `live-firing-execution` plan을 새 슬러그로 작성한다.**
+   `/mccp:plan .claude/prds/review-record-linkage.prd.md`를 쓰되 **마일스톤은 M7을
+   고른다 — M6(`deferred-ledger-closure`)가 표에서 앞서고 둘 다 `pending`이라
+   기본 선택이 M6로 갈 수 있다.** 산출물은
+   `.claude/plans/review-record-linkage-m7.plan.md`이어야 slug가 브랜치와 일치한다. 그 plan의 CREATE 대상은
    아직 존재하지 않으므로 L1 `C3_CREATE_EXISTS`가 발생하지 않고, plan 게이트가 정상
    완주해 `mccp-plan-codex` receipt를 발행한다 — 이것이 링크의 발원지다(D3 (b) 참조).
-2. 이 브랜치(`review-record-linkage-m5`, HEAD `1a952bf`)의 M5 코드는 그 사이클 안에서
+2. 이 브랜치(`review-record-linkage-m5`, HEAD `2773f89`)의 M5 코드는 그 사이클 안에서
    함께 머지한다. 별도 ship을 시도하지 않는다.
 3. ship은 `claude --plugin-dir <worktree>/plugins/mccp` 세션에서 완주한다
    ([dogfood-install.md](../../../docs/dogfood-install.md)). 완주 전후로

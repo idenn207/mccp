@@ -19,6 +19,49 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- `linkage-audit.js --check-live-linkage [--decision <slug>]` — 층간 링크의 **강제 뷰**
+  (review-record-linkage M7). 그 전까지 이 도구는 전역 집계만 냈고 전역 집계는
+  acceptance 가 될 수 없었다: `bidirectional` 은 자격 ship **집합** 위에서 세므로
+  전역값 `>= 1` 을 통과 조건으로 쓰면 **다른 ship 의 링크**로 통과한다(과다승인).
+  새 뷰는 네 검사를 **지목한 ship 하나**에 대해 판정한다 — (1) receipt 가
+  `meta.review_record_path` 를 봉인했는가 · (2) 그 레코드가 `measurement.receipt_hash`
+  로 그 receipt 를 되짚는가(해시 **동등**이지 존재가 아니다) · (3) 그 ship 이
+  `bidirectional` 을 자기가 충족하는가 · (4) `classifyShipEligibility` 가 `eligible` 인가.
+
+  **읽기 원천은 고정된 HEAD 커밋 OID 하나**다. 작업 트리는 읽지 않고, HEAD 는 시작 시
+  full OID 로 **1회** 고정해 모든 `ls-tree`·`git show` 에 그 OID 를 넘긴다 — 판독마다
+  HEAD 를 재해소하면 그 사이 커밋·체크아웃이 옛 receipt 와 새 레코드를 짝지을 수 있고,
+  작업 트리를 섞으면 evidence commit 이 실패했거나 `MCCP_PR_SKIP_LINK_EVIDENCE` 를 쓴
+  경우에도 back-patch 된 레코드가 남아 검사 1·2 를 통과시킨다. OID 해소 실패는
+  fail-closed(`unresolved`)이며 심볼릭 `HEAD` 로 되돌아가지 않는다.
+
+  종료코드는 `STATE_EXIT_CODES`·`CHECK_EXIT_CODES` 와 **또 분리된 세 번째 표**다
+  (`0 ok · 1 violations · 2 degraded · 3 unresolved`). **호출자 계약: 비영점 셋을 전부**
+  **동등하게 미통과로 취급한다.** `degraded` 가 `violations` 를 이기고(판정 부재를 위반
+  개수로 갈음하면 위반 하나에 파손이 가려진다), 자격 ship 0 건은 `ok` 가 아니라
+  `unresolved` 다(진공 통과 금지). 실패 사유는 닫힌 enum 이고 파일시스템 경로를 싣지
+  않는다 — 식별자로는 슬러그만 싣는다.
+
+  `--decision` 슬러그는 경로로 조립되기 **전에** `REF_SHAPE` 와 같은 강도로 검증한다
+  (선두 영숫자 강제 · 255 자 상한 · `..` 명시 거부). 봉인된
+  `meta.review_record_path` 는 receipt 생산자가 통제하는 값이므로 **파일을 여는 데
+  쓰지 않고** 메모리 맵 조회에만 쓴다 — traversal 이든 절대경로든 조회 실패 = 링크 부재로
+  접힌다. 회귀 19 건이 이 여섯 축을 각각 반증 가능하게 고정한다(각 축의 구현을 되돌리면
+  대응 fixture 가 red 가 되는 것을 실측했다).
+
+### Changed
+
+- `docs/dogfood-install.md` — **링크를 봉인하는 마일스톤은 ship 이 아니라 plan 게이트부터**
+  `--plugin-dir` 경로여야 한다는 절을 더했다 (review-record-linkage M7). 근거는 코드다:
+  ship receipt 의 링크 필드에는 재생성 분기가 없고 `finalize-receipt.js:308-330` 의
+  상류 carry-forward 가 유일 경로이며, 그 필드를 찍는 것은 `commands/plan.md` 다. 실측으로
+  캐시 판본 `1.33.6` 에는 그 줄이 **0 건**이라, ship 만 그 경로에서 돌리면 carry-forward 할
+  값이 없어 게이트가 정상 종료하면서 링크만 미봉인으로 남는다. 그리고 라운드 캡 때문에
+  "ship 을 먼저 돌려 보고 안 되면 plan 을 다시 돌린다" 는 경로가 **존재하지 않는다**.
+
+- `docs/review-record-linkage/frozen-baseline.md` — 라이브 절에 M7 관측을 더했다.
+  **동결 블록은 바이트 불변**이고 그것이 계약이다(M5 DD5) — 검증으로 확인했다.
+
 - `plugins/mccp/scripts/lib/install-skew.js` — **실행 중인 mccp 빌드가 이 워크트리에서
   얼마나 뒤처졌는지**를 판정하는 read-only 오라클 (review-record-linkage M5). 판정은
   version 문자열 비교가 아니라 **커밋 도달성**이다 — 우산 결정 1 이후 자식 브랜치가

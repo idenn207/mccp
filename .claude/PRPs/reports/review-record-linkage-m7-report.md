@@ -1,4 +1,13 @@
-# review-record-linkage M7 — 사이클 기록 (미완료 종료)
+# review-record-linkage M7 — 사이클 기록 (2 사이클)
+
+> **이 파일은 두 사이클을 담는다.** §1~§7 은 **1 차 사이클**(`-m7` 슬러그, 2026-09-08
+> 오전)의 기록이고 그 시점에 정확했다. **§8 부터가 2 차 사이클**(`-m7b` 슬러그, 같은 날
+> 오후)이며 1 차가 남긴 handoff(§7)를 실제로 수행한 기록이다. 1 차 기록을 지우지 않는
+> 이유는 §3.7·§3.17 과 같다 — 무엇이 왜 달라졌는지가 함께 남아야 한다.
+
+---
+
+## 1 차 사이클 (`-m7`) — 미완료 종료
 
 **Plan**: [.claude/plans/review-record-linkage-m7.plan.md](../../plans/review-record-linkage-m7.plan.md)
 **PRD**: [.claude/prds/review-record-linkage.prd.md](../../prds/review-record-linkage.prd.md) · M7 `live-firing-execution`
@@ -242,3 +251,157 @@ STATE.md 경로가 죽어 있으므로(O3) 인계는 여기다. 순서대로 읽
 6. **원장이 `rounds_so_far:0`으로 보이거든 예산이 회복된 것이 아니라 워크트리가 바뀐
    것이다** (O6). 그 상태로 그냥 진입하지 마라 — 이 보고서가 3라운드 소진의 기록이다.
    새 예산으로 갈 것이라면 사유를 남기고 가라.
+
+---
+
+# 8. 2 차 사이클 (`-m7b`) — 구현 착지, acceptance 는 미달
+
+**브랜치**: `review-record-linkage-m7b` · **plan**: `.claude/plans/review-record-linkage-m7.plan.md`
+**결정 슬러그**: `review-record-linkage-m7b` · **날짜**: 2026-09-08
+**결론**: **M7 은 여전히 complete 가 아니다.** 코드는 착지했고 회귀도 붙었지만 DD9 가
+정한 단일 acceptance(`--check-live-linkage … exit 0`)에 도달하지 못했다 — 현재
+`unresolved`(3), 사유 `named_ship_absent_from_tree`. 남은 것은 Task 4 하나다.
+
+## 8.1 정체성 축이 어떻게 닫혔나
+
+1 차가 남긴 질문은 "브랜치 = plan 파일명 = plan receipt 슬러그 = ship 슬러그" 를 어떻게
+다시 성립시키느냐였다. 세 후보를 코드로 대조해 하나만 남았다.
+
+| 후보 | 판정 | 근거 (실측) |
+|---|---|---|
+| 브랜치를 `-m7b` 로, plan 파일명은 `-m7` 유지 | **채택** | ship 슬러그가 브랜치에서 파생되므로(`derive-decision --command mccp:pr` → `review-record-linkage-m7b`) 2.5.8·2.5.9 의 슬러그 키 체인 조회가 봉인된 receipt 를 찾는다. 앵커는 `meta.plan_path` 문자열 동등이라 파일명을 그대로 두면 정확히 1 건 매칭 |
+| 브랜치와 plan 파일명을 **둘 다** `-m7b` 로 | 기각 | `finalize-receipt.js:289-303` 이 receipt 가 봉인한 옛 경로와 비교하므로 매칭 0 건 → `link_anchor_unresolved`. **M7 의 표제 결과가 바로 그 링크 봉인이다** |
+| `-m7` 슬러그로 receipt 수동 발행 | 기각 | 같은 `meta.plan_path` 를 선언하는 receipt 가 둘이 되어 앵커가 ambiguous(2 건) → 역시 미봉인 |
+
+채택안의 잔여 비용은 하나다: plan 파일명이 슬러그와 다르므로 ship 진입 시
+`PR_PLAN_PATH=.claude/plans/review-record-linkage-m7.plan.md` 를 export 해야 한다.
+`pr.md:928` 이 그것을 operator 채널이라 명시하고, 빠뜨리면 `:931` 이 HALT 하며 복구
+지침을 출력한다 — 조용히 틀리지 않는다.
+
+**측정으로 확인한 대조**:
+
+```
+validate --command mccp:prp-implement --decision review-record-linkage-m7   → ok=false (no receipt written)
+validate --command mccp:prp-implement --decision review-record-linkage-m7b  → ok=true
+```
+
+## 8.2 게이트가 실제로 무엇을 잡았나
+
+| 게이트 | 결과 | 잡은 것 |
+|---|---|---|
+| plan 패널 (R2, single-pass) | `divergent` · 4 관점 중 3 fail | CRITICAL 1 + HIGH 5 — 전부 **정체성 축 하나**. plan 본문이 `-m7` 을 5 곳에서 못박은 채 재제출됐고, Task 0 축 2 의 통과 조건(`rounds_so_far:0`)이 결정적으로 거짓이며, DD10 의 대체 게이트가 착지 파일 없이 남아 있었다 |
+| Implement-Codex R1 | `needs-attention` → `divergent` · 82.6 s | HIGH 2 — **F1** `computeLinkage` 는 자격 오라클이 아니다(`:383` 이 인자를 그대로 순회, 자격 판정은 호출자 `:539-545`) · **F2** `readLiveCorpus(root,'HEAD')` 는 판독마다 HEAD 를 재해소한다 |
+| security-reviewer | CRITICAL 1 · HIGH 2 · MEDIUM 2 · LOW 2 | **S1** 해시 비교 재구현 시 양쪽 `null` 이 통과(back-patch **이전의 기본 상태**) · **S2** 봉인 경로로 파일 열기 · **S3** `fs` 단건 조회가 DD8 을 무효화 · **S4** 슬러그 가드가 `REF_SHAPE` 보다 약함 · **S5** OID 해소 실패의 `'HEAD'` fallback · **S6** 파손 receipt 를 부재로 접음 |
+
+**세 리뷰어가 서로 다른 것을 잡았다.** 패널은 *plan 이 자기 모순이다*, Codex 는 *재사용
+대상이 자격을 판정하지 않는다*, security 는 *재구현하면 fail-open 이 열린다* 를 봤다.
+겹친 지적은 없다.
+
+## 8.3 흡수가 반증 가능한가 — 변이 검사
+
+지적을 "흡수했다" 는 주장은 그 흡수를 되돌렸을 때 test 가 붉어져야 검증된다. 여섯 축
+전부에 대해 실제로 되돌려 확인했다.
+
+| 되돌린 축 | 결과 |
+|---|---|
+| 자격 검사 제거 (Codex F1) | **red** — test 52·53 |
+| HEAD 핀 제거 (Codex F2 / S5) | **red** — test 63 |
+| 슬러그 가드 약화 (S4) | **red** — test 62 |
+| 지목 무시 + 전역 자격집합 판정 (과다승인) | **red** — test 52·53·56·66 |
+| `degraded`/`violations` 우선순위 뒤집기 (DD3) | **red** — test 69 |
+| 자격 0 건을 `ok` 로 (진공 통과) | **red** — test 65 |
+
+**우선순위 축은 처음에 통과했다** — 기존 degraded fixture 는 위반이 동시에 성립하지
+않아 우선순위가 발동하지 않았다. 둘이 함께 성립하는 fixture(test 69)를 추가한 뒤에야
+반증력이 생겼다. 변이 검사를 돌리지 않았다면 "우선순위를 지킨다" 는 주장은 검증되지
+않은 채 남았을 것이다.
+
+## 8.4 이 사이클이 치른 비용 — 감추지 않는다
+
+**상류 plan receipt 는 stale 이다.** R2 지적 흡수가 plan 본문을 고쳤고, `hash.js` 의
+구조적 정규화는 checkbox·PR 번호·표의 status 토큰만 접고 산문은 전부 해시하므로
+`plan_hash` 가 반드시 바뀐다. 실측:
+
+```
+prp-implement --decision review-record-linkage-m7b --plan <plan>
+  → stale: mccp-plan-codex "plan file hash differs from receipt (plan changed since gate)"
+pr           --decision review-record-linkage-m7b --plan <plan>   → 같은 stale 1 건
+```
+
+재봉인 경로는 없다 — `-m7` 은 3/3, `-m7b` 는 1/1 이고 새 슬러그로 재리뷰하는 것은
+§3.16 IV1 이 이름 붙여 금지한 "고쳐서 재리뷰" 다. 그래서 §3.16 이 정한 대로 라운드를
+늘리지 않고 지나며 사유를 남긴다.
+
+**plan 의 Task 0.5 가 적은 처방 한 줄은 틀렸다 — 여기서 정정한다.** 그 절은
+`prp-implement` 진입에 `MCCP_SKIP_RECEIPT=1` 을 쓰라고 적었는데, **실측하면 그 토글은
+이 CLI validator 를 움직이지 않는다**(우회 유무 모두 exit 2). 그 토글은 hook 경로가
+소비하고, `2.5.7` 의 "non-zero 면 Phase 3 에 들어가지 마라" 는 기계가 아니라 명령 본문의
+산문이다. 정정을 plan 본문이 아니라 이 보고서에 적는 이유는, plan 을 다시 고치면 방금
+쓴 implement receipt 까지 stale 이 되어 같은 부채가 한 겹 늘기 때문이다.
+
+**진행 판단의 근거**: `blocking`·`open_critical`·`missing` 이 전부 비어 있고 유일한
+non-empty 파티션이 복구 불가한 상류 `stale` 1 건이었다. 그리고 **링크 자체는 영향받지
+않는다** — `finalize-receipt.js:281-330` 의 carry-forward 는 `meta.plan_path` 문자열
+동등만 보고 `plan_hash` 를 보지 않으므로, ship 이 봉인할
+`meta.review_record_path`·`meta.plan_review_expected` 는 stale 과 무관하게 진짜 값이다.
+**우회가 여는 것은 *체인 검증*이지 *링크 산출*이 아니다.**
+
+**주장하지 않는 것**: 이 우회 아래에서 나올 ship 이 "완전한 체인 증거" 라고 주장하지
+않는다. 같은 축의 잔여(상류 receipt 가 working-tree only · hash 미검증)는 R2 security
+MEDIUM 으로 backlog 에 있다.
+
+**게이트 이탈 1 건**: 명령 본문 2.5.5 는 security CRITICAL/HIGH 를 `[MCCP-GATE-STOP]`
+으로 규정하는데 멈추지 않았다. 사유는 그 지적들이 "설계가 안전하지 않다" 가 아니라
+**"이렇게 재구현하면 깨진다"** 는 조건부이고 그 조건은 DD4 가 이미 금지한 행위라는 것,
+그리고 §3.14 가 CRITICAL/HIGH 를 그 자리에서 흡수하라고 정한다는 것이다. 대신 §8.3 의
+변이 검사로 흡수를 반증 가능하게 만들었다.
+
+## 8.5 Validation 결과
+
+| # | 검사 | 결과 |
+|---|---|---|
+| 1 | 정체성 축 (브랜치·ship 슬러그·receipt 실재·원장) | **pass** — 전부 `-m7b`, 원장 `-m7`:3 / `-m7b`:1 |
+| 2 | 상류 앵커 3 값 | **pass** — `plan_path` 일치 · `review_record_path` 봉인(F3 증거) · `review_source: multi-agent` |
+| 3 | 단위 + 회귀 4 파일 | **pass** — 120/120 (신규 19) |
+| 4 | 동결 블록 바이트 불변 | **pass** — 0 줄 diff |
+| 5 | **라이브 실값 (acceptance)** | **미달** — `unresolved`(3), `named_ship_absent_from_tree` |
+| 6 | version 미선언 (UI11) | **pass** — 선언 0 건 |
+| 7 | 머지가 파일을 지웠는가 (§3.5.1) | **pass** — 삭제 0 건 |
+
+`installed_plugins.json` sha256 은 `26925fd8…` 로 Task 0 이 못박은 값과 **동일**하다
+(UI8) — 이 사이클은 설치 상태를 바꾸지 않았다.
+
+## 8.6 착지한 파일
+
+| 파일 | Action | 요지 |
+|---|---|---|
+| `plugins/mccp/scripts/lib/linkage-audit.js` | UPDATE | `--check-live-linkage` 강제 뷰 · 세 번째 종료코드 표 · 슬러그 가드 · HEAD OID 고정 |
+| `plugins/mccp/scripts/lib/tests/linkage-audit.test.js` | UPDATE | 회귀 19 건 (plan 요구 4 + 흡수 6 축의 반증 fixture) |
+| `docs/dogfood-install.md` | UPDATE | plan 게이트도 같은 경로여야 하는 이유 + 확인 명령 |
+| `docs/review-record-linkage/frozen-baseline.md` | UPDATE | 라이브 절에 M7 관측 (동결 블록 불변) |
+| `.claude/prds/review-record-linkage.prd.md` | UPDATE | M7 2 차 사이클 note (status `in-progress` 유지) |
+| `.claude/plans/review-record-linkage-m7.plan.md` | UPDATE | R2 흡수 · Task 0/0.5/1 재작성 · DD10 철회 · 리뷰 섹션 2 종 |
+| `CHANGELOG.md` | UPDATE | `[Unreleased]` 누적 (version 미선언) |
+| `.claude/PRPs/reports/review-record-linkage-m7-report.md` | UPDATE | 이 파일 |
+
+## 8.7 다음 사이클 handoff — 남은 것은 Task 4 하나다
+
+1. **`claude --plugin-dir <worktree>/plugins/mccp` 세션에서** `/mccp:prp-commit` →
+   `/mccp:pr` 을 완주한다 (UI7). 그 경로가 아니면 얻은 `0` 은 결함의 증거가 아니라
+   **측정하지 않았다는 뜻**이다.
+2. **`/mccp:pr` 진입 전에 export 한다**:
+   `PR_PLAN_PATH=.claude/plans/review-record-linkage-m7.plan.md`. 빠뜨리면 `pr.md:931`
+   이 HALT 한다(조용히 틀리지는 않는다).
+3. **상류 stale 을 예상하라.** 2.5.8·2.5.9 가 그것을 본다. 그것은 §8.4 가 기록한 이번
+   사이클의 알려진 부채이지 새 결함이 아니다. **receipt 를 재봉인해 없애려 하지 마라** —
+   §3.12 no-rehash 이고 재봉인 경로도 없다.
+4. **완주 후 acceptance 를 판정한다**:
+   `node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage --decision review-record-linkage-m7b`.
+   **exit 0 만이 통과**이고 1·2·3 은 전부 미통과다. `0` 이면 그때 M7 을 complete 로
+   선언하고 PRD 행과 frozen-baseline 라이브 절에 실값을 적는다. `3` 이 그대로면
+   ship 이 커밋되지 않은 것이고, `1` 이면 링크가 실제로 서지 않은 것이다 — 두 번째가
+   이 마일스톤이 원래 찾으려던 결함이다.
+5. **완주 전후로 `installed_plugins.json` sha256 이 불변인지 확인한다** (UI8).
+   기준값 `26925fd8b72568ea12712e023985445c97567dff129c1f6bbdd8e4a21cab16fc`.
+6. **PR-Codex 는 반드시 발화한다.** plan·implement 양쪽 receipt 가 `divergent` 를
+   봉인했으므로 cross-gate dedupe 는 닫힌 채로 남는다(fail-closed). 그것이 정상이다.

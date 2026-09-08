@@ -1048,3 +1048,305 @@ test('M5 DD6 — the axis reports and does NOT change any exit code', function (
   assert.equal(typeof rf.disagree, 'number');
   assert.equal(typeof rf.unreadable, 'number');
 });
+
+// ── --check-live-linkage (M7) ────────────────────────────────────────────────
+//
+// 이 블록의 fixture 는 두 출처를 갖는다. plan Task 2 가 이름으로 요구한 4 개
+// (레코드 판독 불가 → degraded · 지목 ship HEAD 부재 → unresolved · 과다승인 반증 ·
+// 코퍼스 혼합 반증)와, implement 게이트가 낸 지적을 반증 가능하게 만드는 것들
+// (Codex F1 자격 · Codex F2 트리 고정 · security S1 미봉인 해시 · S2 traversal ·
+// S3 작업트리 미판독 · S4 슬러그 형태 · S5 `'HEAD'` 미전달 · S6 파손 receipt).
+//
+// 각 test 이름 앞의 태그가 그 출처다 — 어느 지적이 이 test 를 붉게 만들 수 있는지가
+// 이름으로 보여야 한다.
+
+const HASH_A = 'sha256:' + 'a'.repeat(64);
+const HASH_B = 'sha256:' + 'b'.repeat(64);
+
+function liveShip(slug, opts) {
+  const o = opts || {};
+  const meta = { created_at: '2024-01-01T00:00:00.000Z', command: '/mccp-pr-codex' };
+  if (o.eligible === true) meta.plan_review_expected = true;
+  if (o.eligible === false) {
+    meta.plan_review_expected = false;
+    meta.no_plan_review_reason = 'gate ran in codex mode';
+  }
+  if (o.recordPath !== undefined) meta.review_record_path = o.recordPath;
+  const body = {
+    schema_version: 1,
+    gate_id: 'mccp-pr-codex',
+    decision_id: slug,
+    plan_hash: 'sha256:deadbeef',
+    round: 1,
+    resolution: { converged: true, rounds: 1 },
+    meta: meta,
+  };
+  if (o.receiptHash !== undefined) body.receipt_hash = o.receiptHash;
+  return JSON.stringify(body, null, 2);
+}
+
+function liveRecord(slug, receiptHash) {
+  const m = { verdict: 'divergent', recorded_at: '2024-01-01T00:00:00.000Z', rounds: 1 };
+  if (receiptHash !== undefined) m.receipt_hash = receiptHash;
+  return panelRecord(slug, m);
+}
+
+// 완전히 링크된 ship 한 건을 커밋한다. 반환값은 그 슬러그.
+function commitLinkedShip(root, slug, opts) {
+  const o = opts || {};
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  const rv = path.join(root, '.claude', 'reviews');
+  const recordRel = '.claude/reviews/plan-review-' + slug + '.md';
+  fs.writeFileSync(path.join(rc, slug + '.json'), liveShip(slug, {
+    // `'eligible' in o` 다 — `o.eligible === undefined` 로 쓰면 "명시적으로
+    // 미봉인 상태를 원한다"(`{eligible: undefined}`)는 요청이 기본값 true 로
+    // 되돌아가, 자격 축을 검사한다고 적어 놓고 실제로는 검사하지 않는다.
+    eligible: 'eligible' in o ? o.eligible : true,
+    recordPath: 'recordPath' in o ? o.recordPath : recordRel,
+    receiptHash: 'receiptHash' in o ? o.receiptHash : HASH_A,
+  }));
+  fs.writeFileSync(path.join(rv, 'plan-review-' + slug + '.md'),
+    liveRecord(slug, 'measurementHash' in o ? o.measurementHash : HASH_A));
+  commitAt(root, '2024-02-01T00:00:00+00:00', 'live linked ship ' + slug);
+  return slug;
+}
+
+test('live: a fully linked, eligible ship passes on its own — exit 0', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma');
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.equal(r.code, 0);
+  assert.equal(r.json.state, 'ok');
+  assert.equal(r.json.checked, 1);
+  assert.deepEqual(r.json.failures, []);
+  assert.match(r.json.tree_oid, /^[0-9a-f]{40}$/);
+});
+
+test('live (Codex F1): an UNSTAMPED ship that is otherwise linked does NOT pass — computeLinkage is not an eligibility oracle', function () {
+  const { root } = mkRepo();
+  // 링크는 완전하다. 빠진 것은 `meta.plan_review_expected` 하나뿐이다.
+  commitLinkedShip(root, 'gamma', { eligible: undefined });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.state, 'violations');
+  assert.equal(r.json.failures.length, 1);
+  assert.equal(r.json.failures[0].check, 'eligibility');
+  // 사유는 라이브 파티션의 이분화된 enum 이다 — `refineLiveUndecidableReason` 를 통과한다.
+  assert.match(r.json.failures[0].reason, /producer_(absent_in_build|present_but_unstamped)/);
+});
+
+test('live (Codex F1): an explicitly NOT-eligible ship does not pass either', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma', { eligible: false });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.failures[0].check, 'eligibility');
+});
+
+test('live (security S1): a pair whose receipt_hash was never stamped on EITHER side is NOT linked', function () {
+  const { root } = mkRepo();
+  // back-patch 이전의 기본 상태다 — record.js 는 `receipt_hash: null` 로 레코드를 만든다.
+  // 순진한 `declared === actual` 재구현이 통과시키는 바로 그 조합.
+  commitLinkedShip(root, 'gamma', { receiptHash: null, measurementHash: null });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.state, 'violations');
+  assert.equal(r.json.failures[0].check, 'bidirectional');
+});
+
+test('live (security S1): a STALE receipt_hash is not a link either', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma', { receiptHash: HASH_A, measurementHash: HASH_B });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.failures[0].reason, 'receipt_hash_mismatch');
+});
+
+test('live (plan fixture 3): another ship\'s link never approves the named one — no over-approval', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'linked');                       // 이 ship 은 완전히 링크됨
+  commitLinkedShip(root, 'target', { recordPath: undefined });  // 지목 대상은 미봉인
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'target', '--json']);
+  assert.notEqual(r.code, 0, 'the global bidirectional count must not approve this ship');
+  assert.equal(r.json.failures[0].decision, 'target');
+  assert.equal(r.json.failures[0].check, 'review_record_path');
+});
+
+test('live (plan fixture 2 + 4 · DD8): a ship that exists only in the WORKING TREE is unresolved, not ok', function () {
+  const { root } = mkRepo();
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  const rv = path.join(root, '.claude', 'reviews');
+  // 커밋하지 않는다 — 작업 트리에만 둔다.
+  fs.writeFileSync(path.join(rc, 'ghost.json'), liveShip('ghost', {
+    eligible: true, recordPath: '.claude/reviews/plan-review-ghost.md', receiptHash: HASH_A,
+  }));
+  fs.writeFileSync(path.join(rv, 'plan-review-ghost.md'), liveRecord('ghost', HASH_A));
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'ghost', '--json']);
+  assert.equal(r.code, 3);
+  assert.equal(r.json.state, 'unresolved');
+  assert.equal(r.json.reason, 'named_ship_absent_from_tree');
+});
+
+test('live (plan fixture 4 · DD8): breaking the link in the WORKING TREE cannot turn a committed pass into a fail', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma');
+  assert.equal(runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']).code, 0);
+  // 작업 트리에서 레코드를 부순다. 커밋하지 않는다.
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-gamma.md'), 'destroyed\n');
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.equal(r.code, 0, 'the working tree is not an evidence source in either direction');
+  assert.equal(r.json.state, 'ok');
+});
+
+test('live (plan fixture 1): an unreadable record is degraded(2), never violations(1)', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma');
+  // 판독 불가 레코드를 코퍼스에 커밋한다. 지목 ship 자신은 멀쩡하다.
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-broken.md'),
+    '# Plan Review Panel — broken\n\n## Measurement\n\n```json\n{ not json\n```\n');
+  commitAt(root, '2024-03-01T00:00:00+00:00', 'unreadable record');
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.equal(r.code, 2, 'absence of a judgement must not fold into the violation ladder');
+  assert.equal(r.json.state, 'degraded');
+  assert.match(r.stderr, /DEGRADED/);
+});
+
+test('live (security S6): a targeted receipt that is present but CORRUPT is degraded, not unresolved', function () {
+  const { root } = mkRepo();
+  fs.writeFileSync(path.join(root, '.claude', 'receipts', 'mccp-pr-codex', 'gamma.json'),
+    '{ this is not json');
+  commitAt(root, '2024-03-01T00:00:00+00:00', 'corrupt ship receipt');
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.equal(r.code, 2, 'present-but-unreadable is a read failure, not an absence');
+  assert.equal(r.json.state, 'degraded');
+});
+
+test('live (security S2): a traversal in the sealed review_record_path is a missing link, never a file open', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma', { recordPath: '../../../etc/passwd' });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.state, 'violations');
+  // 조회 실패 = 링크 부재. 크래시도 아니고 파일 열기도 아니다.
+  assert.equal(r.json.failures[0].check, 'bidirectional');
+});
+
+test('live (security S4): a slug shape weaker guards would admit is refused before any path is built', function () {
+  const { root } = mkRepo();
+  ['-', '--upload-pack=/tmp/x', '..', 'a..b', 'a'.repeat(256)].forEach(function (bad) {
+    const r = run(root, ['--check-live-linkage', '--decision', bad, '--json']);
+    assert.notEqual(r.code, 0, 'slug "' + bad + '" must not be accepted');
+    assert.match(r.stderr, /not a safe slug shape/);
+  });
+  // 선두가 영숫자이고 `..` 이 없는 정상 슬러그는 통과한다 (가드가 과하지 않다).
+  assert.equal(run(root, ['--check-live-linkage', '--decision', 'a-b.c_1', '--json']).code, 3);
+});
+
+test('live (security S5 · Codex F2): the pinned tree is a full OID and the literal "HEAD" is never handed to git', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma');
+  const cp = require('child_process');
+  const real = cp.execFileSync;
+  const calls = [];
+  cp.execFileSync = function (file, args, opts) {
+    calls.push({ file: file, args: (args || []).slice() });
+    return real.call(cp, file, args, opts);
+  };
+  delete require.cache[require.resolve('../linkage-audit.js')];
+  let out;
+  try {
+    const mod = require('../linkage-audit.js');
+    out = mod.checkLiveLinkage({ repoRoot: root, decision: 'gamma' });
+  } finally {
+    cp.execFileSync = real;
+    delete require.cache[require.resolve('../linkage-audit.js')];
+  }
+  assert.equal(out.state, 'ok');
+  assert.match(out.tree_oid, /^[0-9a-f]{40}$/);
+  // 트리를 읽는 두 종류의 호출(ls-tree · show)에는 어떤 인자에도 'HEAD' 가 없어야 한다.
+  // 그것이 있으면 각 판독이 HEAD 를 재해소한다는 뜻이고, 고정이 무효다.
+  const treeReads = calls.filter(function (c) {
+    return c.args.indexOf('ls-tree') !== -1 || c.args.indexOf('show') !== -1;
+  });
+  assert.ok(treeReads.length > 0, 'the check must actually read the tree');
+  treeReads.forEach(function (c) {
+    c.args.forEach(function (a) {
+      assert.ok(String(a).indexOf('HEAD') === -1,
+        'a tree read still carries a symbolic HEAD: ' + JSON.stringify(c.args));
+    });
+  });
+});
+
+test('live (security S3 · DD8): no corpus CONTENT is read through fs — every read is a git object read', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma');
+  const mod = require('../linkage-audit.js');
+  const realRead = fs.readFileSync;
+  const reads = [];
+  fs.readFileSync = function (p, o) { reads.push(String(p)); return realRead.call(fs, p, o); };
+  let out;
+  try { out = mod.checkLiveLinkage({ repoRoot: root, decision: 'gamma' }); }
+  finally { fs.readFileSync = realRead; }
+  assert.equal(out.state, 'ok');
+  const corpusReads = reads.filter(function (p) {
+    return p.indexOf('.claude/receipts') !== -1 || p.indexOf('.claude/reviews') !== -1;
+  });
+  assert.deepEqual(corpusReads, [],
+    'reading corpus content from the filesystem reopens the working-tree fail-open DD8 closed');
+});
+
+test('live: with no --decision, an empty eligible set is unresolved — never a vacuous exit 0', function () {
+  const { root } = mkRepo();   // alpha/beta 는 unstamped → 자격 없음
+  const r = runJson(root, ['--check-live-linkage', '--json']);
+  assert.equal(r.code, 3);
+  assert.equal(r.json.state, 'unresolved');
+  assert.equal(r.json.reason, 'no_eligible_ship_in_tree');
+});
+
+test('live: with no --decision, EVERY eligible ship must pass — one failure fails the run', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'good');
+  commitLinkedShip(root, 'bad', { measurementHash: HASH_B });
+  const r = runJson(root, ['--check-live-linkage', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.checked, 2);
+  assert.equal(r.json.failures.length, 1);
+  assert.equal(r.json.failures[0].decision, 'bad');
+});
+
+test('live (security S7): the three nonzero states are distinct codes and NONE of them is 0', function () {
+  const mod = require('../linkage-audit.js');
+  assert.deepEqual(mod.LIVE_CHECK_EXIT_CODES,
+    { ok: 0, violations: 1, degraded: 2, unresolved: 3 });
+  assert.equal(mod.liveCheckExitCode('nonsense'), 1, 'an unknown state must be nonzero');
+  // 세 표는 서로 다른 객체다 — 하나를 고쳐도 다른 둘이 따라가지 않는다 (DD3).
+  assert.notEqual(mod.LIVE_CHECK_EXIT_CODES, mod.CHECK_EXIT_CODES);
+  assert.notEqual(mod.LIVE_CHECK_EXIT_CODES, mod.STATE_EXIT_CODES);
+});
+
+test('live: --decision without --check-live-linkage is a loud no-op, not a silent one', function () {
+  const { root } = mkRepo();
+  const r = run(root, ['--decision', 'gamma', '--json']);
+  assert.match(r.stderr, /--decision was given without --check-live-linkage/);
+});
+
+test('live (DD3 precedence): when a violation AND an unreadable record hold together, degraded WINS', function () {
+  const { root } = mkRepo();
+  // 지목 ship 은 실제로 위반이다 — 봉인된 해시가 레코드의 것과 다르다.
+  commitLinkedShip(root, 'gamma', { measurementHash: HASH_B });
+  // 그리고 코퍼스에 판독 불가 레코드가 따로 있다.
+  fs.writeFileSync(path.join(root, '.claude', 'reviews', 'plan-review-broken.md'),
+    '# Plan Review Panel — broken\n\n## Measurement\n\n```json\n{ not json\n```\n');
+  commitAt(root, '2024-03-01T00:00:00+00:00', 'violation and unreadable together');
+
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  // 두 사실이 배타적이지 않으므로 둘 다 남아야 하고, state 는 degraded 여야 한다.
+  // violations 로 접히면 "다 보지 못했다" 가 "본 것 중 위반이 있다" 에 가려진다 —
+  // 그러면 위반 수가 하한이라는 사실이 소비자에게서 사라진다.
+  assert.equal(r.code, 2, 'absence of a judgement must outrank a violation count');
+  assert.equal(r.json.state, 'degraded');
+  assert.ok(r.json.failures.length > 0, 'the violation must still be reported beside it');
+  assert.ok(r.json.unreadable > 0);
+  assert.match(r.stderr, /NOT LINKED/);
+  assert.match(r.stderr, /LOWER BOUND/);
+});

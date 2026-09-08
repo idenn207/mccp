@@ -172,6 +172,43 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 > 않으므로, R1처럼 산출 0으로 죽은 라운드도 영구 차감된다. 이 사이클이 3라운드를 쓴 것 중
 > 1회가 그것이다. 소유 축 미정 — backlog 2026-09-08 HIGH 행 참조.
 
+> **M7 2차 사이클 — 결정 정체성이 확정됐고 코드가 착지했다. status는 여전히**
+> **`in-progress` (2026-09-08).** 바로 위 note 가 "다음 사이클은 게이트에 진입하기 전에
+> 그 셋을 먼저 정해야 한다" 고 적은 그 셋이 정해졌고, D4 도 선택지 (ii) 로 닫혔다.
+>
+> **정체성**: 결정 슬러그는 `review-record-linkage-m7b` 다. `-m7` 은 3/3 소진이라
+> 그 슬러그로 plan receipt 를 얻을 경로가 없으므로 신선한 슬러그가 유일한 정당한 수단이었다
+> (바로 위 note 의 결론). 브랜치도 `review-record-linkage-m7b` 로 맞춰 `/mccp:pr` 2.5.8·2.5.9
+> 의 슬러그 키 체인 조회가 봉인된 receipt 를 찾는다. **plan 파일명은 `-m7` 로 남는다** —
+> `finalize-receipt.js:289-303` 의 앵커가 receipt 가 봉인한 `meta.plan_path` 와 **문자열
+> 동등**으로 매칭하므로 파일을 리네임하면 매칭이 0 건이 되어 링크가 통째로 미봉인된다(측정됨).
+> 그 간극은 ship 진입 시 `PR_PLAN_PATH` 가 잇는다(`pr.md:928` 이 operator 채널이라 명시).
+> `-m7` 슬러그로 receipt 를 수동 발행하는 복구안도 같은 이유로 배제됐다 — 같은
+> `meta.plan_path` 를 선언하는 receipt 가 둘이 되어 앵커가 ambiguous 해진다.
+>
+> **D4 는 선택지 (ii) 로 닫혔다.** 진입 전 관측 가능한 신호를 찾지 못했으므로 그 축을 접고
+> **사후 증거**에 의존한다: 캐시 판본에는 `meta.review_record_path` 를 찍는 줄이 아예 없으므로
+> (F3), plan receipt 에 그 필드가 봉인돼 있다는 사실 자체가 워크트리 본문이 돌았다는 증거다.
+> 이번 사이클의 receipt 가 그것을 실제로 갖는다. DD10 의 대체 게이트는 본문에서 **철회**됐고
+> `commands/plan.md` 는 착지 파일 목록에 들어가지 않는다 — 구현할 코드가 없기 때문이다.
+>
+> **착지한 것**: `--check-live-linkage` 강제 뷰(`linkage-audit.js`) + 회귀 19 건. 네 검사가
+> 전부 **고정된 HEAD OID 하나**에서 읽고 **지목한 ship 하나**에 대해 판정한다. 흡수된 지적
+> 6 축(Codex F1 자격 오라클 · F2 트리 고정 · security S1 미봉인 해시 · S2 traversal ·
+> S4 슬러그 가드 · S6 파손 receipt)은 각각 변이를 되돌리면 red 가 되는 fixture 를 갖는다.
+>
+> **왜 아직 complete 가 아닌가**: acceptance 는 `--check-live-linkage --decision
+> review-record-linkage-m7b` 의 **exit 0** 단독인데(DD9), 현재는 `unresolved`(3) —
+> 사유 `named_ship_absent_from_tree` 다. ship receipt 는 `/mccp:pr` 이 만들고 그것은 UI7 대로
+> `--plugin-dir` 세션의 몫이다. 즉 남은 것은 Task 4 하나이고, 그때까지 M7 은 complete 가 아니다.
+>
+> **이 사이클이 치른 비용 (감춤 없이)**: R2 지적 흡수가 plan 본문을 고쳤고 그래서
+> `plan_hash` 가 바뀌어 상류 plan receipt 는 `prp-implement`·`pr` 양쪽에서 **stale** 이다.
+> 재봉인 경로는 없다(`-m7b` 도 1/1 소진, 새 슬러그로 재리뷰는 §3.16 IV1 이 금지한 패턴).
+> **링크 자체는 영향받지 않는다** — carry-forward 는 `meta.plan_path` 만 보고 `plan_hash` 를
+> 보지 않으므로 봉인될 값은 진짜다. 우회가 여는 것은 *체인 검증*이지 *링크 산출*이 아니다.
+> 상세는 plan 의 Task 0.5 와 보고서.
+
 > **M6 행의 "79행"을 정정했다 (M5 Task 7, 2026-09-04).** 실측은 `Source plan` 열 기준
 > 이 PRD 103행이고 그중 M5 자신의 사이클이 16행이다. M5 이전 누적은 87행이며, M5가
 > (a) 이미 해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류를

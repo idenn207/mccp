@@ -395,3 +395,56 @@ $ node plugins/mccp/scripts/lib/install-skew.js
 않는다. acceptance는 `>= 1`이고, 그 값은 라이브 완주가 산출해야 한다. 부분 착지로
 끝난다면 M5의 outcome 문장에서 라이브 실값 주장을 **빼야 한다** — 주장을 남긴 채
 acceptance만 무르게 하는 것이 M2가 dropped된 이유다.
+
+
+## 라이브 파티션 — M7 관측 (2026-09-08)
+
+> M5 절과 같은 자리, 같은 계약이다 — **동결 블록 밖**이고 그 바이트를 건드리지 않는다.
+> M5 절은 지우지 않는다: 두 관측 사이에 무엇이 움직였는지가 함께 남아야 한다.
+
+M7 이 더한 것은 새 수치가 아니라 **강제 뷰**다. 그 전까지 이 문서의 라이브 표는 전역
+집계뿐이었고, 전역 집계는 acceptance 가 될 수 없다 — `bidirectional` 은 자격 ship **집합**
+위에서 세므로 전역값 `>= 1` 을 통과 조건으로 쓰면 **다른 ship 의 링크**로 통과한다.
+
+```
+node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage [--decision <slug>] [--json]
+```
+
+네 검사가 전부 **고정된 HEAD 커밋 OID 하나**에서 읽고(작업 트리 미판독) **지목한 ship
+하나**에 대해 판정한다: (1) receipt 가 `meta.review_record_path` 를 봉인했는가 · (2) 그
+레코드가 `measurement.receipt_hash` 로 그 receipt 를 되짚는가(해시 **동등**, 존재가 아니다) ·
+(3) 그 ship 이 `bidirectional` 을 **자기가** 충족하는가 · (4) `classifyShipEligibility` 가
+`eligible` 인가. 종료코드는 `0 ok · 1 violations · 2 degraded · 3 unresolved` 이고
+**비영점 셋은 전부 동등하게 미통과**다.
+
+### 전역 집계 (M5 이후 이동분)
+
+| 축 | M5 (2026-09-04) | M7 (2026-09-08) |
+|---|---|---|
+| `post_baseline.state` | `ok` | `ok` |
+| HEAD ship / record | 88 / 73 | 88 / 78 |
+| `ship_eligibility.counts` | eligible 0 · not_eligible 0 · undecidable 88 | eligible 0 · not_eligible 0 · undecidable 88 |
+| `ship_eligibility.by_reason` | `producer_absent_in_build`: 88 | `producer_absent_in_build`: 88 |
+| `linkage` | 0 · 0 · 0 | 0 · 0 · 0 |
+| `linkage.denominator` | `null` | `None` |
+
+### 강제 뷰의 현재 판정 — 그리고 그것이 왜 결함이 아닌가
+
+```
+$ node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage \
+    --decision review-record-linkage-m7b
+live-linkage check — state=unresolved scope=named_ship tree=<HEAD OID>
+  checked=0 failures=0 unreadable=0
+[mccp:linkage-audit] UNRESOLVED — named_ship_absent_from_tree.
+exit 3
+```
+
+`3` 은 **결함이 아니라 부트스트랩**이다. 지목한 ship receipt 를 만드는 것은
+`/mccp:pr` 이고, 이 마일스톤은 그것을 `--plugin-dir` 세션에서 돌리는 것을 남은 과제로
+갖는다. 이 도구는 그 상태를 `ok` 로 접지 않는 것이 요점이다 — 접으면 "아직 측정하지
+않았다" 와 "측정했고 통과했다" 가 같은 신호를 낸다.
+
+**아직 주장하지 않는 것**: 위 전역 표의 `bidirectional` 값은 M7 의 acceptance 가 **아니다**.
+acceptance 는 강제 뷰의 `exit 0` 단독이고, 그 값은 아직 산출되지 않았다. 그래서 M7 은
+complete 로 선언되지 않았다 — 주장을 남긴 채 acceptance 만 무르게 하는 것이 M2 가
+dropped 된 이유이고, 그 규칙은 이 마일스톤 자신에게도 적용된다.

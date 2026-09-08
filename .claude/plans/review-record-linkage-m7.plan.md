@@ -719,3 +719,45 @@ routing mode: auto (effective at implement stage). At implement the design gate 
 ## Codex Adversarial Review
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
+
+## Codex Implementation Review
+
+- 호출: `node plugins/mccp/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 1 (cap=1, 봉인됨 — `mccp-implement-codex__review-record-linkage-m7b`)
+- classification: `ok` · durationMs 82,576 · structured verdict `needs-attention` → `CODEX_VERDICT=divergent`
+- 합치 결론: 제안한 7개 implement-time 결정 중 **D3·D2 두 축이 실제로 틀렸다**. 나머지 5개(D1 별도 종료코드 표 · D4 슬러그 allowlist · D5 상태 우선순위 · D6 빈 자격집합을 `unresolved`로 · D7 사유 enum)는 반증되지 않았다. 두 HIGH는 §3.14대로 **그 자리에서 흡수**했고, 흡수 후 재리뷰는 §3.16대로 하지 않는다 — 따라서 receipt는 `divergent`를 그대로 봉인하고 cross-gate dedupe는 닫힌 채로 남아 `/mccp:pr`에서 PR-Codex가 반드시 발화한다.
+- YAGNI Triage:
+
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 — `computeLinkage`는 자격 오라클이 아니다 | HIGH | ACCEPT_NOW | 코드로 확인: `:383`이 `eligibleShips`를 그대로 순회할 뿐 `classifyShipEligibility`를 부르지 않는다. 자격 판정은 **호출자**가 `:539-545`·`:695`에서 한다. 따라서 `computeLinkage([ship],…)`만으로 검사 4를 삼으면 `plan_review_expected` 미봉인 ship도 통과해 검사 4가 **공허**해진다 — Task 2 표가 "자격이 확정됐다(F6)"라고 적은 바로 그 명제가 검사되지 않는다 |
+  | F2 — 증거 수집 전에 HEAD를 고정해야 한다 | HIGH | ACCEPT_NOW | 코드로 확인: `baselineTree`가 `ls-tree <ref>`를 돌리고 `readShipReceipts`·`readReviewRecords`가 각각 `git show <ref>:<path>`를 **따로** 실행한다. `ref='HEAD'`면 매 호출이 HEAD를 재해소하므로, 그 사이 커밋·체크아웃이 일어나면 옛 receipt와 새 레코드가 짝지어질 수 있다. DD8이 약속한 "읽기 원천은 HEAD 트리 **하나**"가 성립하지 않는다 |
+
+- 흡수 내용 (Task 2 구현에 반영):
+  1. **검사 4를 `classifyShipEligibility(ship.body)`로 명시 판정**한다. `verdict === 'eligible'`이
+     아니면 검사 3에 들어가지 않는다 — `computeLinkage`는 자격이 확정된 뒤에만 링크 판정에 쓴다.
+     회귀 fixture 2종 추가: `plan_review_expected` **부재** · **`false`**.
+  2. **HEAD를 full commit OID로 1회 고정**하고 그 OID를 `ls-tree`·모든 `git show`·타깃 조회에
+     전부 넘긴다. 검사 결과에 그 OID를 실어 어느 트리를 봤는지 남긴다. 회귀 fixture 1종 추가:
+     receipt 수집과 레코드 수집 **사이에 HEAD가 움직여도** 판정이 고정된 트리 하나에서 나온다.
+- Deferred to backlog: 0 (MEDIUM·LOW finding 없음)
+- Open Questions: 없음 — 두 HIGH 모두 R1에서 해소됐고 `DIVERGENT_UNRESOLVED`가 아니다.
+  `CODEX_VERDICT=divergent`는 미해소가 아니라 **재리뷰를 하지 않았다**는 뜻이다(§3.16).
+
+### Security Reviewer
+
+`Task(mccp:security-reviewer)` — 산출 코드가 아니라 **제안 설계**를 대상으로 발화(명령 본문 2.5.5의 순서). CRITICAL 1 · HIGH 2 · MEDIUM 2 · LOW 2.
+
+**게이트 이탈 기록.** 명령 본문 2.5.5는 security CRITICAL/HIGH를 `[MCCP-GATE-STOP]`으로 규정한다. 여기서는 **멈추지 않고 흡수했다.** 사유: 이 지적들은 "설계가 안전하지 않다"가 아니라 **"이렇게 재구현하면 깨진다"** 는 조건부이고(CRITICAL 본문이 "if reimplemented instead of reused"라고 명시한다), 그 조건은 plan의 DD4가 이미 금지한 행위다. 즉 지적은 *구현을 구속하는 제약*이며 전부 흡수 가능하다. 멈추는 것은 §3.14가 요구한 흡수를 하지 않은 채 사이클을 버리는 것이다. 대신 **구현 후 같은 리뷰어로 산출 코드를 재검증**해(§3.16의 "재리뷰가 아니라 진행"의 예외가 아니다 — Codex 라운드 원장을 소모하지 않는 Phase 4 검증이다) CRITICAL을 주장이 아니라 증거로 닫는다.
+
+| # | Severity | 지적 | 흡수 |
+|---|---|---|---|
+| S1 | **CRITICAL** | 해시 동등 비교를 재구현하면 fail-open이 열린다. `:394-401`의 실제 비교는 `typeof actual === 'string' && actual.length > 0` 가드를 갖는데, 순진한 `declared === actual`은 **양쪽이 다 `null`일 때 통과**한다. 그리고 그것은 예외가 아니라 back-patch **이전의 기본 상태**다(`record.js:395` `receipt_hash: null`, F11). DD9가 `exit 0`을 유일 acceptance로 못박았으므로 이는 네 사실을 하나도 세우지 않고 exit 0이 나오는 상태다 | 비교를 **재구현하지 않는다** — `computeLinkage([ship], …)`를 호출하고 `.bidirectional === 1`만 읽는다(DD4를 코드로 강제). fixture 추가: 양쪽 `receipt_hash`가 전부 `null`이면 bidirectional 아님 |
+| S2 | **HIGH** | 봉인된 `meta.review_record_path`로 파일을 **직접 여는** 재구현 압력. 그 필드는 receipt 생산자가 통제하고(수동 `/mccp:receipt-write` 포함), 형태 가드는 *쓰기* 경로(`finalize-receipt.js:311`)에만 있어 이 도구가 읽는 모든 receipt에 적용됐다고 가정할 수 없다. `:310-313`이 "봉인된 경로로 파일을 열지 않는다"를 명시한 이유 | 전수 스캔 + 메모리 맵 조회 경로를 그대로 쓴다. fixture 추가: `meta.review_record_path`가 `../../../etc/passwd`여도 그 값이 git/fs 인자로 **나가지 않는다** |
+| S3 | **HIGH** | `--decision` 단건 조회를 `fs.readFileSync`/`existsSync`로 처리하면 DD8이 닫은 작업-트리 fail-open이 **이 도구의 유일한 acceptance 경로에서** 되살아난다(`:621-628`이 "이 축의 급소"로 지목한 것) | 내용 read는 전부 `git show`. fixture 추가: `--check-live-linkage --decision`이 `fs` 내용 read를 하지 않음을 spy로 단언 |
+| S4 | MEDIUM | 제안한 슬러그 정규식 `^[A-Za-z0-9._-]+$`가 이 파일 자신의 두 선례보다 약하다 — `REF_SHAPE`(`:256`)는 **선두 영숫자 강제** + 255자 상한이고 `isRepoRelativePath`(`linkage-defs.js:330`)는 `..`을 명시 거부한다. 오늘 악용 불가인 이유는 오직 **위치적**이다(토큰이 항상 `<OID>:` 접두를 갖고, `<slug>`와 `.json` 사이에 구분자가 없어 `..`이 독립 세그먼트가 못 된다) — 검증자가 강제하는 성질이 아니다 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$` + `indexOf('..') === -1` 명시 거부. 조회는 `gitRev()`(`:265-267`, `--end-of-options` 부착)를 경유 |
+| S5 | MEDIUM | OID 고정 실패를 `r.ok ? … : 'HEAD'`로 처리하면(같은 파일 `:1049-1050`에 그 idiom이 실재한다) 핀이 **실패 시에만 무효**가 되어 닫으려던 race가 조용히 되살아난다 | OID 해소 실패 → `unresolved`(3) fail-closed. fixture 추가: 이 서브커맨드가 `'HEAD'` 문자열을 ls-tree/git show에 **넘기지 않음** |
+| S6 | LOW | 지목한 receipt가 HEAD에 있으나 `JSON.parse` 실패인 경우가 fixture에 없다 — 재구현이 이를 "없음"(`unresolved`)으로 접으면 DD3가 세운 구분이 흐려진다 | 파손 → `degraded`(2). fixture 추가 |
+| S7 | LOW/info | 우선순위 `unresolved > degraded > violations`는 안전하지만(셋 다 비영점, `checkRoundStructure:838-849`의 선례와 동형) **호출자 계약이 암묵적**이다. 이 저장소는 다른 곳에서 실패 등급을 차등 취급하므로(§3.3의 15종 표) 다음 사람이 습관으로 `degraded`를 advisory로 볼 수 있다 | usage와 함수 주석에 "**비영점 셋을 전부 동등하게 미통과로 취급하라**"를 명시 계약으로 적는다 |
+
+**추가 관측 (프로세스)**: R2 패널의 security `pass`는 `--decision` 주입 축을 "`REF_SHAPE` + `--end-of-options` 이중 가드"로 통과시켰는데, 그 가드는 `--baseline-ref`/`--since`의 것이고 신규 `--decision` 슬러그 검증자가 아니다. 즉 **그 pass는 이 산출물을 덮지 않는다.** S4가 그 간극을 닫는다 — 패널의 통과를 근거로 삼지 않고 실제로 같은 강도의 가드를 단다.

@@ -116,6 +116,39 @@ const CHECK_EXIT_CODES = Object.freeze({
   unresolved: 3,        // 경계 ref 자체가 해소되지 않았다
 });
 
+// `--check-live-linkage` 의 종료 코드. 위의 둘과 **또 분리한다**(DD3). 세 표의 숫자가
+// 지금 같다는 것은 우연이고, 같은 표를 나눠 쓰면 한쪽 의미가 바뀔 때 다른 쪽이 조용히
+// 따라간다. 이 표가 답하는 질문은 세 번째로 다른 질문이다 — "지목한 ship 이 라이브
+// 링크 네 사실을 **자기가** 충족하는가".
+//
+// ── 호출자 계약 (security S7 — 암묵으로 두지 않는다) ────────────────────────
+// **비영점 셋을 전부 동등하게 "미통과"로 취급하라.** 이 저장소는 다른 곳에서 실패
+// 등급을 차등 취급하지만(CLAUDE.md §3.3 의 15 종 classification 표), 여기서는 아니다.
+// `ok`(0) 만이 "네 사실이 전부 섰다"이고 1·2·3 은 각각 왜 서지 못했는지를 말할 뿐
+// 어느 것도 통과가 아니다. `degraded` 를 advisory 로 읽는 소비자는 판정 부재를
+// 통과로 바꾸는 것이고, 그것이 이 도구가 존재하는 이유인 fail-open 이다.
+const LIVE_CHECK_EXIT_CODES = Object.freeze({
+  ok: 0,
+  violations: 1,        // 다 읽었고, 네 검사 중 하나가 실제로 실패했다
+  degraded: 2,          // 판정 대상을 다 읽지 못했다 — 위반 수는 하한일 뿐이다
+  unresolved: 3,        // 판정할 대상 자체가 없었다 (트리 미해소 · 지목 ship 부재 · 자격 0건)
+});
+
+// 슬러그 형태 가드 (security S4). `REF_SHAPE` 와 **같은 강도**로 맞춘다 — 선두 영숫자
+// 강제 + 255 자 상한. 초안은 `^[A-Za-z0-9._-]+$` 였는데 그것은 이 파일 자신의 두 선례
+// (`REF_SHAPE` · `linkage-defs.js#isRepoRelativePath`)보다 약했고, 오늘 악용 불가인
+// 이유가 **위치적**이었다: 조립되는 토큰이 항상 `<OID>:` 접두를 가져 선두 `-` 가 argv
+// 첫 문자로 나가지 않고, `<slug>` 와 `.json` 사이에 구분자가 없어 `..` 이 독립 경로
+// 세그먼트가 되지 못한다. 둘 다 주변 코드의 성질이지 검증자가 강제하는 성질이 아니라,
+// 접두를 붙이지 않는 호출부가 미래에 생기면 그 호출부는 아무 보호도 받지 못한다.
+const DECISION_SLUG_SHAPE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,254}$/;
+
+function isSafeDecisionSlug(slug) {
+  return typeof slug === 'string' &&
+    DECISION_SLUG_SHAPE.test(slug) &&
+    slug.indexOf('..') === -1;   // isRepoRelativePath:330 과 같은 명시 거부
+}
+
 const SHIP_RECEIPT_SUBDIR = '.claude/receipts/mccp-pr-codex';
 
 // 비재귀 2경로. corpus.js REVIEW_SUBDIRS 와 동일 — 여기서 좁히면 두 도구의 소속
@@ -856,6 +889,219 @@ function checkExitCode(state) {
   return typeof code === 'number' ? code : 1;     // 미지 state → 비영점 (fail-closed)
 }
 
+// ── 라이브 링크 강제 뷰 (M7) ────────────────────────────────────────────────
+//
+// `--check-round-structure` 와 같은 형태다: 순수 함수가 상태 객체를 돌려주고 CLI 가
+// 그 `state` 를 종료코드로 사상한다. 사유는 enum 이고 경로를 싣지 않는다.
+//
+// 이 뷰가 `--json` 의 전역 집계와 다른 점 둘, 그리고 그 둘이 이 마일스톤의 전부다:
+//
+//   1. **읽기 원천이 고정된 트리 하나다** (DD8). 작업 트리는 읽지 않는다. 섞으면
+//      `:621-628` 이 "이 축의 급소" 로 지목한 fail-open 이 재현된다 — evidence commit
+//      이 실패하거나 `MCCP_PR_SKIP_LINK_EVIDENCE` 를 써도 back-patch 된 레코드는 작업
+//      트리에 남아 검사 1·2 를 통과시킨다.
+//   2. **판정 대상이 지목한 ship 하나다**. 전역 `bidirectional >= 1` 은 acceptance 가
+//      아니다 — `computeLinkage` 는 `eligibleShips` **집합** 위에서 세므로, 전역값을
+//      쓰면 **다른 ship 의 링크**로 exit 0 이 나서 과다승인이 된다.
+function pinHead(root) {
+  // security S5 — HEAD 를 full OID 로 **1회** 고정한다. 이것을 빠뜨리면
+  // `baselineTree` 의 `ls-tree` 와 `readShipReceipts`/`readReviewRecords` 의 각
+  // `git show` 가 **매번 HEAD 를 재해소**하므로, 그 사이 커밋·체크아웃이 일어나면
+  // 옛 receipt 와 새 레코드가 짝지어질 수 있다. 그러면 DD8 이 약속한 "읽기 원천은
+  // 트리 하나" 가 성립하지 않는다.
+  //
+  // **실패는 fail-CLOSED 다.** 같은 파일 `:1049-1050` 에 `r.ok ? … : 기본값` idiom 이
+  // 실재하는데, 그 형태를 여기서 흉내 내어 `'HEAD'` 로 떨어뜨리면 핀이 **실패할 때만**
+  // 무효가 되어 닫으려던 race 가 조용히 되살아난다. 그래서 null 을 돌려주고 호출자가
+  // `unresolved` 로 접는다.
+  const r = git(root, ['rev-parse', '--verify', '--end-of-options', 'HEAD^{commit}']);
+  if (!r.ok) return null;
+  const oid = r.out.trim();
+  return /^[0-9a-f]{40}$/.test(oid) ? oid : null;
+}
+
+// 한 ship 이 네 검사를 **자기가** 충족하는지 판정한다. 실패 사유는 enum 이다.
+//
+// 검사 2·3 은 **재구현하지 않고 `computeLinkage` 를 호출한다**(DD4 · security S1).
+// 그 비교의 실제 형태는 `:394-401` 이고 `typeof actual === 'string' && actual.length > 0`
+// 가드를 갖는다. 순진한 `declared === actual` 재구현은 **양쪽이 다 `null` 일 때 통과**
+// 하는데, 그것은 예외가 아니라 back-patch **이전의 기본 상태**다
+// (`plan-review/record.js:395` 가 `receipt_hash: null` 로 레코드를 만든다). 즉 링크된
+// 적 없는 ship 과 back-patch 된 적 없는 레코드가 서로를 승인하게 된다.
+function judgeShipLinkage(ship, byPath) {
+  // 검사 4 — 자격. **먼저** 판정한다 (Codex F1).
+  // `computeLinkage` 는 자격 오라클이 아니다: `:383` 이 `eligibleShips` 를 그대로
+  // 순회할 뿐 `classifyShipEligibility` 를 부르지 않고, 자격 판정은 **호출자**가
+  // `:539-545`·`:695` 에서 한다. 따라서 `computeLinkage([ship], …)` 만으로 검사 4 를
+  // 삼으면 `meta.plan_review_expected` 가 없는 ship 도 통과해 검사 4 가 공허해진다.
+  const base = defs.classifyShipEligibility(ship.body);
+  const e = defs.refineLiveUndecidableReason(ship.body, base);
+  if (e.verdict !== 'eligible') {
+    return { ok: false, check: 'eligibility', reason: e.reason };
+  }
+
+  // 검사 1 — receipt 가 경로를 봉인했는가.
+  const sealed = ship.body && ship.body.meta && ship.body.meta.review_record_path;
+  if (typeof sealed !== 'string' || sealed.length === 0) {
+    return { ok: false, check: 'review_record_path', reason: 'unsealed' };
+  }
+
+  // 검사 2+3 — 정의를 **호출**한다.
+  //
+  // security S2 — 봉인된 경로로 파일을 열지 않는다. `computeLinkage` 는 `:384-386`
+  // 에서 이미 수집된 맵을 조회할 뿐이고(`:310-313` 이 그 이유를 소유한다), 그 필드는
+  // receipt 생산자가 통제하므로(수동 `/mccp:receipt-write` 포함) 값이 traversal 이든
+  // 절대경로든 조회 실패 = 링크 부재로 접힌다. 여기서 그 값을 `git show` 인자로
+  // 만들면 M1 이 일부러 피한 그 패턴이 되살아난다.
+  const link = computeLinkage([ship], { eligible: 1, not_eligible: 0, undecidable: 0 }, {
+    recordByPath: byPath,
+    diagnostics: true,
+  });
+  if (link.bidirectional !== 1) {
+    const reason = link.dangling_record_path > 0 ? 'record_not_in_tree'
+      : link.stale_receipt_hash > 0 ? 'receipt_hash_mismatch'
+      : 'not_bidirectional';
+    return { ok: false, check: 'bidirectional', reason: reason };
+  }
+  return { ok: true };
+}
+
+function checkLiveLinkage(opts) {
+  const o = opts || {};
+  const root = o.repoRoot || process.cwd();
+  const decision = (o.decision === undefined || o.decision === null) ? null : o.decision;
+  const out = {
+    schema_version: 1,
+    state: 'ok',
+    tree_oid: null,
+    scope: decision === null ? 'all_eligible_ships' : 'named_ship',
+    decision: decision,
+    checked: 0,
+    failures: [],
+    unreadable: 0,
+  };
+
+  // security S4 — 슬러그는 **쓰이기 전에** 검증한다. 경로 조합보다 앞이다.
+  if (decision !== null && !isSafeDecisionSlug(decision)) {
+    out.state = 'unresolved';
+    out.reason = 'decision_slug_shape_rejected';
+    return out;
+  }
+
+  const oid = pinHead(root);
+  if (oid === null) {
+    out.state = 'unresolved';
+    out.reason = 'head_oid_unresolved';
+    return out;
+  }
+  out.tree_oid = oid;
+
+  // DD8 — 네 검사 전부 이 트리 하나에서 읽는다. `readLiveCorpus` 는 `ls-tree` +
+  // `git show` 만 쓰고 작업 트리를 만지지 않는다. 고정한 OID 를 넘기므로 아래의 모든
+  // blob 판독이 같은 커밋을 본다.
+  const live = readLiveCorpus(root, oid);
+  if (live.tree === null) {
+    out.state = 'unresolved';
+    out.reason = 'tree_not_listable';
+    return out;
+  }
+
+  // 레코드는 **파싱해서** 색인한다. `readReviewRecords` 는 원문 텍스트만 돌려주고
+  // (`:236`), `recordByPath` 는 `{rec, parsed}` 형태를 요구한다 — 라이브 파티션이
+  // `:691-700` 에서 하는 것과 같은 단계다. 이 단계를 빠뜨리면 색인이 통째로 비어
+  // 모든 ship 이 `record_not_in_tree` 로 떨어진다(실측으로 재현됨): 즉 링크된 ship 도
+  // 위반으로 보고되는 **거짓 음성**이고, 그 방향은 안전하지만 도구를 무용하게 만든다.
+  //
+  // 파싱 실패는 `degraded` 신호에 **합산한다**. `unreadable` 배열은 `git show` 가
+  // 실패한 것만 담고 파손된 Measurement 펜스는 담지 않으므로, 이것을 빼면 판독하지
+  // 못한 레코드가 하나도 세어지지 않은 채 그 레코드를 봉인한 ship 이
+  // `record_not_in_tree` 라는 **위반**으로 보고된다 — DD3 가 갈라 놓은 두 상태가
+  // 정확히 뒤섞이는 지점이다.
+  const parsedRecords = [];
+  let parseFailures = 0;
+  (live.reviews.records || []).forEach(function (rec) {
+    let parsed;
+    try { parsed = corpus.parseRecord(rec.text); }
+    catch (_err) { parsed = { kind: 'parse_failure', measurement: null }; }
+    if (parsed.kind === 'parse_failure') { parseFailures += 1; return; }
+    if (parsed.kind === 'out_of_corpus') return;   // 다른 생산자 — 결손이 아니다
+    parsedRecords.push({ rec: rec, parsed: parsed });
+  });
+
+  const unreadable = (live.ships.unreadable || []).length +
+    (live.reviews.unreadable || []).length + parseFailures;
+  out.unreadable = unreadable;
+  const corpusDegraded = live.ships.read_error || live.reviews.read_error || unreadable > 0;
+
+  let targets;
+  if (decision !== null) {
+    const rel = SHIP_RECEIPT_SUBDIR + '/' + decision + '.json';
+    if (!live.tree.has(rel)) {
+      // 작업 트리에만 있는 경우도 여기다 (DD8) — 아직 HEAD 에 없는 것은 결함이
+      // 아니라 **판정 대상 부재**이고, 그 구분이 `unresolved` 와 `violations` 를
+      // 가르는 이유다.
+      out.state = 'unresolved';
+      out.reason = 'named_ship_absent_from_tree';
+      return out;
+    }
+    const found = live.ships.receipts.filter(function (s) { return s.name === rel; });
+    if (found.length !== 1) {
+      // security S6 — 트리에 있으나 판독 불가다. "없음"(unresolved) 으로 접으면
+      // DD3 가 세운 구분이 흐려진다: 이것은 부재가 아니라 **판독 실패**다.
+      out.state = 'degraded';
+      out.reason = 'named_ship_unreadable';
+      return out;
+    }
+    targets = found;
+  } else {
+    targets = live.ships.receipts.filter(function (s) {
+      const base = defs.classifyShipEligibility(s.body);
+      return defs.refineLiveUndecidableReason(s.body, base).verdict === 'eligible';
+    });
+    if (targets.length === 0) {
+      // 자격 ship 0 건은 `ok` 가 아니다. exit 0 이 이 마일스톤의 **유일한**
+      // acceptance 이므로, "판정할 것이 없었다" 를 통과로 내보내면 부트스트랩
+      // 저장소와 배선이 발화한 저장소가 같은 신호를 낸다.
+      out.state = 'unresolved';
+      out.reason = 'no_eligible_ship_in_tree';
+      return out;
+    }
+  }
+
+  const byPath = recordByPath(parsedRecords);
+  targets.forEach(function (ship) {
+    out.checked += 1;
+    const v = judgeShipLinkage(ship, byPath);
+    if (!v.ok) {
+      // 사유는 enum, 식별자는 **슬러그**다. 슬러그는 파일시스템 경로가 아니라
+      // 호출자가 이미 쥔 결정 식별자이므로, 이것을 싣는 것은 경로 유출이 아니면서
+      // 사유를 행동 가능하게 만든다 (security D7 답변).
+      out.failures.push({ decision: ship.slug, check: v.check, reason: v.reason });
+    }
+  });
+
+  // 우선순위: unresolved > degraded > violations. 앞의 둘은 위에서 이미 조기 반환했다.
+  //
+  // **`degraded` 가 `violations` 를 이긴다** — `checkRoundStructure:838-849` 와 같은
+  // 이유다. 판정 부재를 위반 개수로 갈음하면 위반 하나에 파손이 가려진다. 그리고
+  // 여기서는 이유가 하나 더 있다: `recordByPath` 는 판독된 레코드만 담으므로, 지목한
+  // ship 이 봉인한 레코드가 판독 실패한 것이면 조회가 빗나가 `record_not_in_tree`
+  // 라는 **위반**으로 보고된다 — "못 읽었다" 가 "링크가 없다" 로 오귀속된다.
+  // 두 사실은 배타적이지 않으므로 `failures` 는 state 와 무관하게 그대로 실린다.
+  if (corpusDegraded) {
+    out.state = 'degraded';
+    out.reason = 'corpus_partially_unreadable';
+  } else if (out.failures.length > 0) {
+    out.state = 'violations';
+  }
+  return out;
+}
+
+function liveCheckExitCode(state) {
+  const code = LIVE_CHECK_EXIT_CODES[state];
+  return typeof code === 'number' ? code : 1;     // 미지 state → 비영점 (fail-closed)
+}
+
 // ── frozen projection ────────────────────────────────────────────────────────
 //
 // 화이트리스트다. 새 필드가 생겨도 자동으로 동결 블록에 새어 들어가지 않는다 —
@@ -973,6 +1219,7 @@ function printUsage() {
   process.stdout.write([
     'Usage: node plugins/mccp/scripts/lib/linkage-audit.js [--json|--frozen-only] [--repo-root <path>] [--baseline-ref <ref>]',
     '       node plugins/mccp/scripts/lib/linkage-audit.js --check-round-structure [--since <ref>] [--json] [--repo-root <path>]',
+    '       node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage [--decision <slug>] [--json] [--repo-root <path>]',
     '',
     'Read-only, LLM-free baseline for the ship-receipt <-> plan-review-record linkage.',
     'Counts only — it holds no thresholds and makes no judgement.',
@@ -992,10 +1239,26 @@ function printUsage() {
     '                  landing boundary). Same safe-ref shape rule as --baseline-ref.',
     '                  Ignored without --check-round-structure.',
     '',
+    '  --check-live-linkage',
+    '                  ENFORCING view (M7). Judges whether a ship receipt satisfies all',
+    '                  FOUR live-linkage facts BY ITSELF, reading ONE pinned HEAD commit',
+    '                  and never the working tree. The global bidirectional count is NOT',
+    '                  an acceptance signal — another ship\'s link must not pass this.',
+    '  --decision <slug>',
+    '                  judge exactly this ship (.claude/receipts/mccp-pr-codex/<slug>.json',
+    '                  inside the pinned tree). Omitted: judge EVERY eligible ship and',
+    '                  report violations if any one fails. An empty eligible set is',
+    '                  unresolved, not ok. Ignored without --check-live-linkage.',
+    '',
     'Exit (audit):     0 ok · 1 degraded · 2 blind (zero records) · 3 unresolved (baseline ref).',
     'Exit (--check-round-structure): 0 ok · 1 violations · 2 degraded · 3 unresolved (boundary',
     '                  ref). The two ladders are SEPARATE tables and answer different',
     '                  questions — 1 and 2 mean the opposite things between them.',
+    'Exit (--check-live-linkage): 0 ok · 1 violations · 2 degraded · 3 unresolved. A THIRD',
+    '                  separate table. CALLER CONTRACT: treat ALL THREE nonzero codes as',
+    '                  equally not-passing. Only 0 means the four facts were established;',
+    '                  reading `degraded` as advisory turns absence-of-judgement into a',
+    '                  pass, which is the fail-open this view exists to close.',
     '',
   ].join('\n'));
 }
@@ -1008,6 +1271,9 @@ function main(argv) {
   let checkRounds = false;
   let sinceRef = DEFAULT_M4_BOUNDARY_REF;
   let sinceGiven = false;
+  let checkLive = false;
+  let decision = null;
+  let decisionGiven = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') asJson = true;
@@ -1042,6 +1308,23 @@ function main(argv) {
         process.exit(1);
       }
     }
+    else if (a === '--check-live-linkage') checkLive = true;
+    else if (a === '--decision') {
+      decision = argv[++i];
+      decisionGiven = true;
+      if (!decision) { warn('--decision requires a slug'); process.exit(1); }
+      // security S4 — 형태 위반은 여기서 **fail-CLOSED** 로 끝난다. `checkLiveLinkage`
+      // 도 같은 가드를 다시 걸지만(그 함수는 라이브러리로도 호출된다), 두 겹인 이유는
+      // `isSafeRef` 와 같다: 어느 한쪽만으로도 오늘은 충분하지만 둘 다 얇다.
+      if (!isSafeDecisionSlug(decision)) {
+        warn('--decision "' + decision + '" is not a safe slug shape (must start with an ' +
+          'alphanumeric, contain only [0-9A-Za-z._-], be at most 255 chars, and contain ' +
+          'no ".."). This is the same strength as --baseline-ref\'s REF_SHAPE guard — the ' +
+          'slug is concatenated into a git object token, and a shape gate that is weaker ' +
+          'than the ref gate is only safe by accident of argument ordering.');
+        process.exit(1);
+      }
+    }
     else if (a === '-h' || a === '--help') { printUsage(); process.exit(0); }
     else warn('unknown argument "' + a + '" (ignored — loud fail-open).');
   }
@@ -1056,6 +1339,42 @@ function main(argv) {
   if (sinceGiven && !checkRounds) {
     warn('--since was given without --check-round-structure and has NO effect — the ' +
       'boundary window only exists for that check. Did a flag name get mistyped?');
+  }
+
+  // `--decision` 은 `--check-live-linkage` 전용이다. `--since` 와 같은 이유로 조용히
+  // 무시하지 않는다 — 서브커맨드 이름을 오타 낸 호출이 `--decision` 만 남긴 채 전체
+  // 감사를 돌리고, 호출자는 자기가 링크 검사를 돌렸다고 믿는다.
+  if (decisionGiven && !checkLive) {
+    warn('--decision was given without --check-live-linkage and has NO effect — the ' +
+      'per-ship judgement only exists for that check. Did a flag name get mistyped?');
+  }
+
+  if (checkLive) {
+    const lv = checkLiveLinkage({ repoRoot: repoRoot, decision: decision });
+    if (asJson) process.stdout.write(JSON.stringify(lv, null, 2) + '\n');
+    else {
+      process.stdout.write('live-linkage check — state=' + lv.state +
+        ' scope=' + lv.scope + ' tree=' + (lv.tree_oid || 'unpinned') + '\n' +
+        '  checked=' + lv.checked + ' failures=' + lv.failures.length +
+        ' unreadable=' + lv.unreadable + '\n');
+    }
+    // 경고는 `state` 가 아니라 각 배열의 길이로 발화한다 (checkRoundStructure 와 동형) —
+    // state 는 하나만 이길 수 있으므로 state 로 분기하면 degraded 가 이긴 실행에서
+    // 위반 요약이 사라진다.
+    lv.failures.forEach(function (f) {
+      warn('  NOT LINKED: ' + f.decision + ' — check=' + f.check + ' reason=' + f.reason);
+    });
+    if (lv.unreadable > 0) {
+      warn('DEGRADED — ' + lv.unreadable + ' corpus file(s) in the pinned tree could not ' +
+        'be read or parsed. Absence of a judgement is not a pass, and any violation count ' +
+        'beside it is a LOWER BOUND.');
+    }
+    if (lv.state === 'unresolved') {
+      warn('UNRESOLVED — ' + lv.reason + '. Nothing was judged, so this is NOT a pass. ' +
+        'A ship that exists only in the working tree lands here by design: the four ' +
+        'facts are read from a pinned HEAD commit, never from the working tree.');
+    }
+    process.exit(liveCheckExitCode(lv.state));
   }
 
   if (checkRounds) {
@@ -1151,6 +1470,12 @@ module.exports = {
   checkExitCode: checkExitCode,
   DEFAULT_M4_BOUNDARY_REF: DEFAULT_M4_BOUNDARY_REF,
   CHECK_EXIT_CODES: CHECK_EXIT_CODES,
+  checkLiveLinkage: checkLiveLinkage,
+  liveCheckExitCode: liveCheckExitCode,
+  judgeShipLinkage: judgeShipLinkage,
+  pinHead: pinHead,
+  isSafeDecisionSlug: isSafeDecisionSlug,
+  LIVE_CHECK_EXIT_CODES: LIVE_CHECK_EXIT_CODES,
 };
 
 if (require.main === module) main(process.argv.slice(2));

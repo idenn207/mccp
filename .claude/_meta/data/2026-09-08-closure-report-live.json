@@ -1,0 +1,63 @@
+{
+  "seal": {
+    "sealed_at": "2026-09-01T01:21:41.049Z",
+    "sealed_at_commit": "9093b08f9f136849b42c5f70617d8c31368e2614",
+    "inventory_sha256": "sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba",
+    "items": 1115,
+    "by_source": {
+      "backlog": 936,
+      "findings": 178,
+      "fix-task": 1
+    },
+    "age_days": 7
+  },
+  "live": {
+    "items": 2467,
+    "by_source": {
+      "backlog": 1488,
+      "findings": 978,
+      "fix-task": 1
+    }
+  },
+  "denominator_gap": {
+    "count": 1352,
+    "pct": 54.8
+  },
+  "dispositions": {
+    "total": 1115,
+    "by_disposition": {
+      "superseded": 111,
+      "duplicate": 19,
+      "deferred": 983,
+      "obsolete": 1,
+      "fixed": 1
+    },
+    "disposed": 1115,
+    "resolved": 132,
+    "fixed": 1,
+    "suppressing": [
+      "fixed",
+      "obsolete",
+      "superseded",
+      "duplicate"
+    ]
+  },
+  "ledgers": [
+    {
+      "name": "disposition-ledger",
+      "closed": 1115,
+      "total": 1115,
+      "pct": 100,
+      "denominator_note": "sealed inventory at 9093b08f9f136849b42c5f70617d8c31368e2614"
+    },
+    {
+      "name": "findings-registry",
+      "closed": 19,
+      "total": 997,
+      "pct": 1.91,
+      "denominator_note": "live registry entries"
+    }
+  ],
+  "degraded": [],
+  "reseal_warning": "Re-sealing is M2 responsibility. Calling re-seal now will unbind all 1115 disposition records from the old inventory (they are all bound to inventory_sha256=sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba)."
+}

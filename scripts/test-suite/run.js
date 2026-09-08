@@ -34,6 +34,11 @@ const { pathToFileURL } = require('url');
 
 const { enumerateTests, exclusionsDigest, toPosix } = require('./enumerate');
 const { createRedactor } = require('./redact');
+// ci-full-suite M3 DD7 — `--exclude-from`은 이 로더를 **거친다**. `readJsonFile`로
+// 직접 읽으면 `ticket` 필수와 `MAX_EXCLUSION_ENTRIES`가 사람이 로컬에서 부르는 한
+// 줄에만 존재하게 되고, 스위트를 실제로 도는 경로는 검증되지 않은 목록으로 격리를
+// 적용한다. 검증기가 **소비 경로 위에** 있어야 상한이 실효를 갖는다.
+const { loadExclusions } = require('./exclusions');
 
 const REPORT_MARKER = '##MCCP-SUITE-REPORT##';
 const CONTAINER_SCHEMA = 'mccp-suite-baseline/v1';
@@ -653,6 +658,24 @@ function main(argv) {
   // 접히면 켰다고 믿는 운영자가 강제된 채로 측정한다. 인정하는 표기는 셋뿐이고,
   // **그 밖의 모든 값은 off** 다(오타는 codex 를 켜는 쪽으로 접히지 않는다).
   const allowCodexRaw = flags['allow-codex'];
+  // ci-full-suite M3 Task 4 — CI 런타임 가드. 오늘 배선 지점은 0건이라 라이브
+  // 취약점은 없으나, 전 PR 게이트로 승격하면 "로컬 진단 전용"이라는 의도를 지키는
+  // 것이 사람의 주의력뿐이게 된다.
+  //
+  // 가드가 **플래그 파싱 지점**에 있는 것이 요건이다. `childEnv`에 두면 그 함수를
+  // 직접 부르는 자기 test 두 분기(`test-suite.test.js` (12b)·(12c))가 GitHub Actions
+  // job 안에서 throw해, 이 milestone이 만드는 머지 차단 게이트를 **자기 변경으로**
+  // 붉게 만든다. 그리고 로컬 Validation은 `GITHUB_ACTIONS` 없이 돌아 그 회귀를
+  // **구조적으로 볼 수 없다**(L2 R8 test). 여기는 그 두 test의 사거리 밖이면서
+  // 막으려는 것("CI에서 --allow-codex로 들어오는 것")과 정확히 같은 자리다.
+  if (allowCodexRaw !== undefined && process.env.GITHUB_ACTIONS === 'true') {
+    throw new Error(
+      '--allow-codex is refused under GITHUB_ACTIONS=true. The full-suite runner forces ' +
+      'MCCP_CODEX_DISABLED=1 in CI: hundreds of codex-path tests would spawn real brokers, ' +
+      'and an interrupted runner leaves orphans that self-replicate (M1 measured 289). ' +
+      'This flag is local diagnosis only.'
+    );
+  }
   const allowCodex = allowCodexRaw === true || allowCodexRaw === 'true' || allowCodexRaw === '1';
   if (allowCodexRaw !== undefined && !allowCodex) {
     process.stderr.write('[test-suite] --allow-codex=' + String(allowCodexRaw) +
@@ -663,8 +686,12 @@ function main(argv) {
       'policy instead of the forced MCCP_CODEX_DISABLED=1. Local diagnosis only.\n');
   }
 
+  // DD7 재배선 — `readJsonFile`이 아니라 `loadExclusions`다. 스위트를 실제로 도는
+  // 이 경로가 `ticket` 필수와 항목 수 상한을 통과해야만 격리가 적용된다. throw는
+  // 잡지 않는다: 격리 목록이 의도대로 해석되지 않은 채 측정이 진행되면 커버리지
+  // 분모가 조용히 틀린다.
   const exclusions = flags['exclude-from']
-    ? readJsonFile(flags['exclude-from'])
+    ? loadExclusions(String(flags['exclude-from']))
     : [];
 
   const tracked = flags['files-from']

@@ -43,6 +43,7 @@ const SEAM_DEBT = Object.freeze([
   Object.freeze({ file: 'plugins/mccp/commands/santa-loop.md', line: 517, rule: 'S2', textDigest: '1d706d7e3e48', why: 'CLI probe terminates the block with a non-blocking call' }),
   Object.freeze({ file: 'plugins/mccp/commands/work.md', line: 316, rule: 'S3', textDigest: '3f68b4a9d18e', why: 'fleet-reason probe: node -e in a substitution discards stderr' }),
   Object.freeze({ file: 'plugins/mccp/commands/work.md', line: 782, rule: 'S2', textDigest: 'a73ef58c567b', why: 'rollback-apply terminates the if-branch with a non-blocking call' }),
+  Object.freeze({ file: 'plugins/mccp/commands/work.md', line: 962, rule: 'S2', textDigest: '7b9522a42f3b', why: 'Phase 3 record-step: the fence holds only this fail-open instrumentation call, so the non-blocking suffix is the block end' }),
 ]);
 
 // 가시화 장치이지 정원이 아니다. 이 숫자를 올리는 것 자체는 금지되지 않으나 **조용히**
@@ -51,7 +52,16 @@ const SEAM_DEBT = Object.freeze([
 // 15 → 18 (code-review H1): S2 의 종결자 집합이 `fi`+블록 끝에서 의미 클래스 전체로 넓어져
 // 이전에 불가시였던 `else` 1건 · `done` 2건이 드러났다. 규칙이 넓어져 부채가 는 것이지
 // 배선이 나빠진 것이 아니다 — `commands/` 는 이 milestone 내내 무편집이다.
-const SEAM_DEBT_CEILING = 18;
+//
+// 18 → 19 (ci-full-suite M3): `work.md:962` 의 Phase 3 `record-step`. 이번에는 규칙이
+// 넓어진 것이 아니라 **배선이 늘었다** — halt 원장 진전 기록(`b35be24`)이 fail-open
+// 계측 호출 하나만 담은 fence 를 새로 만들었고, 그 fence 의 마지막 줄이라 S2 가 잡는다.
+// 고치지 않고 열거하는 이유: 규칙이 지목하는 해악("실패한 검사가 통과로 읽힌다")은 이
+// fence 에서 성립하지 않는다. 읽히는 검사가 없고 블록 전체가 계측이기 때문이다. 반대로
+// `|| true` 를 떼면 배너 신선도용 기록의 실패가 체인을 멈추게 되어 fail-open 계약이
+// 깨진다. `|| true` 를 다른 fallback 으로 바꾸는 것은 규칙의 문자열만 피하고 "exit
+// status 가 항상 0"이라는 성질은 그대로 남기므로 수리가 아니라 회피다.
+const SEAM_DEBT_CEILING = 19;
 
 // ── ASSERT_BASELINE ──────────────────────────────────────────────────────────
 // Task 6 이 이전하는 두 test 파일의 `assert.` 호출 수. **교체 전에** 측정했다.

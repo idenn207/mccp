@@ -758,3 +758,57 @@ test('(12e) the inherited node:test channel is still severed', () => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (13) ci-full-suite M3 Task 4 — `--allow-codex` CI 런타임 가드
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('(13a) --allow-codex under GITHUB_ACTIONS=true is refused', () => {
+  // 오늘 배선 지점은 0건이라 라이브 취약점은 없으나, 전 PR 게이트로 승격하면
+  // "로컬 진단 전용"이라는 의도를 지키는 것이 사람의 주의력뿐이게 된다.
+  //
+  // **seam은 spawnSync다** — `main`·`parseArgv`는 `module.exports`에 없으므로
+  // (`run.js:728-747`) 순수 호출로 단언하면 가드가 배선되지 않아도 green이다.
+  const r = spawnSync(process.execPath, [RUN_JS, '--list', '--allow-codex'], {
+    cwd: REPO_ROOT, encoding: 'utf8',
+    env: Object.assign({}, process.env, { GITHUB_ACTIONS: 'true' }),
+  });
+  assert.notStrictEqual(r.status, 0, 'the guard must refuse --allow-codex in CI');
+  assert.match(r.stderr, /allow-codex is refused under GITHUB_ACTIONS/);
+});
+
+test('(13b) either condition alone still passes', () => {
+  // 가드는 **둘이 함께일 때만** 발화한다. 한쪽만으로 죽으면 CI가 전수 스위트를
+  // 돌리지 못하거나(GITHUB_ACTIONS만) 로컬 진단이 막힌다(--allow-codex만).
+  const ciOnly = spawnSync(process.execPath, [RUN_JS, '--list'], {
+    cwd: REPO_ROOT, encoding: 'utf8',
+    env: Object.assign({}, process.env, { GITHUB_ACTIONS: 'true' }),
+  });
+  assert.strictEqual(ciOnly.status, 0, 'GITHUB_ACTIONS alone must not block the runner: ' + ciOnly.stderr);
+
+  const flagOnly = spawnSync(process.execPath, [RUN_JS, '--list', '--allow-codex'], {
+    cwd: REPO_ROOT, encoding: 'utf8',
+    env: (function () {
+      const e = Object.assign({}, process.env);
+      delete e.GITHUB_ACTIONS;
+      return e;
+    }()),
+  });
+  assert.strictEqual(flagOnly.status, 0, '--allow-codex alone is local diagnosis and must still work');
+});
+
+test('(13c) the guard sits at flag parsing, NOT in childEnv', () => {
+  // `childEnv`에 두면 (12b)·(12c)가 그것을 **직접** 부르고 `childEnv`는 `process.env`
+  // 전량을 읽으므로, GitHub Actions job 안에서 그 두 test가 throw해 이 milestone이
+  // 만드는 머지 차단 게이트를 **자기 변경으로** 붉게 만든다. 그리고 로컬 Validation은
+  // `GITHUB_ACTIONS` 없이 돌기 때문에 그 회귀를 구조적으로 볼 수 없다(L2 R8 test).
+  const saved = process.env.GITHUB_ACTIONS;
+  try {
+    process.env.GITHUB_ACTIONS = 'true';
+    assert.doesNotThrow(function () { childEnv('/some/repo', { allowCodex: true }); },
+      'childEnv must stay guard-free, or the CI run of this very suite goes red');
+  } finally {
+    if (saved === undefined) delete process.env.GITHUB_ACTIONS;
+    else process.env.GITHUB_ACTIONS = saved;
+  }
+});

@@ -1,0 +1,218 @@
+name: test-suite
+
+# ── WHY THIS FILE EXISTS ─────────────────────────────────────────────────────
+# C3 (ci-full-suite) M3 축 C. 전수 test 스위트를 **머지 차단 게이트로 승격**한다.
+# 형제 파일 `test-suite-baseline.yml`은 측정이고 이 파일은 강제다 — 두 책임을 한
+# 파일에 두지 않는다(DD1). 그 파일은 자기 헤더로 "측정이다, 강제가 아니다"를 선언하고
+# `continue-on-error: true`로 그것을 기계화했으므로, 승격시키려면 선언과 구현을 동시에
+# 뒤집어야 하고 그 순간 baseline이 가진 별개 능력(matrix 측정 · `--merge-into` 병합)이
+# 사라진다.
+#
+# ── 트리거 폭의 근거 ─────────────────────────────────────────────────────────
+# `pull_request`에 **paths 필터가 없다.** 형제 파일의 좁은 필터가 오늘 전 PR 대비
+# 2.7퍼센트 적용률을 만든 원인이고, 이 milestone의 최대 주장이 "전 PR 강제"이므로
+# 좁히는 키(`paths` · `paths-ignore` · `branches` · `branches-ignore` · `types`)는
+# **다섯 전부** 없다. 그 부재는 산문이 아니라 `scripts/tests/wiring-cut.test.js`의
+# 단언 3이 기계로 확인한다 — 좁은 필터가 몰래 들어와도 `.github/**`를 건드리는 PR은
+# 여전히 발화하므로 라이브 완주가 그것을 잡지 못한다.
+#
+# ── Scope note (측정 대 강제) ────────────────────────────────────────────────
+# 이 파일이 보장하는 것은 **판정이 돌고 그 판정이 어긋나면 체크가 red가 된다**는
+# 것뿐이다. 그 red가 실제로 머지를 막는 것은 **저장소 설정**(branch protection의
+# required status check)이고 repo 파일로 표현할 수 없다. required check는 아래 job의
+# `name:` 문자열로 걸리므로 그 값은 **안정 식별자**이고, 이름을 바꾸면 보호가 조용히
+# 풀린다 — `scripts/ci-required-checks.js`가 그 drift를 진단한다(DD6).
+#
+# 판정 순서(측정 성립 → 스위트 green → 커버리지 → redaction)는 셸 단계 셋으로 흩지
+# 않고 `scripts/test-suite/gate.js` **한 명령 안에서** 평가된다(DD3). 흩으면 그중 하나를
+# 지워도 아무 test가 붉어지지 않고, 순서 자체가 DD3의 논증이므로 순서를 잃으면
+# "유출 판정이 red의 하류일 수 있다"는 구조적 배제가 성립하지 않는다.
+#
+# 판정자 자기 test가 판정보다 **앞선 독립 단계**인 것은 선택이 아니다. 전수 실행 단계는
+# `run.js:725`의 `return result.ok ? 0 : 1` 대로 **측정 성립 여부로만** 종료하므로 그
+# 안의 판정자 test가 red여도 exit 0이다. 그 red를 체크 red로 바꾸는 유일한 주체가
+# `gate.js`의 1단계이므로, 게이트가 통과 방향으로 고장 나 있으면 **자기 결함을 자기가
+# 은폐한다**. 미러 원본이 같은 규율을 적는다
+# (`version-declaration-gate.yml:62-65` — "가드가 초록인데 그 가드 자체가 고장 나
+# 있으면 초록의 의미가 없다").
+#
+# ── receipt 비연동 ───────────────────────────────────────────────────────────
+# 이 workflow는 mccp receipt chain을 읽지도 쓰지도 않는다(UI4). CI와 receipt 게이트는
+# 서로를 모른다 — 연결하면 CI 실패가 receipt 체인을 오염시키고 그 반대도 성립한다.
+#
+# ── fork PR 위협모델 (DD4) ───────────────────────────────────────────────────
+# 전수 스위트는 tracked `*.test.js`를 전부 실행하므로 **PR이 추가한 test가 러너에서
+# 돈다**. 머지 차단이 되면 CI 상태를 조작할 유인이 생기므로 방어 다섯을 이 파일이
+# 들고 있는다: 최소 권한(`contents: read`) · `persist-credentials: false` ·
+# `pull_request_target` 미사용 · `actions/*` **commit SHA pin**(태그 pin은 머지 차단
+# workflow에 부적합하다) · **secrets 미주입**. 다섯 다 `wiring-cut.test.js` 단언 1b가
+# 기계로 확인한다.
+#
+# 그리고 `timeout-minutes`는 그 위협모델의 일부다 — 멈추지 않는 test 하나가 GitHub
+# 기본 상한(360분)까지 러너를 점유하면 required check가 **영구 pending**이 되어 머지가
+# 차단되지도 통과되지도 않는다. 가설이 아니다: 이 저장소는 전수 실행이 orphan 프로세스
+# 폭증으로 `fork: Resource temporarily unavailable`에 도달한 실측을 갖고 있다
+# (`scripts/test-suite/run.js:426-430`).
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# 최소 권한. 이 job은 어떤 git 쓰기도 하지 않는다.
+permissions:
+  contents: read
+
+# 같은 PR의 연속 push가 러너를 중첩 점유하지 않게 한다.
+concurrency:
+  group: test-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    # 이 문자열이 required status check의 이름이 된다. **안정 식별자**이며 matrix
+    # 템플릿을 쓰지 않는다 — `${{ }}`가 들어가면 어떤 실제 체크와도 영원히 일치하지
+    # 않고, `scripts/ci-required-checks.js`가 그것을 `unresolved`로 보고한다.
+    name: full test suite gate
+    runs-on: ubuntu-latest
+    # **job 수준**이다. step 하나에 두면 값 단언은 green인데 전수 실행 step은 GitHub
+    # 기본 360분을 유지해 영구 pending 경로가 그대로 열린다. 60분은 M1 실측(Linux
+    # 전수 75.5초)의 47배 여유라 정상 실행을 자르지 않으면서 멈춘 test를 1시간 안에 끊는다.
+    timeout-minutes: 60
+    steps:
+      # ── 이 job은 익명 git 접근에 의존한다 (2026-09-04 code-review) ───────────
+      # 아래 `persist-credentials: false`가 체크아웃 직후 자격증명을 지우므로, 그 뒤의
+      # `Fetch base ref` 단계는 **인증 없이** 돈다. `idenn207/mccp`가 public이라 오늘
+      # 성립하고, 그 사실이 이 workflow의 전제다.
+      #
+      # 저장소가 private이 되면 그 단계가 auth 실패로 죽고, base 해소는 DD9의
+      # fail-closed 입력이라 **전 PR의 유일한 머지 차단 체크가 영구 red**가 된다 —
+      # 그 상태의 출구는 이 milestone이 금지한 게이트 완화뿐이다. 그때의 정답은
+      # `persist-credentials`를 켜는 것이 아니라(fork PR이 추가한 test가 `.git/config`의
+      # 평문 토큰을 읽을 수 있게 된다) 아래 `fetch-depth: 0`이 이미 채운
+      # `refs/remotes/origin/*`에 의존하도록 그 단계를 바꾸는 것이다.
+      #
+      # `fetch-depth: 0`은 선택이 아니다 — `--base-ref`가 게이트의 fail-closed 입력이라
+      # (DD9) 해소에 실패하면 전 PR이 영구 red가 되고, 그 상태의 유일한 출구는 이
+      # milestone이 금지한 게이트 완화다. checkout 기본값은 depth 1이고 merge ref를
+      # 체크아웃하므로 `origin/<base>`가 러너에 없다.
+      #
+      # `with: ref:`는 **없다**. 한 줄(`ref: ${{ github.event.pull_request.base.sha }}` —
+      # base 해소를 "고치려는" 편집으로 자연스럽게 나올 수 있는 형태)이면 게이트가 PR
+      # 트리가 아니라 base 트리를 판정해 항상 green이 된다.
+      #
+      # `persist-credentials: false` — 기본값(true)은 GITHUB_TOKEN을 `.git/config`에
+      # 평문 base64로 기록한다. 이 workflow는 PR이 추가한 임의 test를 실행하므로 그
+      # 파일을 읽어 실패 메시지에 실을 수 있고, `redact.js`의 잔여 패턴은 경로 4종뿐이라
+      # credential 클래스 커버리지가 0건이다.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # base 브랜치가 remote-tracking ref로 존재하는지 보장한다. `${{ }}`를 `run:`에
+      # 직접 보간하지 않고 `env:` 간접을 쓴다 — 큰따옴표는 방어가 아니다(`$(...)`와
+      # backtick은 큰따옴표 안에서도 실행되고, `${{ }}`는 애초에 셸이 보기 전에
+      # 텍스트로 치환된다). 미러 원본이 직접 보간하지만 물려받을 이유가 없다.
+      - name: Fetch base ref
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: git fetch --no-tags origin "$BASE_REF"
+
+      # 게이트의 green 여부가 고정되지 않은 Node 버전에 달리지 않게 한다 — 이 계획
+      # 자신이 Linux red 하나를 "node 20 전용"으로 분류한다. matrix가 아니라 단일
+      # 값인 이유는 강제 게이트가 한 번만 돌아야 하고(비용) 하한 버전이 정본이기
+      # 때문이다.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      # 맨 앞인 이유: 격리 목록이 뒤 두 단계의 입력을 정한다. `ticket` 필수와 항목 수
+      # 상한을 여기서 강제한다(DD7).
+      - name: Validate exclusions list
+        run: node scripts/test-suite/exclusions.js --check .github/test-suite-exclusions.json
+
+      # 두 검사로 나뉜다.
+      #  1. 정체성 — `--list`(플래그 없음) ≡ `git ls-files '*.test.js'`. **약한 검사**다:
+      #     두 변은 같은 git 출력의 다른 필터이므로 어긋나는 구성은 pathspec과 suffix
+      #     필터가 갈라질 때뿐이다. 분모 채널의 정본 검증이라고 주장하지 않는다.
+      #  2. 격리 분할 — 두 `--list` 호출의 개수 차이가 floor 파일의 `max_excluded_files`와
+      #     **같다**. 차이를 "격리가 덮는 파일 수"와 대조하면 좌변과 우변이 같은 수량이라
+      #     어떤 구성에서도 참인 동어반복이다. 다른 파일의 다른 수량과 대조해야 실질이 된다.
+      #
+      # 정체성 검사에 `--exclude-from`을 넘기지 않는 것이 요건이다 — `--list`가 내는
+      # 것은 격리 적용 **후** 집합이므로(`run.js:676-679`), 넘기면 격리가 1건이라도
+      # 생기는 순간 이 단계가 영구 red가 되고 그 출구는 DD2가 금지한 게이트 완화뿐이다.
+      - name: Enumerate sanity
+        run: |
+          node scripts/test-suite/run.js --list | sort > enum-all.txt
+          git ls-files '*.test.js' | sort > tracked.txt
+          diff enum-all.txt tracked.txt
+          node scripts/test-suite/run.js --list --exclude-from .github/test-suite-exclusions.json | sort > enum-included.txt
+          all=$(wc -l < enum-all.txt)
+          included=$(wc -l < enum-included.txt)
+          cap=$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(".github/test-suite-floor.json","utf8")).max_excluded_files))')
+          echo "tracked=$all included=$included excluded=$((all - included)) declared_cap=$cap"
+          test "$((all - included))" -eq "$cap"
+
+      # 판정자의 건강이 판정자 하류에 있지 않게 한다. `continue-on-error` 없이 자기
+      # 종료코드로 체크를 붉게 만든다. DD4a의 면책("막는 것은 부주의이지 의도가
+      # 아니다")은 여기 적용되지 않는다 — 판정자 결함은 정확히 부주의다.
+      #
+      # `wiring-cut.test.js`가 이 목록에 있어야 한다: 그것이 workflow 형태의 유일한
+      # 단언자이므로 여기서 조용히 빠지면 오라클 전체가 무력화된다.
+      #
+      # 이 단계의 단언 중 **트리를 읽는 것은 `max_excluded_files` 등가 하나**다.
+      # floor 축은 순수 JSON 산술이라 어떤 트리 변형에도 불변이고, 그래서 절단 B
+      # (test 파일 1개 삭제)의 트리에서도 이 단계가 판정보다 먼저 red가 되지 않는다 —
+      # 그것이 축 D 증거의 producer 생존 조건이다.
+      - name: Gate discriminating-power tests
+        run: node --test scripts/tests/test-suite-coverage.test.js scripts/tests/wiring-cut.test.js
+
+      # 판정의 1차 입력을 생산한다. `--exclude-from`이 빠지면 러너는 **빈 목록의**
+      # digest를 산출물에 봉인하므로(`run.js:580`), 격리가 1건이라도 있으면 DD2의
+      # 앵커 조건이 `digest_mismatch`로 전 PR을 영구 red로 만들고 격리 0건인 동안은
+      # 앵커가 조용히 공허하다. 그래서 이 줄의 인자도 리터럴로 고정되고 오라클이 단언한다.
+      #
+      # 이 단계는 스위트가 red여도 exit 0으로 끝난다(측정 성립이 종료코드다). red를
+      # 체크 red로 바꾸는 것은 다음 단계의 1축이다.
+      - name: Full-suite measurement
+        run: node scripts/test-suite/run.js --exclude-from .github/test-suite-exclusions.json --json > measurement.json
+
+      # DD3의 4축(측정 성립 → green → 커버리지 → redaction)이 이 **한 명령 안에서**
+      # 순서대로 평가된다. 네 인자의 값이 전부 리터럴이고, `--json > gate.json`도 이
+      # 줄의 일부다 — 리다이렉트가 없으면 gate.json이 생성되지 않아 축 D와 Acceptance
+      # 2·3의 증거가 CI에 존재하지 않는다. 판정이 비영점으로 죽어도 리다이렉트는 이미
+      # 파일을 만들었고 뒤 단계의 `if: always()` 업로드가 그것을 건진다.
+      - name: Gate
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: node scripts/test-suite/gate.js --measurement measurement.json --exclude-from .github/test-suite-exclusions.json --floor-from .github/test-suite-floor.json --base-ref "origin/$BASE_REF" --json > gate.json
+
+      # ── 유출 판정은 머지를 막지만 게시를 막지 않는다 (2026-09-04 code-review) ─
+      # stage 3이 `redaction_ok:false`로 차단한 run에서도 `measurement.json`은 그대로
+      # 올라간다 — public 저장소의 artifact는 공개 다운로드 대상이므로, 유출로 판정된
+      # 그 파일이 게시된다. 수용하고 기록한다. 근거 셋:
+      #   1. 노출 클래스가 **경로뿐**이다. `redact.js`의 잔여 스캔은 절대경로 형태를
+      #      재고 credential 패턴은 0건이며, 러너의 체크아웃 경로
+      #      (`/home/runner/work/<repo>/<repo>`)는 공개 저장소에서 이미 상수다.
+      #   2. 조건부 업로드는 `if: steps.*.outputs.*`를 요구하는데, 그 순간
+      #      `wiring-cut.test.js`의 단언 1d("`if:`는 정확히 하나 · 값은 리터럴
+      #      `always()` · 자리는 업로드 step")가 깨진다. 그 pin은 판정 step이 skip되면
+      #      PR이 커밋해 둔 measurement.json을 읽게 되는 경로를 막고 있으므로,
+      #      더 낮은 위험을 줄이려고 더 높은 위험의 pin을 여는 교환이 된다.
+      #   3. `if: always()`를 빼면 축 D 증거(정의상 red run에서만 나온다)가 사라진다.
+      # 조건부 업로드 변형은 backlog에 이연했다(`codex-findings-backlog.md`).
+      #
+      # `if: always()`가 필수다 — 축 D의 수용 증거는 **정의상 red run에서만** 나오는데,
+      # 판정 단계가 비영점으로 죽으면 뒤 단계는 기본적으로 skip되므로 조건 없이는
+      # 절단 A·B 두 run의 산출물을 하나도 남기지 않는다. 이것이 이 workflow에서 `if:`가
+      # 나타나도 되는 **유일한 자리**이고 값도 리터럴 `always()`다.
+      - name: Upload gate artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-suite-gate
+          path: |
+            measurement.json
+            gate.json
+          if-no-files-found: warn

@@ -39,7 +39,7 @@ test('debt is reported separately, not hidden', function () {
   const r = lint.run(REPO_ROOT);
   const byRule = {};
   r.debt.forEach(function (d) { byRule[d.rule] = (byRule[d.rule] || 0) + 1; });
-  assert.deepEqual(byRule, { S1: 5, S2: 8, S3: 5 }, 'measured 2026-08-31; S2 rose 5 -> 8 when the terminator set became the full semantic class (code-review H1)');
+  assert.deepEqual(byRule, { S1: 5, S2: 9, S3: 5 }, 'measured 2026-08-31; S2 rose 5 -> 8 when the terminator set became the full semantic class (code-review H1), then 8 -> 9 when work.md gained a fence holding only a fail-open record-step call (ci-full-suite M3)');
   r.debt.forEach(function (d) {
     assert.ok(d.file && d.line && d.why, 'each debt row carries its own evidence');
   });

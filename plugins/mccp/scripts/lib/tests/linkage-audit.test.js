@@ -131,6 +131,42 @@ test('ok: a clean corpus exits 0', function () {
   assert.equal(r.code, 0);
 });
 
+test('HIGH-2 regression: a mistyped SUBCOMMAND flag is refused, never a silent exit 0', function () {
+  const { root } = mkRepo();
+
+  // 한 글자 짧은 선택자. 예전에는 warn 후 fall-through 해서 전역 집계가 돌고 exit 0 이
+  // 났다 — 호출자는 자기가 per-ship 강제 검사를 돌렸다고 믿는다. 이 도구는 종료 코드가
+  // 계약의 전부이므로 그 오귀속이 곧 과다승인이다.
+  const typo = run(root, ['--check-live-linkag', '--json']);
+  assert.notEqual(typo.code, 0,
+    'a mistyped subcommand flag exited 0. The caller believes the live-linkage check ' +
+    'passed when the global aggregate ran instead — the exact over-approval that check exists to close.');
+  assert.equal(typo.code, 1);
+  assert.match(typo.stderr, /unknown argument/);
+  // 그리고 전역 집계를 실제로 돌리지 않았어야 한다.
+  assert.equal(typo.stdout.trim(), '', 'the refused run must not emit an audit payload');
+
+  // 같은 규칙이 임의의 미지 인자에도 적용된다 — 파서 안의 다른 형태 위반(--baseline-ref
+  // · --since · --decision)이 전부 exit 1 이므로 여기만 fail-open 이던 것이 예외였다.
+  assert.equal(run(root, ['--json', '--not-a-flag']).code, 1);
+
+  // 정상 플래그는 물론 그대로 통과한다 (거부 규칙이 도구를 못 쓰게 만들지 않았음).
+  assert.equal(run(root, ['--check-live-linkage', '--json']).code, 3);   // unresolved: 자격 ship 0건
+});
+
+test('LOW-1: the live-check payload carries `reason` in every state, null when there is none', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'gamma');
+  const ok = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.equal(ok.json.state, 'ok');
+  assert.ok(Object.prototype.hasOwnProperty.call(ok.json, 'reason'),
+    'a consumer reading .reason must not have to tell an absent key from a null one');
+  assert.equal(ok.json.reason, null);
+
+  const unresolved = runJson(root, ['--check-live-linkage', '--decision', 'nope', '--json']);
+  assert.equal(typeof unresolved.json.reason, 'string');
+});
+
 test('unresolved: an unresolvable baseline ref is NOT ok and NOT exit 0', function () {
   // 미러 선례(corpus.js:670)는 unresolved 여도 exit 0 을 낸다. 그 fail-open 을
   // 물려받지 않았음을 여기서 고정한다 — 동결의 유일한 기계 장치가 무너진 상태에서

@@ -7,13 +7,23 @@
 // 실패이고, 단위 test 는 그것을 잡지 못한다 — 오라클은 완벽히 동작하면서 아무도
 // 호출하지 않을 수 있기 때문이다.
 //
-// 정적 스캔의 한계를 분명히 한다: 이 파일은 **호출 줄이 실재하는지**만 본다. 배너가
-// 실제로 발화하는지는 `hooks/tests/session-start-dep-check.test.js` 가 덮는다
-// (L2 test HIGH 흡수 — 정적 단언 하나로는 부족하다).
+// 정적 스캔의 한계를 분명히 한다: 정적 단언은 **호출 줄이 실재하는지**만 본다.
+//
+// 이 자리에는 "배너가 실제로 발화하는지는 `hooks/tests/session-start-dep-check.test.js`
+// 가 덮는다" 고 적혀 있었고 그것은 **거짓이었다** — 그 파일에 skew 단언은 0 건이다
+// (실측). 그 거짓말이 실제로 대가를 치렀다: throttle 이 이틀째부터 매 부팅 발화하는
+// 결함(local code-review HIGH-1)이 이 파일의 정규식 단언을 **전부 통과**했다. 소스에
+// `install_skew_at` 이라는 문자열이 있는지 물었을 뿐 그 값이 전진하는지는 묻지 않았기
+// 때문이다.
+//
+// 그래서 아래 "── (iii) 동작" 절이 생겼다. throttle 은 이제 실제 state-writer 를 상대로
+// 부팅 시퀀스를 재생해 발화/침묵 패턴을 단언한다. 정적 단언은 배선 배치(가드 블록 밖에
+// 있는가)처럼 실행해서는 관측하기 어려운 축에만 남긴다.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const LIB = path.join(__dirname, '..');
@@ -117,10 +127,110 @@ test('DD4a — the skew banner lives OUTSIDE the MCCP_CODEX_DISABLED guard', fun
 
 test('DD4a — the skew throttle does not share the dep-check clock', function () {
   const src = read(path.join(HOOKS, 'session-start.js'));
-  // dep_check_at 은 dep-check 가 도는 매 세션 재스탬프되므로, 그 시계만으로는
-  // rate-limit 이 아니다 — 배너가 한 번 뜨고 다시는 뜨지 않는다.
-  assert.ok(/install_skew_at/.test(src), 'the axis must read its own timestamp field');
+  // 자기 필드를 읽는가. (이 단언만으로는 부족하다는 것이 HIGH-1 이 증명한 바이고,
+  // 실제 throttle 동작은 아래 (iii) 절이 잰다.)
   assert.ok(/install_skew_state/.test(src), 'the axis must read its own state key');
+  // 시계 기반 분기는 이 축에서 은퇴했다. 되살아나면 HIGH-1 이 그대로 재발한다:
+  // 그 분기가 읽는 타임스탬프는 state-writer 의 write-skip 이 얼려 버린다.
+  assert.ok(!/skewWithin24h|skewAgeMs/.test(src),
+    'a rolling-age branch is back on the skew axis. The timestamp it reads is in ' +
+    'HASH_EXCLUDE_FRONTMATTER_KEYS, so a session that moves only that value leaves the ' +
+    'content hash unchanged and state-writer skips the write — the stamp freezes at its ' +
+    'first value and the banner fires on every boot from day two. See installSkewKey.');
+});
+
+// ── (iii) 동작 — throttle 은 정규식이 아니라 부팅 시퀀스로 잰다 ────────────────
+
+// session-start.js 의 skew 블록을 **실제 state-writer 를 상대로** 재생한다. 한 부팅이
+// 배너를 띄웠는지를 돌려주므로, 기대 패턴은 사람이 읽고 검산할 수 있다.
+function replayBoots(root, skew, isoTimes) {
+  const depCheck = require('../dep-check');
+  const sw = require('../../state/state-writer');
+  return isoTimes.map(function (nowIso) {
+    let prior = null;
+    try { prior = sw.readState(root).frontmatter.install_skew_state || null; } catch (_e) { /* none */ }
+    const notice = depCheck.installSkewNotice(skew);
+    const key = depCheck.installSkewKey(skew, nowIso);
+    const fired = Boolean(notice) && key !== prior;
+    sw.update(root, { installSkew: { checkedAt: nowIso, state: key } });
+    return fired;
+  });
+}
+
+function tmpRepo() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-skew-'));
+  fs.mkdirSync(path.join(root, '.claude', 'state'), { recursive: true });
+  return root;
+}
+
+const BEHIND = Object.freeze({
+  state: 'behind', commits_behind: 7, installed_version: '1.33.6',
+  installed_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40),
+  plugin_dir_override: false, reason: null,
+});
+
+test('HIGH-1 regression — the throttle still throttles on day two and after', function () {
+  const root = tmpRepo();
+  const fired = replayBoots(root, BEHIND, [
+    '2026-09-01T00:00:00.000Z',   // 최초 — 발화
+    '2026-09-01T06:00:00.000Z',   // 같은 날 — 침묵
+    '2026-09-01T23:59:00.000Z',   // 같은 날 늦게 — 침묵
+    '2026-09-02T09:00:00.000Z',   // 다음 날 — 발화
+    '2026-09-02T18:00:00.000Z',   // 같은 날 — 침묵  ← 옛 코드가 여기서 발화했다
+    '2026-09-09T09:00:00.000Z',   // 일주일 뒤 — 발화
+  ]);
+  assert.deepEqual(fired, [true, false, false, true, false, true],
+    'the skew banner must fire at most once a day while the state is unchanged. The ' +
+    'measured pre-fix behaviour was [true,false,false,true,TRUE,true]: install_skew_at ' +
+    'is hash-excluded, so once the state settled the write was skipped, the stamp froze ' +
+    'at its first value, and the 24h age check was false forever after day one.');
+});
+
+test('HIGH-1 mechanism — a bare-state key is frozen by the write-skip; a day-bucketed one is not', function () {
+  const sw = require('../../state/state-writer');
+
+  // 옛 형태: 키가 상태 이름뿐이면 해시가 안 움직여 write 가 skip 되고, 해시에서 빠진
+  // install_skew_at 은 첫 값에 얼어붙는다. 이것이 HIGH-1 의 기계장치 그 자체다.
+  const frozen = tmpRepo();
+  sw.update(frozen, { installSkew: { checkedAt: '2026-09-01T00:00:00.000Z', state: 'behind' } });
+  sw.update(frozen, { installSkew: { checkedAt: '2026-09-05T00:00:00.000Z', state: 'behind' } });
+  assert.equal(sw.readState(frozen).frontmatter.install_skew_at, '2026-09-01T00:00:00.000Z',
+    'if this ever advances, the write-skip changed and installSkewKey\'s rationale needs re-deriving');
+
+  // 새 형태: 날짜가 키에 있으므로 해시가 움직이고, write 가 실제로 일어난다.
+  const moving = tmpRepo();
+  sw.update(moving, { installSkew: { checkedAt: '2026-09-01T00:00:00.000Z', state: 'behind:2026-09-01' } });
+  sw.update(moving, { installSkew: { checkedAt: '2026-09-05T00:00:00.000Z', state: 'behind:2026-09-05' } });
+  assert.equal(sw.readState(moving).frontmatter.install_skew_at, '2026-09-05T00:00:00.000Z');
+  assert.equal(sw.readState(moving).frontmatter.install_skew_state, 'behind:2026-09-05');
+});
+
+test('installSkewKey — day-bucketed for reportable states, null otherwise, never a bare state', function () {
+  const depCheck = require('../dep-check');
+  assert.equal(depCheck.installSkewKey(BEHIND, '2026-09-01T12:00:00.000Z'), 'behind:2026-09-01');
+  assert.equal(depCheck.installSkewKey({ state: 'diverged' }, '2026-09-01T00:00:00.000Z'), 'diverged:2026-09-01');
+  // 침묵하는 상태는 키를 갖지 않는다 — 배너가 없으므로 dedupe 할 것도 없다.
+  assert.equal(depCheck.installSkewKey({ state: 'current' }, '2026-09-01T00:00:00.000Z'), null);
+  assert.equal(depCheck.installSkewKey({ state: 'unknown' }, '2026-09-01T00:00:00.000Z'), null);
+  assert.equal(depCheck.installSkewKey(null, '2026-09-01T00:00:00.000Z'), null);
+  // 판독 불가한 시각도 bare state 로 떨어지지 않는다. 떨어지면 그 분기에서만
+  // HIGH-1 이 조용히 되살아난다.
+  ['not-a-date', undefined, null, {}].forEach(function (bad) {
+    assert.match(depCheck.installSkewKey(BEHIND, bad), /^behind:\d{4}-\d{2}-\d{2}$/,
+      'an unparsable clock must still produce a dated key, not a bare state');
+  });
+});
+
+// 상태가 바뀌면 같은 날이어도 즉시 말한다 — throttle 은 침묵 장치가 아니라 중복 제거다.
+test('a state change speaks up within the same day', function () {
+  const root = tmpRepo();
+  const sw = require('../../state/state-writer');
+  const depCheck = require('../dep-check');
+  const day = '2026-09-01T08:00:00.000Z';
+  sw.update(root, { installSkew: { checkedAt: day, state: depCheck.installSkewKey(BEHIND, day) } });
+  const prior = sw.readState(root).frontmatter.install_skew_state;
+  const diverged = depCheck.installSkewKey({ state: 'diverged' }, '2026-09-01T20:00:00.000Z');
+  assert.notEqual(diverged, prior, 'behind → diverged on the same day must re-fire');
 });
 
 // ── 오라클이 부르는 쪽에 실제로 얹혀 있다 ─────────────────────────────────────

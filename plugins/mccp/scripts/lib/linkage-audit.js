@@ -979,6 +979,11 @@ function checkLiveLinkage(opts) {
     checked: 0,
     failures: [],
     unreadable: 0,
+    // Declared here rather than attached only on the paths that set it, so the
+    // JSON shape does not change between states. `ok` and `violations` carry a
+    // null reason; a consumer reading `.reason` never has to tell an absent key
+    // from a null one (local code-review LOW-1).
+    reason: null,
   };
 
   // security S4 — 슬러그는 **쓰이기 전에** 검증한다. 경로 조합보다 앞이다.
@@ -1326,7 +1331,28 @@ function main(argv) {
       }
     }
     else if (a === '-h' || a === '--help') { printUsage(); process.exit(0); }
-    else warn('unknown argument "' + a + '" (ignored — loud fail-open).');
+    else {
+      // fail-CLOSED, and this used to be a "loud fail-open" that exited 0.
+      //
+      // local code-review HIGH-2: the subcommand SELECTOR is an argument too, so
+      // `--check-live-linkag` (one character short) warned on stderr, fell
+      // through to the global audit, and exited 0. A caller that gates on the
+      // exit code then believes it ran the per-ship enforcement check when it
+      // ran an aggregate that cannot answer that question at all — the exact
+      // over-approval `--check-live-linkage` exists to close, reachable by a
+      // typo. Reproduced.
+      //
+      // The two flags below already carry the "did a flag name get mistyped?"
+      // warning, but those only fire when the VALUE flag was also given; they
+      // cannot see a mistyped selector. And every shape violation in this parser
+      // (--baseline-ref, --since, --decision) already exits 1, so fail-open here
+      // was the odd one out inside its own function.
+      warn('unknown argument "' + a + '" — refusing to run. This tool\'s exit code is ' +
+        'its whole contract, and a mistyped SUBCOMMAND flag would otherwise fall through ' +
+        'to the global audit and exit 0, reporting a pass for a check that never ran. ' +
+        'Run with --help for the accepted flags.');
+      process.exit(1);
+    }
   }
   if (!repoRoot) {
     const r = git(process.cwd(), ['rev-parse', '--show-toplevel']);

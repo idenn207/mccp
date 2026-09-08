@@ -1042,7 +1042,10 @@ async function main() {
   // review-record-linkage M5 (DD4a). Its own variable, filled by its own block
   // BELOW the dep-check block and OUTSIDE the MCCP_CODEX_DISABLED guard — see
   // the comment at that block for why sharing either would silence it.
-  let installSkewNotice = '';
+  // Named `Banner`, not `Notice`: depCheck.installSkewNotice is the function
+  // that BUILDS this string, and giving the holder the builder's name makes
+  // every line below read as if it might be calling itself.
+  let installSkewBanner = '';
   // checkAll() already computes the same axis, but only when the dep-check
   // block runs at all. Carrying the VALUE forward avoids a second set of git
   // calls in that case; it does not make the banner conditional on that block,
@@ -1126,10 +1129,20 @@ async function main() {
       // The key cannot be `dep_check_missing` (an eclipsed copy is not an absent
       // dependency, and sharing the field would make a shadowed install read as
       // a missing one everywhere else), and the 24h clock ALONE is not a
-      // rate-limit here: dep_check_at is re-stamped on every session that runs
-      // dep-check, so an operator who opens a session daily would see this once
-      // and never again -- and a copy appearing or disappearing would not bring
-      // it back. Hence dep_check_eclipsed, its own present-only field.
+      // rate-limit here, so the axis gets dep_check_eclipsed, its own
+      // present-only field.
+      //
+      // A correction, because this comment used to state the reason wrongly and
+      // the skew axis below inherited the error: dep_check_at is NOT "re-stamped
+      // on every session". It is in HASH_EXCLUDE_FRONTMATTER_KEYS, so a session
+      // in which only that timestamp moved leaves the content hash unchanged and
+      // state-writer skips the disk write entirely — the stamp freezes until
+      // dep_check_missing or dep_check_eclipsed actually changes. Measured. The
+      // conclusion (a separate key per axis) survives; the reason does not. Note
+      // that `within24h` above is therefore not a rolling window either: this
+      // axis inherits the same defect the skew axis below was fixed for, and it
+      // is carried in the findings backlog rather than changed here, since it is
+      // pre-existing M3 behaviour outside this cycle's diff.
       const notice = depCheck.impeccableEclipsedNotice(result.impeccable);
       const eclipsedKey = depCheck.impeccableEclipsedKey(result.impeccable);
       const sameEclipsed = eclipsedKey === priorEclipsedKey;
@@ -1162,43 +1175,41 @@ async function main() {
   // would be built and never called, which is precisely the failure M5 exists
   // to close.
   //
-  // The throttle is not shared either. dep_check_at is re-stamped on every
-  // session that runs dep-check (see :1114-1121 for the same argument applied
-  // to the eclipsed axis), so keying this banner on that clock alone would show
-  // it once and never again — and a state CHANGE (newly behind, or resolved)
-  // would not bring it back. Hence install_skew_at + install_skew_state, this
-  // axis's own present-only fields.
+  // The throttle is not shared either, and it is NOT a clock. The window lives
+  // inside install_skew_state, which installSkewKey stamps as `<state>:<UTC
+  // day>`; that function owns the argument for why a rolling age check cannot
+  // work here (local code-review HIGH-1: the timestamp it would read is frozen
+  // by the write-skip in state-writer.js, so the banner goes quiet for 24h and
+  // then fires on every boot forever). One comparison answers both questions —
+  // a new day fires, and so does a state CHANGE within the same day.
   try {
     const depCheck = require('../lib/dep-check');
     const stateWriter = require('../state/state-writer');
     const skew = depCheckSkew || depCheck.checkInstallSkew({ repoRoot: injectorRepoRoot || undefined });
+    // One clock reading for both the key and the stamp, so the day the banner
+    // was judged on is the day that gets recorded even across a midnight boundary.
+    const nowIso = new Date().toISOString();
     const notice = depCheck.installSkewNotice(skew);
-    const skewKey = depCheck.installSkewKey(skew);
+    const skewKey = depCheck.installSkewKey(skew, nowIso);
 
-    let priorSkewAt = null;
     let priorSkewState = null;
     try {
       if (injectorRepoRoot) {
-        const existing = stateWriter.readState(injectorRepoRoot);
-        priorSkewAt = existing.frontmatter.install_skew_at || null;
-        priorSkewState = existing.frontmatter.install_skew_state || null;
+        priorSkewState = stateWriter.readState(injectorRepoRoot).frontmatter.install_skew_state || null;
       }
     } catch (_e) {
       // best-effort; treat as no prior dedupe state
     }
 
-    const skewAgeMs = priorSkewAt ? Date.now() - Date.parse(priorSkewAt) : Infinity;
-    const skewWithin24h = Number.isFinite(skewAgeMs) && skewAgeMs >= 0 && skewAgeMs < 24 * 60 * 60 * 1000;
-    const sameSkew = skewKey === priorSkewState;
-    if (notice && !(sameSkew && skewWithin24h)) {
-      installSkewNotice = notice;
-      log(installSkewNotice);
+    if (notice && skewKey !== priorSkewState) {
+      installSkewBanner = notice;
+      log(installSkewBanner);
     }
 
     if (injectorRepoRoot) {
       try {
         stateWriter.update(injectorRepoRoot, {
-          installSkew: { checkedAt: new Date().toISOString(), state: skewKey },
+          installSkew: { checkedAt: nowIso, state: skewKey },
         });
       } catch (e) {
         log(`[SessionStart] install-skew state update skipped: ${e.message}`);
@@ -1212,8 +1223,8 @@ async function main() {
     additionalContextParts.push(depCheckNotice);
   }
 
-  if (installSkewNotice && shouldInjectContext) {
-    additionalContextParts.push(installSkewNotice);
+  if (installSkewBanner && shouldInjectContext) {
+    additionalContextParts.push(installSkewBanner);
   }
 
   if (eclipsedNotice && shouldInjectContext) {

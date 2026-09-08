@@ -242,29 +242,57 @@ function installSkewNotice(skew) {
   return '';
 }
 
-// The dedupe key for the skew banner, on its own axis.
+// The UTC day of a moment, or null when the argument is not one.
+function utcDay(when) {
+  const d = (when instanceof Date) ? when : new Date(when);
+  return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+}
+
+// The dedupe key for the skew banner, on its own axis. It carries the UTC DAY,
+// and that is what makes the throttle work at all.
 //
-// It cannot share dep_check_at: that clock is re-stamped on every session that
-// runs dep-check, so a 24h window keyed on it alone would show this banner once
-// and never again — and a state CHANGE (newly behind, or resolved) would not
-// bring it back. That is the failure this milestone exists to close, so the
-// axis gets its own present-only field (dep_check_eclipsed precedent).
+// ── why a rolling clock cannot do this job (local code-review HIGH-1) ────────
 //
-// commits_behind is deliberately NOT in the key. It is a monotonic counter, so
-// folding it in makes every single commit a new key: the banner re-fires each
-// session and — because install_skew_state IS hashed — STATE.md is rewritten on
-// every commit. That is exactly the churn dep_check_at was pulled out of the
-// content hash to stop ("Including it in the hash dirtied STATE.md in
-// `git status` every session", state-writer.js), returning through the value
-// axis instead of the timestamp one. The state name alone carries what the
-// banner asserts — that the running build is not this worktree — and that
-// sentence is equally true at 180 commits and at 181. The live count still
-// reaches the operator: the banner text is recomputed from the fresh result
-// every time it fires, so the number shown is never the stale keyed one.
-function installSkewKey(skew) {
+// The obvious design was tried first and is broken: stamp install_skew_at every
+// session, suppress the banner while that stamp is under 24h old. It is
+// defeated by the write-skip in state-writer.js. install_skew_at is in
+// HASH_EXCLUDE_FRONTMATTER_KEYS, so a session in which only that timestamp
+// moved produces an identical content hash and applyLocked returns `existing`
+// WITHOUT touching the disk. While the skew state is stable nothing else in the
+// frontmatter moves either, so the stamp freezes at its first value forever and
+// the age check is permanently true-then-permanently-false. Measured: quiet for
+// 24h, then fired on EVERY boot from day two onward — on every standard install,
+// since `behind` is the permanent default once marketplace.json pinned the
+// plugin source to `ref: release`.
+//
+// Taking the field out of the exclusion set is not the fix. That exclusion is
+// what keeps STATE.md out of `git status` on every boot, and re-introducing that
+// churn to power a throttle trades a louder banner for a dirtier working tree.
+//
+// So the window moves into the key, which IS hashed and therefore IS persisted:
+// the key changes when the day changes, the write happens BECAUSE the hash
+// changed, and the next session reads a key that no longer matches. One
+// comparison now answers both questions — a new day fires, and so does a state
+// change within the same day. STATE.md is rewritten at most once per day while
+// the install stays stale, which is the honest cost of a daily reminder.
+//
+// commits_behind is still deliberately NOT in the key. It is a monotonic
+// counter, so folding it in makes every single commit a new key: the banner
+// re-fires each session and STATE.md is rewritten on every commit. A day bucket
+// has exactly the cardinality of the throttle period; a commit counter has the
+// cardinality of the work. State plus day carries everything the banner asserts
+// — that the running build is not this worktree — and that sentence is equally
+// true at 180 commits and at 181. The live count still reaches the operator:
+// the banner text is recomputed from the fresh result every time it fires, so
+// the number shown is never the stale keyed one.
+function installSkewKey(skew, when) {
   if (!skew) return null;
   if (skew.state !== 'behind' && skew.state !== 'diverged') return null;
-  return skew.state;
+  // Never fall back to a bare state. A key with no day in it IS the frozen
+  // window described above, and it would reappear only on the branch where the
+  // caller passed something unparsable — the hardest branch to notice.
+  const day = utcDay(when) || utcDay(new Date());
+  return skew.state + ':' + day;
 }
 
 // One table row. `unknown` prints its reason enum — the enum is a closed set by

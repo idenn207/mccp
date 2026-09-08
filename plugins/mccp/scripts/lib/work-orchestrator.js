@@ -327,12 +327,36 @@ function hasRepoMarker(root) {
 // 나쁘게는 호출자(work.md 배너)가 stdout 이 빌 때 stderr 첫 줄을 실패 사유로 삼아
 // **halt 부재(정상)를 읽기 실패로 오보**한다. DD1 이 읽기를 저장소 전체로 넓혔으므로
 // 한 worktree 의 파손이 모든 worktree 의 진입 배너를 오염시킨다(실측 재현).
-function readStateFrontmatter(worktreePath, deps) {
+// santa R2 (reviewer B/HIGH) — `quiet` 는 **parse 경고**에 대한 계약이고, 위 근거는
+// 전부 그 축이다. read **실패**는 다른 축인데 같은 침묵을 상속하고 있었다. ENOENT 는
+// 정상이다(STATE.md 없는 worktree 는 halt 도 없다) — 그러나 EACCES·EIO 는 "halt 가
+// 없다" 가 아니라 **읽지 못했다** 이고, `collectLastHalt` 가 전역 최댓값을 고르므로
+// 그 침묵은 곧 다른 worktree 의 더 오래된 halt 를 최신인 양 내놓는다. 그것은 바로
+// 아래 절삭 분기가 "보장 불가면 답 대신 사실을 말한다" 로 이미 거부한 실패 모드다.
+// PRD 결정 3(fail-open 이되 조용히 삼키지 않는다)도 같은 것을 요구한다.
+//
+// 그래서 반환 계약은 **바뀌지 않는다**(여전히 null, 여전히 fail-open). 바뀌는 것은
+// 호출자가 그 사실을 알 수 있게 되었다는 것뿐이고, 보고 여부는 호출자가 정한다 —
+// `resolveWorkUnit` 처럼 커버리지를 주장하지 않는 호출자는 콜백을 넘기지 않는다.
+function readStateFrontmatter(worktreePath, deps, onReadError) {
   const sp = path.join(worktreePath, '.claude', 'state', 'STATE.md');
   let raw;
-  try { raw = fs.readFileSync(sp, 'utf8'); } catch (_e) { return null; }
+  try {
+    raw = fs.readFileSync(sp, 'utf8');
+  } catch (e) {
+    if (e && e.code !== 'ENOENT' && typeof onReadError === 'function') {
+      onReadError(e.code);
+    }
+    return null;
+  }
   const parsed = deps.stateWriter.parseStateMd(raw, { quiet: true });
   return (parsed && parsed.frontmatter) || null;
+}
+
+// errno 는 Node 가 만드는 값이지 입력이 아니지만, 이 줄도 인용부호 없이 터미널로
+// 나가므로 `safeField` 와 같은 규율을 둔다 — 열거 밖은 값을 옮기지 않고 이름만 낸다.
+function errnoToken(code) {
+  return (typeof code === 'string' && /^[A-Z][A-Z0-9]{1,15}$/.test(code)) ? code : 'UNKNOWN';
 }
 
 // DD2 — 해소 순서는 `--work-unit` 명시 → STATE.md `task_fingerprint` → null.
@@ -387,14 +411,24 @@ function collectLastHalt(repoRoot, deps) {
   if (all.length > cap) return { truncated: { cap: cap, total: all.length } };
 
   let best = null;
+  // santa R2 — 커버리지 구멍을 **세는** 자리. 경로는 담지 않는다: 운영자가 행동하는 데
+  // 필요한 것은 "몇 개를 못 읽었고 왜인가" 이고, worktree 이름은 신뢰 불가 입력이라
+  // 담으면 좁히기 표면이 하나 더 늘어난다.
+  const unreadable = [];
   for (const w of all) {
     if (!w || typeof w.path !== 'string') continue;
     let hit = null;
-    try { hit = trailingHalt(readStateFrontmatter(w.path, deps)); } catch (_e) { continue; }
+    try {
+      hit = trailingHalt(readStateFrontmatter(w.path, deps, function (code) {
+        unreadable.push(errnoToken(code));
+      }));
+    } catch (_e) { continue; }
     if (!hit || typeof hit.ts !== 'string') continue;
     if (!best || hit.ts > best.entry.ts) best = { entry: hit, worktree: w.path };
   }
-  return { hit: best };
+  // present-only — 키 부재는 "구멍 없음" 이고, 0 을 실어 두면 이 축이 생기기 전의
+  // 결과와 구별되지 않는다(이 저장소의 present-only 규약).
+  return unreadable.length ? { hit: best, unreadable: unreadable } : { hit: best };
 }
 
 function formatHaltLine(best, repoRoot, deps) {
@@ -402,7 +436,12 @@ function formatHaltLine(best, repoRoot, deps) {
   // Task 4 (3) + security S1 + review M1 — reader 는 자신이 읽은 레코드에 대해 좁히기를
   // **다시** 강제한다. 쓰기 시점 좁히기는 이미 디스크에 있는(구버전 recorder 가 쓴,
   // 또는 손으로 편집된) 레코드를 되돌리지 못하고, 이 줄은 인용부호 없이 터미널로 나간다.
-  // 네 필드 전부가 같은 좁히기를 통과한다 — 셋만 통과시키면 남은 하나가 통로가 된다.
+  // 이 줄로 나가는 **다섯 구성요소**(step · site · ts · reason · worktree)가 전부 같은
+  // 좁히기를 통과한다 — 넷만 통과시키면 남은 하나가 통로가 된다.
+  //
+  // orchestrator-step-wiring M3 (Task 2) — `worktree`가 정확히 그 남은 하나였다.
+  // 주석은 M1부터 이 불변식을 선언했지만 아래 `path.basename(...)`은 좁히기를
+  // 우회했고, 주석이 센 "네 필드"는 실제 구성요소 수와도 어긋나 있었다.
   const parts = ['직전 halt:', 'step=' + safeField(e.step, deps),
     'site=' + safeField(e.halt_site, deps), '(' + safeField(e.ts, deps) + ')'];
   const reason = safeField(e.reason, deps);
@@ -412,7 +451,13 @@ function formatHaltLine(best, repoRoot, deps) {
   }
   let line = parts.join(' ');
   if (!deps.worktrees.isSelfWorktree(best.worktree, repoRoot)) {
-    line += ' · worktree=' + path.basename(best.worktree);
+    // 규율은 둘이다: 모든 값이 같은 경로를 지난다, **그리고** 빈 값이면 구성요소째
+    // 생략한다. `safeField`는 `oneLineExcerpt(scrubControl(...))`이라 제어문자만으로
+    // 이루어진 basename을 빈 문자열로 접는데, 출력 조건이 값이 아니라
+    // `!isSelfWorktree(...)`라서 그대로 두면 라벨만 남은 `· worktree=`가 나간다.
+    // 위 `reason`이 이미 값 기반 가드를 쓰는 것과 같은 형태로 맞춘다.
+    const worktreeName = safeField(path.basename(best.worktree), deps);
+    if (worktreeName) line += ' · worktree=' + worktreeName;
   }
   return line;
 }
@@ -569,6 +614,18 @@ function runCli(argv) {
         }
         return 0;
       }
+      // santa R2 (reviewer B/HIGH) — 커버리지 구멍은 halt 유무보다 **먼저** 나간다.
+      // `!r.hit` 뒤에 두면 정확히 최악의 경우 — 못 읽은 worktree 에만 halt 가 있어
+      // 답이 비는 경우 — 에 침묵하게 되고, 그때 호출자(배너)는 빈 stdout 을 "halt
+      // 없음(정상)" 으로 읽는다. 절삭 분기와 같은 규율이되 답을 버리지는 않는다:
+      // 절삭은 아무 worktree 도 읽지 못한 것이고 이쪽은 부분 커버리지라, 있는 답을
+      // 내되 그것이 전역 최신이라고 보장하지 못한다는 사실을 함께 낸다.
+      if (r.unreadable) {
+        process.stderr.write('[mccp:last-halt] coverage incomplete: '
+          + r.unreadable.length + ' worktree STATE.md unreadable ('
+          + Array.from(new Set(r.unreadable)).sort().join(',')
+          + ') — the reported halt may not be the newest.\n');
+      }
       if (!r.hit) return 0;   // halt 없음 — 조용한 것이 맞다
       if (rest['json'] === true) {
         // review M1 — JSON 소비자도 그대로 출력할 수 있으므로 텍스트 경로와 같은
@@ -579,8 +636,15 @@ function runCli(argv) {
           ts: safeField(r.hit.entry.ts, deps) || null,
           reason: safeField(r.hit.entry.reason, deps) || null,
           work_unit: safeField(r.hit.entry.work_unit, deps) || null,
-          worktree: path.basename(r.hit.worktree),
+          // Task 2 — 텍스트 경로와 같은 좁히기. 다른 필드가 전부 `safeField`를
+          // 지나는데 이것만 raw basename이면 JSON 소비자가 그대로 재생할 때
+          // 통로가 남는다.
+          worktree: safeField(path.basename(r.hit.worktree), deps) || null,
           self: deps.worktrees.isSelfWorktree(r.hit.worktree, repoRoot),
+          // santa R2 — present-only. JSON 소비자도 텍스트 소비자와 같은 사실을
+          // 받아야 한다. `undefined` 는 `JSON.stringify` 가 키째 지우므로 구멍이
+          // 없으면 필드 자체가 없다.
+          coverage_incomplete: r.unreadable ? r.unreadable.length : undefined,
         });
         return 0;
       }

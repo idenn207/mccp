@@ -148,7 +148,15 @@ function scanSessionActivity(repoRoot) {
       scanDirs.push(c);
     }
 
-    const sessions = {};
+    // santa R2 (reviewer A · B 공통 지적) — **null-prototype이라야 한다.**
+    // `sessionId`는 아래 `file.replace(/\.jsonl$/, '')`로 파일명에서 그대로 오고,
+    // writer의 `SESSION_ID_RE`(`state/msw-events.js:45`)는 `__proto__`를 허용한다.
+    // 리터럴 `{}`이면 `sessions['__proto__']`가 `Object.prototype`(truthy)을 돌려줘
+    // 생성 분기를 건너뛰고, 아래 `:observed_local = true`가 **프로세스의 모든 객체**에
+    // 그 필드를 심는다. 그러면 `sessions_local` 필터가 외래 세션까지 로컬로 읽어
+    // Task 4·5가 세운 모집단 분리가 통째로 무효가 된다(양 리뷰어가 각자 재현).
+    // `Object.keys`·`Object.values` 소비처는 null-prototype에서 그대로 동작한다.
+    const sessions = Object.create(null);
     // M8 (DD3 · DD5) — A1의 세 축은 전부 **distinct work_unit** 집합이다.
     // 세션 축(`sessions`)과 나란히 두되 서로 섞지 않는다: 아래 B2 동시성은
     // 세션을, A1은 작업 단위를 센다.
@@ -193,32 +201,65 @@ function scanSessionActivity(repoRoot) {
               } else if (evt) {
                 seenLegacyKeys.add(legacyKeyOf(evt));
               }
-              if (!sessions[sessionId]) {
-                sessions[sessionId] = {
-                  session_id: sessionId,
-                  events: [],
-                  context_remaining_pct: null,
-                  task_completed: false,
-                  created_at: evt.created_at,
-                  ended_at: evt.ended_at,
-                  // Task 5a — 이 세션을 worktree-local 후보에서 본 적이 있는가.
-                  // 이 맵은 kind 가드가 없어(`:154` 선례) 공유 위치의 외래 A1
-                  // 이벤트도 엔트리를 만든다. 그래서 "봤다"와 "여기서 봤다"를
-                  // 구분하는 표식이 필요하다.
-                  observed_local: false,
-                };
-              }
-              if (!dirIsShared) sessions[sessionId].observed_local = true;
-              sessions[sessionId].events.push(evt);
-
-              // Collect context_remaining_pct and task_completed from session_end events
-              if (evt.kind === 'session_end') {
-                sessions[sessionId].ended_at = evt.ended_at;
-                if (evt.context_remaining_pct !== undefined && evt.context_remaining_pct !== null) {
-                  sessions[sessionId].context_remaining_pct = evt.context_remaining_pct;
+              // orchestrator-step-wiring M3 (Task 5) — DD8 격리의 **reader 측 두 번째 축**.
+              //
+              // 이것은 실재하는 오염의 수정이 아니다. 오늘 B2 분모 오염은 0이다 —
+              // `msw-events.js:419`가 비-A1 kind를 공유 위치로 보내지 않고
+              // `migrations/msw-events-common-dir.js:453`도 skip하므로 공유 위치에
+              // `session_start`가 존재할 수 없고, `spanOf`는 그것 없이는 span을 내지
+              // 않는다. 닫는 것은 오염이 아니라 **단일 실패점**이다: 격리를 지키는
+              // 것이 writer의 kind 게이트 하나뿐이라, `A1_AXIS_KINDS`에 kind가
+              // 추가되거나 세션 축 이벤트가 어떤 경로로든 공유 위치에 닿으면 B2가
+              // 조용히 깨지고 그것을 붉게 만들 단언이 없다.
+              //
+              // 술어는 writer와 **같은 집합**을 읽는다. reader가 자기 사본을 새로
+              // 열거하면 두 축이 갈려 검사 자체가 성립하지 않는다.
+              //
+              // 경계는 `dirIsShared` **단독이 아니다**. 공유 위치에는 자기 worktree가
+              // 쓴 A1 이벤트도 들어가므로(`msw-events.js:418-423`) "공유에서 읽음"을
+              // "외래"로 등치하면 자기 세션까지 깎인다. 반대로 kind **단독**이면
+              // 로컬 `session_start`/`session_end`까지 막혀 `concurrent_pairs_count`와
+              // `context_remaining_pct`가 통째로 사라진다 — 오늘 없는 오염을 막으려다
+              // 실재하는 집계를 죽이는 순손실이다. 두 조건의 논리곱이라야 한다
+              // (Implement-Codex R1 F1 · L2 security/MEDIUM).
+              //
+              // 가드가 감싸는 범위는 **세션 누적 블록 전체**다. 엔트리 생성만 막으면
+              // 아래 `events.push`와 `session_end` 갱신이 그대로 돌아, 앞선 공유 A1
+              // 이벤트가 이미 만들어 둔 엔트리에 외래 span과 외래 context 샘플이
+              // 실린다(Implement-Codex R1 F1). 그 뒤의 **독립 계수기**
+              // (`task_started`/`task_completed`/`task_ship_sealed`)는 이 블록 밖에
+              // 그대로 둔다 — A1 축은 공유 위치에서 읽혀야 하고 그것이 M1이 세운
+              // 경계다.
+              const sessionAxisAdmissible =
+                !(dirIsShared && !mswEvents.A1_AXIS_KINDS.has(evt && evt.kind));
+              if (sessionAxisAdmissible) {
+                if (!sessions[sessionId]) {
+                  sessions[sessionId] = {
+                    session_id: sessionId,
+                    events: [],
+                    context_remaining_pct: null,
+                    task_completed: false,
+                    created_at: evt.created_at,
+                    ended_at: evt.ended_at,
+                    // Task 5a — 이 세션을 worktree-local 후보에서 본 적이 있는가.
+                    // 이 맵은 kind 가드가 없어(`:154` 선례) 공유 위치의 외래 A1
+                    // 이벤트도 엔트리를 만든다. 그래서 "봤다"와 "여기서 봤다"를
+                    // 구분하는 표식이 필요하다.
+                    observed_local: false,
+                  };
                 }
-                if (evt.task_completed !== undefined && evt.task_completed !== null) {
-                  sessions[sessionId].task_completed = evt.task_completed;
+                if (!dirIsShared) sessions[sessionId].observed_local = true;
+                sessions[sessionId].events.push(evt);
+
+                // Collect context_remaining_pct and task_completed from session_end events
+                if (evt.kind === 'session_end') {
+                  sessions[sessionId].ended_at = evt.ended_at;
+                  if (evt.context_remaining_pct !== undefined && evt.context_remaining_pct !== null) {
+                    sessions[sessionId].context_remaining_pct = evt.context_remaining_pct;
+                  }
+                  if (evt.task_completed !== undefined && evt.task_completed !== null) {
+                    sessions[sessionId].task_completed = evt.task_completed;
+                  }
                 }
               }
 

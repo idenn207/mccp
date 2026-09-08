@@ -475,3 +475,147 @@ test('scrubControl removes ANSI sequences and residual control bytes but keeps t
   assert.strictEqual(orch.scrubControl('a\u001b[31mb\u0007c\td', deps), 'abc d',
     'tab becomes a space; ESC and BEL are REMOVED (not spaced), so b and c join');
 });
+
+
+// ── orchestrator-step-wiring M3 (Task 2) — worktree 구성요소도 같은 좁히기 ────
+//
+// `formatHaltLine`의 주석은 M1부터 "모든 필드가 같은 좁히기를 통과한다"를 선언했지만
+// `worktree`만 raw `path.basename`이었다. 단언 대상은 `worktree=`라는 **이름이 아니라**
+// 조립된 출력 전체에 C0/C1 제어문자가 없다는 것이다(DD4) — 이름을 겨냥하면 다음에
+// 추가되는 구성요소가 같은 통로를 다시 연다.
+//
+// 제어문자는 `String.fromCharCode`로 조립한다. 소스에 리터럴로 박으면 이 파일을 읽는
+// 사람과 도구가 그것을 볼 수 없다.
+
+test('(M3 Task 2) an ESC-bearing worktree name is narrowed on BOTH the text and JSON paths', () => {
+  const repo = mkRepo('m3wtesc');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+
+  // worktree **디렉토리 이름**에 터미널 제어 시퀀스를 심는다. 브랜치 이름에는 제어
+  // 문자를 넣을 수 없으므로(git refname 규칙) 경로 쪽에만 싣는다 — 배너가 재생하는
+  // 것이 정확히 그 basename이다.
+  const ESC = String.fromCharCode(27);
+  const BEL = String.fromCharCode(7);
+  const evilName = 'wt-' + ESC + ']0;PWNED' + BEL + ESC + '[1;31mFAKE' + ESC + '[0m-tail';
+  const wt = path.join(repo, evilName);
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'evil', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+  plantChainProgress(wt, [{
+    step: 'verify', status: 'halted', receipt_path: null,
+    ts: '2026-06-01T00:00:00.000Z', halt_site: '3.verify', reason: 'newer, elsewhere',
+  }]);
+
+  const text = run(repo, ['last-halt']);
+  assert.strictEqual(text.status, 0);
+  const line = text.stdout || '';
+  assert.match(line, /step=verify/, 'the fixture must actually select the foreign worktree halt');
+  assert.ok(!CONTROL_RE.test(line),
+    'a raw ESC reaching the terminal lets a worktree DIRECTORY NAME repaint the banner; '
+    + 'this line goes out unquoted');
+
+  const json = run(repo, ['last-halt', '--json']);
+  assert.strictEqual(json.status, 0);
+  const parsed = JSON.parse(json.stdout || '{}');
+  assert.ok(!CONTROL_RE.test(String(parsed.worktree || '')),
+    'JSON.stringify escapes for a PARSER, not for a terminal — a consumer that prints the '
+    + 'field replays the sequence, so the JSON path needs the same narrowing');
+});
+
+test('(M3 Task 2) a worktree name that narrows to nothing drops the component, not just its value', () => {
+  // `safeField`는 제어문자만으로 이루어진 basename을 **빈 문자열**로 접는다. 출력
+  // 조건이 값이 아니라 `!isSelfWorktree(...)`이므로, 값 가드가 없으면 라벨만 남은
+  // `· worktree=`가 배너에 나간다. 같은 함수의 `reason`이 이미 값 기반 가드를 쓴다.
+  const repo = mkRepo('m3wtempty');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+
+  const blankName = String.fromCharCode(1) + String.fromCharCode(2);
+  const wt = path.join(repo, blankName);
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'blank', wt]);
+
+  plantChainProgress(wt, [{
+    step: 'verify', status: 'halted', receipt_path: null,
+    ts: '2026-06-01T00:00:00.000Z', halt_site: '3.verify', reason: 'newer, elsewhere',
+  }]);
+
+  const out = (run(repo, ['last-halt']).stdout || '').trim();
+  assert.match(out, /step=verify/);
+  assert.ok(!/worktree=$/.test(out),
+    'a label with nothing after it is noise that claims a fact the reader cannot check: '
+    + 'got ' + JSON.stringify(out));
+  assert.ok(!CONTROL_RE.test(out));
+});
+
+// ── (14) santa R2 — 읽지 못한 worktree 는 "halt 없음" 이 아니다 ────────────
+//
+// 명제 3(보장할 수 없으면 그렇게 말한다)의 두 번째 축. 절삭은 이미 그렇게 하고
+// 있었지만 **개별 worktree 의 read 실패**는 같은 침묵을 상속하고 있었다: 전역
+// 최댓값 질의에서 못 읽은 worktree 하나는 곧 다른 worktree 의 더 오래된 halt 를
+// 최신인 양 내놓는다. 절삭과 달리 답을 버리지는 않는다 — 부분 커버리지이므로
+// 있는 답을 내되 그것이 전역 최신이라고 보장하지 못한다는 사실을 함께 낸다.
+
+test('(14) an unreadable STATE.md is reported as a coverage gap, not silently dropped', () => {
+  const repo = mkRepo('coverage');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-blocked');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'blocked', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+
+  // STATE.md 자리에 디렉토리를 둬 EISDIR 을 만든다. `chmod 000` 은 root 로 도는
+  // 환경에서 읽히므로 errno 를 결정적으로 만들지 못한다.
+  const blocked = path.join(wt, '.claude', 'state', 'STATE.md');
+  fs.mkdirSync(blocked, { recursive: true });
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0, 'a coverage gap is still fail-open');
+  assert.match((r.stdout || '').trim(), /step=implement/,
+    'the answer we do have is not thrown away — this is partial coverage, not truncation');
+  assert.match(r.stderr || '', /coverage incomplete: 1 worktree STATE\.md unreadable \(EISDIR\)/,
+    'the reported halt may not be the newest, and only this line says so. measured: '
+    + JSON.stringify((r.stderr || '').trim()));
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.strictEqual(j.status, 0);
+  assert.strictEqual(JSON.parse(j.stdout).coverage_incomplete, 1,
+    'the JSON consumer must receive the same fact as the text consumer');
+});
+
+test('(14) a worktree with no STATE.md at all is absence, not a coverage gap', () => {
+  const repo = mkRepo('coverage-enoent');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'empty',
+    path.join(repo, 'wt-empty')]);
+
+  plantChainProgress(repo, [{
+    step: 'commit', status: 'halted', receipt_path: null,
+    ts: '2026-02-01T00:00:00.000Z', halt_site: '2t.commit', reason: 'local',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  assert.match((r.stdout || '').trim(), /step=commit/);
+  assert.ok(!/coverage incomplete/.test(r.stderr || ''),
+    'ENOENT is the ordinary case — a worktree without STATE.md has no halt, and '
+    + 'reporting it as a gap would make the line fire on every healthy repository, '
+    + 'which is the same as not reporting it at all. measured: '
+    + JSON.stringify((r.stderr || '').trim()));
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.ok(!('coverage_incomplete' in JSON.parse(j.stdout)),
+    'present-only: no key at all, so absence is distinguishable from an observed zero');
+});

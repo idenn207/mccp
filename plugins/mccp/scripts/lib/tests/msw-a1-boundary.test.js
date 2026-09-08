@@ -609,3 +609,180 @@ test('an orphaned lock is reclaimed, and a successful run releases its own', () 
     'the run must release the lock it acquired — otherwise the next run waits out a ' +
     'full lease for no reason');
 });
+
+// ── orchestrator-step-wiring M3 (Task 5) — 격리의 reader 측 두 번째 축 ────────
+//
+// 이 여섯 단언이 함께 있어야 한다. plan 원안의 세 단언은 **어느 것도** kind 기준
+// 가드와 `dirIsShared` 기준 가드를 구별하지 못했다(L2 architect/HIGH · test/HIGH,
+// Implement-Codex R1 F1): A1 계수는 세션 엔트리 생성 분기 **밖**에서 무조건 돌고
+// (`session-activity.js` `task_started` 계수), B2는 `spanOf`가 `session_start`를
+// 요구하므로 A1-only 세션은 어느 구현에서도 pair에 기여하지 않는다. 실제 판별자는
+// (4)(5)(6)이다.
+
+test('(M3 Task 5) shared non-A1 events do not enter the session axis', () => {
+  const fx = mkFixture('m3iso');
+  const t0 = '2026-02-01T00:00:00.000Z';
+  const t1 = '2026-02-01T02:00:00.000Z';
+
+  // 오늘의 writer가 만들 수 없는 형태다 — `msw-events.js:419`가 비-A1 kind를 공유
+  // 위치로 보내지 않고 migration도 skip한다. 그것이 이 단언의 **목적**이다:
+  // 오늘의 회귀를 잡는 그물이 아니라, `A1_AXIS_KINDS`에 kind가 추가되거나 세션 축
+  // 이벤트가 어떤 경로로든 공유 위치에 닿는 날 붉어지는 그물이다.
+  for (const sid of ['ghost-1', 'ghost-2']) {
+    writeLine(sharedDirOf(fx), sid, { kind: 'session_start', session_id: sid, created_at: t0, ts: t0, event_id: sid + '-s' });
+    writeLine(sharedDirOf(fx), sid, { kind: 'session_end', session_id: sid, ended_at: t1, ts: t1, context_remaining_pct: 77, event_id: sid + '-e' });
+  }
+
+  const scan = scanSessionActivity(fx.main);
+  assert.equal(scan.concurrent_pairs_count, 0,
+    'two overlapping spans in the SHARED corpus would be a B2 denominator built from '
+    + 'sessions this location never ran');
+  assert.equal(scan.sessions.length, 0,
+    'the reader must not even create the entries');
+  const a2 = metricsMod.computeMetrics({ sources: { session_activity: scan } })[metricsMod.A2_CONTEXT_REMAINING];
+  assert.notEqual(a2.numerator, 2, 'nor may their context samples reach A2');
+});
+
+test('(M3 Task 5) the isolation does not kill the A1 axis it exists to protect', () => {
+  const fx = mkFixture('m3a1');
+  const t0 = '2026-02-01T00:00:00.000Z';
+  for (const sid of ['far-1', 'far-2']) {
+    writeLine(sharedDirOf(fx), sid, {
+      kind: 'task_started', session_id: sid, work_unit: 'u-' + sid,
+      work_unit_kind: 'milestone', ts: t0, event_id: sid + '-t',
+    });
+  }
+  const scan = scanSessionActivity(fx.main);
+  assert.equal(scan.task_startups_count, 2,
+    'A1 axis events MUST still be read from the shared location — that boundary is what M1 built');
+});
+
+test('(M3 Task 5) local non-A1 events still feed B2 — the assertion that discriminates', () => {
+  // **판별자 1.** DD3 요약의 kind-단독 표현을 문자 그대로 구현하면(dir 조건 없이)
+  // 로컬 `session_start`/`session_end`도 막혀 `spanOf`가 span을 못 만들고 이 단언이
+  // 붉어진다. plan 원안의 세 단언은 전부 두 구현에서 통과하므로 이 축을 재지 못했다.
+  const fx = mkFixture('m3local');
+  const t0 = '2026-03-01T00:00:00.000Z';
+  const t1 = '2026-03-01T03:00:00.000Z';
+  for (const sid of ['loc-a', 'loc-b']) {
+    writeLine(localDirOf(fx.main), sid, { kind: 'session_start', session_id: sid, created_at: t0, ts: t0, event_id: sid + '-s' });
+    writeLine(localDirOf(fx.main), sid, { kind: 'session_end', session_id: sid, ended_at: t1, ts: t1, context_remaining_pct: 40, event_id: sid + '-e' });
+  }
+  const scan = scanSessionActivity(fx.main);
+  assert.equal(scan.concurrent_pairs_count, 1,
+    'the two local sessions overlap; a kind-only guard would erase B2 entirely');
+  assert.equal(scan.sessions.length, 2);
+  assert.equal(scan.sessions_local.length, 2);
+});
+
+test('(M3 Task 5) local context samples still reach A2 — the second discriminating axis', () => {
+  // **판별자 2.** 같은 오구현이 A2의 분자도 통째로 지운다. B2만 재면 그 손실은
+  // 보이지 않는다.
+  const fx = mkFixture('m3a2');
+  const t0 = '2026-03-02T00:00:00.000Z';
+  const t1 = '2026-03-02T01:00:00.000Z';
+  writeLine(localDirOf(fx.main), 'loc-c', { kind: 'session_start', session_id: 'loc-c', created_at: t0, ts: t0, event_id: 'c-s' });
+  writeLine(localDirOf(fx.main), 'loc-c', { kind: 'session_end', session_id: 'loc-c', ended_at: t1, ts: t1, context_remaining_pct: 62, event_id: 'c-e' });
+
+  const scan = scanSessionActivity(fx.main);
+  const a2 = metricsMod.computeMetrics({ sources: { session_activity: scan } })[metricsMod.A2_CONTEXT_REMAINING];
+  assert.equal(a2.numerator, 1, 'a kind-only guard would drop the only sample');
+  assert.deepEqual(a2.value, { p50: 62, p95: 62 });
+});
+
+test('(M3 Task 5) an already-created entry does not admit shared non-A1 events', () => {
+  // **판별자 3 (Implement-Codex R1 F1).** 가드를 엔트리 **생성**에만 걸면
+  // `events.push`와 `session_end` 갱신이 그대로 돌아, 앞선 공유 A1 이벤트가 이미
+  // 만들어 둔 엔트리에 외래 span과 외래 context 샘플이 실린다. 아래 fixture는
+  // 각 외래 세션에 A1 이벤트를 **먼저** 실어 엔트리를 만들게 하고, 그 뒤에 겹치는
+  // 세션 수명을 붙인다 — 생성-only 가드에서 `concurrent_pairs_count`가 1이 된다.
+  const fx = mkFixture('m3after');
+  const t0 = '2026-04-01T00:00:00.000Z';
+  const t1 = '2026-04-01T04:00:00.000Z';
+  for (const sid of ['mix-1', 'mix-2']) {
+    writeLine(sharedDirOf(fx), sid, {
+      kind: 'task_started', session_id: sid, work_unit: 'u-' + sid,
+      work_unit_kind: 'milestone', ts: t0, event_id: sid + '-t',
+    });
+    writeLine(sharedDirOf(fx), sid, { kind: 'session_start', session_id: sid, created_at: t0, ts: t0, event_id: sid + '-s' });
+    writeLine(sharedDirOf(fx), sid, { kind: 'session_end', session_id: sid, ended_at: t1, ts: t1, context_remaining_pct: 88, event_id: sid + '-e' });
+  }
+
+  const scan = scanSessionActivity(fx.main);
+  assert.equal(scan.task_startups_count, 2, 'the A1 axis is untouched — the entries DO get created');
+  assert.equal(scan.sessions.length, 2);
+  assert.equal(scan.concurrent_pairs_count, 0,
+    'a creation-only guard leaves :212 pushing the shared session_start onto the existing '
+    + 'entry, which gives it a span and a foreign B2 pair');
+  const a2 = metricsMod.computeMetrics({ sources: { session_activity: scan } })[metricsMod.A2_CONTEXT_REMAINING];
+  // 샘플이 0이면 `computeA2`는 percentile 분기에 들어가지 않고 numerator를 주장하지
+  // 않는다(null). 고정하려는 명제는 "0이라는 수"가 아니라 **외래 샘플이 하나도
+  // 분자에 닿지 않았다**이므로 그 형태로 단언한다.
+  assert.ok(!(a2.numerator > 0),
+    'nor may the shared session_end stamp its context sample onto an existing entry '
+    + '(got numerator=' + String(a2.numerator) + ')');
+});
+
+// ── orchestrator-step-wiring M3 (Task 1) — 잠든 가드의 가시성 ────────────────
+
+test('(M3 Task 1) the a1 banner names the dormant spike guard', () => {
+  // 필드만 싣고 렌더 경로를 열지 않으면 운영자는 `status=`만 보고 anti-gaming 축이
+  // 살아 있다고 읽는다. 기준선 producer가 없는 것이 영구 상태이므로(DD2) 이 토큰은
+  // 사실상 상수이고, 그것이 정확히 전달하려는 사실이다.
+  const fx = mkFixture('m3banner');
+  writeLine(localDirOf(fx.main), 'b-1', {
+    kind: 'task_started', session_id: 'b-1', work_unit: 'u1',
+    work_unit_kind: 'milestone', ts: '2026-05-01T00:00:00.000Z', event_id: 'b1-t',
+  });
+  const run = require('node:child_process').spawnSync(
+    process.execPath, [A1_CLI, 'a1', '--repo-root', fx.main], { encoding: 'utf8' });
+  assert.equal(run.status, 0, 'the banner is fail-open and never blocks');
+  assert.match(run.stdout || '', /spike-guard=dormant/,
+    'the token must appear well below the 50-unit threshold — gating it on the threshold '
+    + 'would make it a surface that never renders, which is the failure this Task closes');
+});
+
+// ── santa R2 — 세션 맵은 null-prototype 이라야 한다 ─────────────────────────
+//
+// 양 리뷰어가 각자 재현한 축이다. `sessionId` 는 파일명에서 그대로 오고 writer 의
+// `SESSION_ID_RE` 는 `__proto__` 를 허용하므로, 리터럴 `{}` 맵에서는 그 한 파일이
+// `Object.prototype` 에 `observed_local` 을 심는다. 그 순간 `sessions_local` 필터가
+// **모든** 객체를 로컬로 읽어, 바로 위 Task 4·5 가 세운 모집단 분리가 전부 거짓이
+// 된다 — 그리고 그 거짓은 어느 기존 단언에도 걸리지 않았다.
+//
+// 단언 셋이 함께 있어야 한다: 오염 부재 · 이벤트 보존 · 소유 키로의 착지. 첫
+// 단언만 두면 `sessionId` 를 통째로 버리는 구현(오염은 없지만 계수도 잃는)과
+// 구별되지 않는다.
+
+test('(santa R2) a __proto__ session id cannot reach Object.prototype', () => {
+  const fx = mkFixture('proto');
+  const t0 = '2026-03-01T00:00:00.000Z';
+  const t1 = '2026-03-01T01:00:00.000Z';
+
+  writeLine(localDirOf(fx.main), '__proto__', {
+    kind: 'session_start', session_id: '__proto__', created_at: t0, ts: t0, event_id: 'p-s',
+  });
+  writeLine(localDirOf(fx.main), '__proto__', {
+    kind: 'session_end', session_id: '__proto__', ended_at: t1, ts: t1,
+    context_remaining_pct: 42, event_id: 'p-e',
+  });
+  writeLine(sharedDirOf(fx), '__proto__', {
+    kind: 'task_started', session_id: '__proto__', work_unit: 'u-proto',
+    work_unit_kind: 'milestone', ts: t0, event_id: 'p-t',
+  });
+  writeLine(localDirOf(fx.main), 'plain-sid', {
+    kind: 'task_started', session_id: 'plain-sid', work_unit: 'u-plain',
+    work_unit_kind: 'milestone', ts: t0, event_id: 'q-t',
+  });
+
+  const scan = scanSessionActivity(fx.main);
+
+  assert.equal({}.observed_local, undefined,
+    'a literal {} session map lets sessions[\'__proto__\'] resolve to Object.prototype, '
+    + 'so the assignment lands on every object in the process and sessions_local '
+    + 'reports foreign sessions as local — Task 4/5 population split defeated');
+  assert.equal(scan.task_startups_count, 2,
+    'and the guard must not be "drop the session" either: both startups still count');
+  assert.ok(scan.sessions.some(function (s) { return s && s.session_id === '__proto__'; }),
+    'the id lands as an ordinary own key, not as a hole');
+});

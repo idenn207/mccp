@@ -84,6 +84,40 @@ the boundary, not a defect.
 Re-sealing is refused. A second seal would relabel the denominator under
 dispositions already bound to the first digest.
 
+### Snapshot without refresh is a failing measurement
+
+The sealed inventory is frozen. **It is never updated.** When this file is written,
+the live debt grows as the gates append findings — but the denominator stays fixed,
+and `verify` will always report `open: 0` as long as all *sealed* items have
+dispositions. Meanwhile, the real debt accrues outside the denominator.
+
+This is **not a defect in snapshot semantics** — the snapshot is the intended design.
+The defect is **no refresh mechanism**: there is no schedule to re-seal, no alert
+when the gap widens, no decision gate on re-seal timing. The consequence is
+unseen drift: the denominator can become a historical curiosity that says
+nothing about the work today.
+
+**See the denominator gap with `closure report --json`.** The `denominator_gap`
+field shows sealed vs. live counts, and the `ledgers[]` array shows the
+disposition closure rate beside the findings registry closure rate.
+
+The two rows use different denominators, and the difference is the point: the
+disposition ledger counts **sealed inventory items**, so it reports every sealed
+item as judged, while the findings registry counts **live registry records**,
+which include everything opened since the seal. Read either alone and you get a
+number that is defensible and misleading.
+
+Quote the numbers the tool emits, not numbers from elsewhere. The registry row
+is computed on **folded records** — one entry per `finding_id` after
+`foldEvents` — which is a different unit from the **raw event count** the
+baseline snapshot in `.claude/_meta/data/` reports. The two disagree by design
+(a finding opened and later closed is two events but one record), so a ratio
+derived from one basis must never be attributed to the other. Every figure here
+moves on each ledger append; run the tool rather than citing this paragraph.
+
+`seal.age_days` shows how stale the snapshot is. Re-sealing is M2's scope. Until
+then, `closure report` is the single honest measurement.
+
 ## What the disposition mix actually shows
 
 | Disposition | Count |

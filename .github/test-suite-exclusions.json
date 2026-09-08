@@ -1,0 +1,32 @@
+[
+  {
+    "pattern": "plugins/mccp/scripts/derive/tests/mask.test.js",
+    "reason": "Linux-only red on both node 20 and node 24; green on Windows local (measured 2026-09-04, 20/20 pass). Cause unidentified — quarantined rather than repaired because the failure is not reproducible on the authoring host (UI7).",
+    "ticket": "backlog:ci-full-suite-linux-red-mask"
+  },
+  {
+    "pattern": "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js",
+    "reason": "Linux-only red (DD3 symlink branch) on both node versions; green on Windows local. Cause unidentified without a Linux host — quarantined per UI7 pending the Task 0 measurement.",
+    "ticket": "backlog:ci-full-suite-linux-red-santa-loop-cap"
+  },
+  {
+    "pattern": "plugins/mccp/scripts/lib/tests/dispatch-fullcycle-smoke.test.js",
+    "reason": "Linux red on node 20 only (node 24 green), so a flaky axis is suspected but 2 samples cannot decide it. Green on Windows local. Quarantined per UI7 until the same-commit repetition that M1 prescribes can run.",
+    "ticket": "backlog:ci-full-suite-linux-red-dispatch-fullcycle-smoke"
+  },
+  {
+    "pattern": "plugins/mccp/scripts/lib/tests/leadtime.test.js",
+    "reason": "Linux red owned by another axis (leadtime-observability M3, last touched in 8107d5a); not a change this milestone made. Green on Windows local. Quarantined so it does not block enforcement, and the attribution is recorded in docs/ci-full-suite/m3-enforcement.md.",
+    "ticket": "backlog:ci-full-suite-linux-red-leadtime"
+  },
+  {
+    "pattern": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+    "reason": "Linux red owned by another axis (orchestrator-step-wiring, last touched in 5e4732e); not a change this milestone made. Green on Windows local. Quarantined per UI7 with the attribution recorded.",
+    "ticket": "backlog:ci-full-suite-linux-red-msw-m8-producers"
+  },
+  {
+    "pattern": "plugins/mccp/scripts/receipt/tests/receipt-linkage-fields.test.js",
+    "reason": "Linux red owned by another axis (review-record-linkage M3, last touched in 9bd78b5); not a change this milestone made. Green on Windows local. Quarantined per UI7 with the attribution recorded.",
+    "ticket": "backlog:ci-full-suite-linux-red-receipt-linkage-fields"
+  }
+]

@@ -3,8 +3,8 @@ fix_task_version: 1
 task_fingerprint: orchestrator-step-wiring-m3-rev2
 gate_id: stop-review-loop
 decision_id: orchestrator-step-wiring-m3-rev2
-created_at: 2026-09-08T01:48:07.338Z
-expires_at: 2026-09-15T01:48:07.338Z
+created_at: 2026-09-08T06:00:25.019Z
+expires_at: 2026-09-15T06:00:25.019Z
 counter: 1
 verdict: codex_divergent
 escalate: true

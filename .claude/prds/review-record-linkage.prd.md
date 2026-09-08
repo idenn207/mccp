@@ -144,6 +144,34 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 > 처리다 — "주장을 남긴 채 acceptance만 무르게 하는 것이 M2가 dropped된 이유이자 이 PRD의
 > 지배적 실패 모드다".
 
+> **M7 1차 사이클은 미완료로 종료됐다 (2026-09-08). status는 `in-progress` 유지 —**
+> **dropped도 complete도 아니다.** 목표는 여전히 유효하고 구현에 착수하지 않았다.
+> 전체 기록·handoff: [review-record-linkage-m7-report.md](../PRPs/reports/review-record-linkage-m7-report.md).
+>
+> **차단 사유는 슬러그의 라운드 예산이 종료적으로 소진된 것이다.** plan 게이트를 세 라운드
+> 돌았고(R0 · R1 크래시 · R1-retry) 전부 `divergent`로 끝났다. 원장
+> `mccp-plan-codex__review-record-linkage-m7`이 `rounds_so_far:3`이고
+> `review-single-pass.js:45`의 `MAX_ROUND_CAP`이 3이므로, `MCCP_GATE_ROUND_CAP`의 **어떤**
+> **값으로도** 이 슬러그로는 라운드가 더 열리지 않는다(`counter.js:56`). §3.16이 원장 삭제를
+> 금지하므로 복구 경로도 없다 — **예산을 다시 얻는 유일한 정당한 방법은 다른 decision slug다.**
+>
+> 그런데 슬러그 변경은 M7 plan의 UI2(브랜치 이름 = ship 슬러그) · UI4(plan 경로) · DD7
+> (`/mccp:pr` 2.5.9의 체인 조회가 슬러그로 이뤄진다)과 정면으로 걸린다. **다음 사이클은**
+> **게이트에 진입하기 전에 그 셋을 먼저 정해야 한다** — 정하지 않고 들어가면 예산만 태운다.
+>
+> **D4 — "어느 본문이 실행 중인가"는 두 라운드가 연속으로 관측 불가라고 결론 냈다.**
+> M7 plan의 초판(Task 0 축 1)과 그 대체안(DD10) **둘 다 상수-참**이었다. 대체안의 실측:
+> 캐시 `1.33.6`의 `commands/plan.md`는 `$REVIEW_DIR/plan-path`를 쓰지도 purge하지도
+> 않으므로(purge 목록 `:960-965`가 `l3-findings.json`에서 끝난다) 이전 실행의 잔여 파일이
+> 살아남아 통과하고, 워크트리 본문은 purge(`:965`)와 write(`:977`)가 같은 블록이라
+> 동어반복이다. 다음 사이클의 선택지는 (i) 진짜 관측 가능한 신호를 찾거나 (ii) 그 축을 접고
+> 사후 증거(`--check-live-linkage`)에만 의존하는 것이다. 그대로 옮기는 것은 선택지가 아니다.
+>
+> **부수 발견 — 이 PRD 밖.** 크래시한 패널 dispatch가 복구 불가능하게 라운드 예산을
+> 소모한다. 원장은 dispatch 시점에 `classification:"emitted"`만 적고 반환 여부를 추적하지
+> 않으므로, R1처럼 산출 0으로 죽은 라운드도 영구 차감된다. 이 사이클이 3라운드를 쓴 것 중
+> 1회가 그것이다. 소유 축 미정 — backlog 2026-09-08 HIGH 행 참조.
+
 > **M6 행의 "79행"을 정정했다 (M5 Task 7, 2026-09-04).** 실측은 `Source plan` 열 기준
 > 이 PRD 103행이고 그중 M5 자신의 사이클이 16행이다. M5 이전 누적은 87행이며, M5가
 > (a) 이미 해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류를

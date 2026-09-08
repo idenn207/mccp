@@ -111,8 +111,38 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 | 2 | rounds-channel | `resolution.rounds`에 게이트용 입력 통로가 생기고 세 게이트가 실값을 넘긴다. **acceptance는 producer가 아니라 산출된 실값** — 배선 부재를 보는 test가 없으면 완료가 아니다 | dropped | 검증 산출물: [review-record-linkage-m2-upstream-verification.md](../PRPs/reports/review-record-linkage-m2-upstream-verification.md) |
 | 3 | bidirectional-link | receipt가 리뷰 경로를, 리뷰가 receipt 식별자를 갖는다. 필드는 present-only(`makeSkeleton` 미포함)라 과거 receipt의 hash가 불변이다 | complete | [.claude/plans/review-record-linkage-m3.plan.md](../plans/review-record-linkage-m3.plan.md) |
 | 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | complete | [.claude/plans/review-record-linkage-m4.plan.md](../plans/review-record-linkage-m4.plan.md) |
-| 5 | live-firing-closure | M1~M4가 만든 배선이 **실제로 발화한다** — 착지 후 발행되는 ship receipt가 `meta.review_record_path`·`meta.plan_review_expected`를 봉인하고 `linkage.bidirectional >= 1`·`denominator != null`이 된다. 발화하지 못하면 그 사실을 설치-skew 진단이 시끄럽게 말한다 | in-progress | [.claude/plans/review-record-linkage-m5.plan.md](../plans/review-record-linkage-m5.plan.md) |
+| 5 | live-firing-diagnostic | 배선이 발화하지 못하는 원인(**판본 격차**)을 말하는 입이 생긴다 — `install-skew.js` 오라클 · `dep-check`의 `install skew` 행 · SessionStart 배너. `undecidable` 사유가 라이브 파티션에서 이분화되고(`producer_absent_in_build`), 라이브 acceptance 절차가 `--plugin-dir`로 문서에 못박힌다([dogfood-install.md](../../docs/dogfood-install.md)). backlog 103행 기계 분류 · fix-task escalation 종결 포함. **라이브 실값 산출 자체는 M7이 갖는다** — 아래 분리 주 참조 | complete | [.claude/plans/review-record-linkage-m5.plan.md](../plans/review-record-linkage-m5.plan.md) |
 | 6 | deferred-ledger-closure | 이 PRD가 남긴 backlog **73행**(M5가 분류를 마쳤고 판정만 남았다 — [deferred-triage.md](../../docs/review-record-linkage/deferred-triage.md)) · `FAIL` 버킷 14행(§3.14 해제 조건 대기, 일괄) · Open Questions 5건 · fix-task escalation 1건이 각각 해소/이연/무효 중 하나로 **명시 판정**되고 판정 근거가 파일에 남는다. 코드 변경은 §3.14 임계(HIGH/CRITICAL) 흡수분에 한정한다 | pending | — |
+| 7 | live-firing-execution | `--plugin-dir` 아래에서 게이트를 완주해 **실제로 발화시킨다** — 발행되는 ship receipt가 `meta.review_record_path`·`meta.plan_review_expected`를 봉인하고 `linkage.bidirectional >= 1` · `denominator != null`이 된다. 상류 `mccp-plan-codex` receipt가 링크의 발원지이므로 그 receipt가 실재하는 상태에서 수행해야 한다(아래 분리 주 D2) | pending | — |
+
+> **M5에서 Task 6(라이브 실값)을 분리해 M7로 열었다 (2026-09-08).** 분리는 편의가 아니라
+> 기계적 사실의 귀결이다. 근거 셋을 값으로 적는다.
+>
+> **D1 — 링크의 발원지는 상류 plan receipt다.** `finalize-receipt.js:306-325`가
+> `meta.review_record_path`(검사 1)와 `--plan-review-expected`(검사 4)를 **상류
+> `mccp-plan-codex` receipt에서 파생**한다. 상류가 0건이면 `link_anchor_unresolved`로
+> 접히고 "No link is stamped; the audit reports this as undecidable"가 된다. 즉 plan
+> receipt 없이 ship하면 Task 6의 네 검사가 전부 실패한다 — 우회로 얻을 수 있는 값이 아니다.
+>
+> **D2 — 그 receipt는 working-tree only라 소실됐다.** §3.12대로 plan/implement receipt는
+> 세션 진단용이라 git-tracked가 아니다. M5의 것은 워크트리 재체크아웃과 함께 사라졌고,
+> `mccp-pr-codex`(git-tracked)만 남았다.
+>
+> **D3 — 구현이 끝난 뒤에는 plan 게이트를 다시 돌려 그것을 제조할 수 없다.** 2026-09-08
+> 실측: `/mccp:plan`이 L1에서 `C3_CREATE_EXISTS` 5건으로 차단됐다 — 플랜이 CREATE로 적은
+> 5개 파일이 구현 착지로 이미 실재하기 때문이다. C3는 `fs.existsSync` 판정이라 `--plugin-dir`
+> 로도 사라지지 않는다. `MCCP_REVIEW_SINGLE_PASS`도 열지 못한다 — §3.15가 L1 실패를 완화
+> 대상에서 명시적으로 제외한다. 같은 실행에서 `C6_UNRESOLVED_CITATION` 1건이 함께 났는데,
+> 그것은 캐시 `1.33.6`의 `CITATION_RE`에 선행 `\.?`가 없어 `.claude-plugin/…`의 점을 잘라
+> 잡은 것이고 워크트리 판본에는 이미 고쳐져 있다 — **이 PRD의 명제가 자기 게이트에서**
+> **재현된 사례**다.
+>
+> 따라서 M7은 새 슬러그로 **구현 전에** 게이트를 돌아야 한다. 그 순서에서만 C3가 발생하지
+> 않고, plan receipt가 정상 발행되며, `--plugin-dir` ship이 링크를 봉인할 수 있다.
+>
+> M5의 outcome 문장에서 라이브 실값 주장을 뺀 것은 플랜 자신의 Acceptance 주석이 지시한
+> 처리다 — "주장을 남긴 채 acceptance만 무르게 하는 것이 M2가 dropped된 이유이자 이 PRD의
+> 지배적 실패 모드다".
 
 > **M6 행의 "79행"을 정정했다 (M5 Task 7, 2026-09-04).** 실측은 `Source plan` 열 기준
 > 이 PRD 103행이고 그중 M5 자신의 사이클이 16행이다. M5 이전 누적은 87행이며, M5가

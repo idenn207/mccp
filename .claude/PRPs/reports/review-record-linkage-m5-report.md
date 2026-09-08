@@ -90,6 +90,10 @@ $ node plugins/mccp/scripts/lib/install-skew.js
 필요하면 Task 6을 분리하되 **M5의 outcome 문장에서 라이브 실값 주장을 빼야 한다**.
 PRD의 M5 status는 `in-progress`로 남긴다.
 
+> **이 문단은 2026-09-08에 상위 판정으로 대체됐다 — 아래 D3 참조.** 위 서술은
+> 그날까지의 상태를 여전히 정확히 기술하므로 지우지 않는다. 바뀐 것은 결론이다:
+> Task 6은 M7로 분리됐고 M5 status는 `complete`다.
+
 ## D2 — Task 8의 전제가 거짓이었다 (사용자 판정으로 종결)
 
 plan Task 8은 이렇게 적었다: "`fix-task-applied.md`의 `escalate: true`는 M4 사이클의
@@ -128,6 +132,60 @@ plan의 규칙은 "만료와 해소를 구분할 수 없다면 (i)을 택하라"
 **STATE.md의 `Escalation Pending`은 지우지 못했다** — 아래 Issues의 `state-writer`
 결함 때문이다. 그 표식이 남아 있는 것은 현재 상태(escalation이 열려 있다)와 **일치**
 하므로 잘못된 정보는 아니다.
+
+## D3 — Task 6을 M7로 분리했다 (2026-09-08 사용자 판정)
+
+D1이 예고한 두 갈래 중 **부분 착지**를 택했다. Task 1~5·7~10을 M5로 ship하고 라이브
+실값 산출을 M7(`live-firing-execution`)로 연다. 그 대가로 PRD의 M5 outcome 문장에서
+라이브 실값 주장을 뺐다 — plan의 acceptance 주석이 지시한 처리다.
+
+### 왜 우회로는 닫히지 않았는가
+
+분리 전에 두 우회를 실제로 시도했고 둘 다 기계적으로 막혔다.
+
+**(a) `/mccp:plan` 재실행으로 소실된 plan receipt를 재발행** — L1이 exit 1로 차단.
+`C3_CREATE_EXISTS` 5건(`install-skew.js` 등 CREATE 대상이 구현 착지로 이미 실재) +
+`C6_UNRESOLVED_CITATION` 1건. C3는 `fs.existsSync` 판정이라 `--plugin-dir`로도 사라지지
+않고, `MCCP_REVIEW_SINGLE_PASS=deadline_pressure`도 열지 못한다 —
+`decision.json`의 `single_pass_reason`이 `(none)`으로 나왔고, §3.15가 L1 실패를 완화
+대상에서 명시적으로 제외하기 때문이다. **plan 게이트는 구현 전에 도는 것을 전제하며,
+소실된 receipt를 사후 제조하는 경로는 설계상 없다.**
+
+C6는 부수적으로 이 PRD의 명제를 자기 게이트에서 재현했다:
+
+```
+캐시(1.33.6): /([A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?/g
+워크트리    : /(\.?[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9]+):(\d+)(?:-\d+)?/g
+```
+
+선행 `\.?`가 없어 `.claude-plugin/marketplace.json`의 점을 잘라 잡고 해소에 실패한다.
+워크트리에는 이미 고쳐져 있다 — 즉 **워크트리에서 고친 결함이 캐시 판본 때문에 여전히
+차단한다**는 M5 Summary의 명제 그 자체다.
+
+**(b) `MCCP_SKIP_RECEIPT`로 plan receipt를 건너뛰고 ship** — Task 6을 산출하지 못한다.
+`finalize-receipt.js:306-325`가 `meta.review_record_path`(검사 1)와
+`--plan-review-expected`(검사 4)를 **상류 `mccp-plan-codex` receipt에서 파생**하고,
+상류가 0건이면 `link_anchor_unresolved`로 접혀 "No link is stamped; the audit reports
+this as undecidable"가 된다. plan receipt는 형식이 아니라 **링크의 발원지**다.
+그 상태로 ship하면 네 검사가 전부 실패하는데, `mccp-pr-codex` receipt는 git-tracked라
+§3.12 재봉인 금지 — **슬러그만 소모된다.**
+
+### M7이 성립하는 조건
+
+새 슬러그로 **구현 전에** 게이트를 돌아야 한다. 그 순서에서만 C3가 발생하지 않고,
+plan receipt가 정상 발행되며, `--plugin-dir` ship이 그것을 상류로 삼아 링크를 봉인한다.
+
+### 이 세션의 게이트 이탈 (기록)
+
+| # | 이탈 | 근거 |
+|---|---|---|
+| 1 | `/mccp:plan`을 이 결정의 **2라운드**로 실행 | §3.16·UI9는 1라운드가 기본. 사용자 지시. R1 원장이 이 워크트리에 커밋되지 않아 기계적으로는 통과했다 |
+| 2 | Phase 5.1의 placeholder를 주입하지 않음 | 플랜에 실제 `## Codex Adversarial Review` 기록이 커밋돼 있고 `multi-agent` 모드에서 5.3이 그것을 교체하지 않는다. 덮으면 커밋된 기록이 파괴된다 |
+| 3 | R1 리뷰 레코드를 `git checkout`으로 복원 | `record.js`가 같은 경로를 덮어쓴다. R1의 finding 12건을 보존하고 R2 정지는 `plan-review-review-record-linkage-m5-r2-halt.md`로 분리 보존했다 |
+
+게이트 산출: 패널 미발화(에이전트 0 · 예약 0) · design critique `round=0/2 CONVERGED`
+findings 0(H15 재측정 `H1=1 · H2=16 · H3=21 · H4+=0`, 렌더링 표면 0행) ·
+`mccp-plan-codex` receipt **미작성**(5.2e exit 12).
 
 ## Files Changed
 
@@ -219,5 +277,8 @@ F10은 backlog 잔량을 산문에서 79로, 열거에서 90으로 적었다(두
 ## Next Steps
 
 - [x] **D2 결정** — 흡수로 기록하고 열어 둔다 (사용자 판정 2026-09-04)
-- [ ] **D1 해소** — `claude --plugin-dir <worktree>/plugins/mccp` 세션에서 `/mccp:pr` 완주
-- [ ] 그 뒤 검사 4·5 재측정 → `bidirectional >= 1`이면 M5 `complete`, 아니면 원인을 값으로 기록
+- [x] **D1 처리** — Task 6을 M7 `live-firing-execution`으로 분리, M5 outcome에서 라이브
+      실값 주장 제거 (사용자 판정 2026-09-08 · 위 D3)
+- [ ] M5 ship (`/mccp:pr`) — 상류 receipt 2건이 소실 상태이므로 감사 우회 필요
+- [ ] **M7** — 새 슬러그로 plan 게이트를 **구현 전에** 완주 → plan receipt 발행 →
+      `claude --plugin-dir <worktree>/plugins/mccp` 세션에서 ship → 검사 1~4 재측정

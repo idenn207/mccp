@@ -172,6 +172,15 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Changed
 
+- **review-record-linkage M5의 범위를 진단으로 좁히고 라이브 발화를 M7로 분리했다**
+  (2026-09-08). M5는 판본 격차를 *말하는* 표면(install-skew 오라클 · `dep-check` 행 ·
+  SessionStart 배너)과 사유 이분화·triage·문서를 ship하고, `linkage.bidirectional >= 1`
+  실값 산출은 새 마일스톤 `live-firing-execution`이 갖는다. 분리 사유는 기계적이다 —
+  링크 필드는 `finalize-receipt.js`가 **상류 `mccp-plan-codex` receipt에서** 파생하는데
+  그 receipt는 working-tree only라 소실됐고(§3.12), 구현이 끝난 뒤에는 plan 게이트를
+  다시 돌려 제조할 수 없다(L1 `C3_CREATE_EXISTS`). 근거는
+  `.claude/prds/review-record-linkage.prd.md`의 분리 주와 M5 리포트 D3.
+
 - `dep-check.js` — `checkAll`에 `install_skew` 키를 얹는 **엄격한 상위집합**(기존 5키
   불변, v1.31.2 가 `impeccable` 을 붙인 것과 같은 형태). `checkInstallSkew`는 지연
   require + try/catch 로 감싸 `dep-check` 헤더의 "Never throws" 계약을 지키며, 오라클

@@ -1,0 +1,618 @@
+{
+  "schema": "mccp.codex-harness-truth/1",
+  "measured_at": "2026-09-09",
+  "codex_version": "0.153.4",
+  "host": {
+    "note": "single-operator dogfood (UI14); every record carries codex_version per UI13"
+  },
+  "runs": [
+    {
+      "id": "entrypoint-selection",
+      "codex_version": "0.153.4",
+      "question": "which Codex entrypoint actually parses [hooks] (Task 2-0)",
+      "method": "register a bogus event name, run each candidate, see which rejects it",
+      "result": {
+        "parses_hooks": [
+          "exec"
+        ],
+        "does_not_parse": [
+          "doctor",
+          "plugin list",
+          "features list",
+          "debug prompt-input",
+          "sandbox"
+        ],
+        "dispatches_hooks": [
+          "exec"
+        ],
+        "note": "no non-model entrypoint parses or dispatches hooks, so DD9 fallback to codex exec was required; each exec turn cost ~3.1k tokens"
+      }
+    },
+    {
+      "id": "hooks-config-schema",
+      "codex_version": "0.153.4",
+      "question": "what shape does config.toml [hooks] take",
+      "method": "type-error reverse engineering — feed wrong types and read the serde error",
+      "result": {
+        "hooks": "struct HooksToml (unknown fields SILENTLY IGNORED)",
+        "event_value": "sequence of struct MatcherGroup",
+        "matcher_group": "{ matcher: string, hooks: [HookHandlerConfig] } — every field optional",
+        "handler": "internally tagged enum; variants command | mcp_tool | prompt | agent",
+        "command_variant": "field `command` REQUIRED, type STRING (not an array)",
+        "working_form": "<Event> = [ { matcher = \"*\", hooks = [ { type = \"command\", command = \"<cmd>\" } ] } ]",
+        "trap": "`<Event> = [ { command = [...] } ]` PARSES CLEANLY and yields an empty matcher group with zero hooks — a valid config with zero dispatch and no warning"
+      }
+    },
+    {
+      "id": "event-enum",
+      "codex_version": "0.153.4",
+      "question": "which event names exist in HooksToml (A2)",
+      "method": "`<Event> = [ 5 ]` — a known field is type-checked (invalid type: expected struct MatcherGroup), an unknown one is silently ignored",
+      "result": {
+        "fields_present": [
+          "UserPromptSubmit",
+          "PreToolUse",
+          "PostToolUse",
+          "SessionStart",
+          "SessionEnd",
+          "Stop",
+          "PreCompact",
+          "PostCompact",
+          "SubagentStart",
+          "SubagentStop"
+        ],
+        "fields_absent_of_29_probed": [
+          "UserPromptExpansion",
+          "PostToolUseFailure",
+          "Notification",
+          "TurnStart",
+          "TurnEnd",
+          "ExecStart",
+          "PreResponse",
+          "PostResponse",
+          "TurnComplete",
+          "TaskStart",
+          "TaskEnd",
+          "Setup",
+          "Teardown",
+          "Compact",
+          "PreSession",
+          "PostSession",
+          "AgentStart",
+          "AgentStop",
+          "PreSubmit",
+          "PostSubmit",
+          "ToolUse",
+          "Error",
+          "Startup",
+          "Shutdown",
+          "SessionStarted",
+          "SessionEnded",
+          "UserPromptSubmitted",
+          "PreExec",
+          "PostExec"
+        ],
+        "mccp_events_present": [
+          "PreToolUse",
+          "PostToolUse",
+          "SessionStart",
+          "SessionEnd",
+          "PreCompact",
+          "Stop"
+        ],
+        "mccp_events_absent": [
+          "UserPromptExpansion",
+          "PostToolUseFailure"
+        ],
+        "limitation": "this enumerates what the CONFIG STRUCT accepts, which is a superset of what actually dispatches; only 6 of the 10 were observed firing"
+      }
+    },
+    {
+      "id": "dispatch-fired",
+      "codex_version": "0.153.4",
+      "trust_mode": "bypassed",
+      "question": "do hooks actually dispatch, and in what order (A1/A2/A6)",
+      "method": "probe hook registered on 15 names; one `codex exec` turn that used a tool",
+      "result": {
+        "fired_in_order": [
+          "SessionStart",
+          "UserPromptSubmit",
+          "PreToolUse",
+          "PostToolUse",
+          "Stop",
+          "SessionEnd"
+        ],
+        "registered_but_never_fired": [
+          "PreCompact",
+          "PostCompact",
+          "SubagentStart",
+          "SubagentStop"
+        ],
+        "has_tool_name": true,
+        "note": "payload shape is isomorphic to the Claude Code hook protocol; receipt-skill.js:152 tool_name requirement is satisfied"
+      }
+    },
+    {
+      "id": "env-projection-clean",
+      "codex_version": "0.153.4",
+      "trust_mode": "bypassed",
+      "clean_env": true,
+      "question": "what env does Codex inject into the hook child (A5 / OQ4 / OQ5)",
+      "method": "same run with a MINIMAL parent env; the first attempt inherited 13 CLAUDE_* names from the Claude Code parent and was confounded, so it is not cited",
+      "result": {
+        "injected_by_codex": [],
+        "value_carrying_observed": [
+          "CODEX_HOME",
+          "PWD"
+        ],
+        "CLAUDE_PLUGIN_ROOT_injected": false,
+        "session_id_env_name": null,
+        "session_id_arrives_via": "event payload field `session_id`, not env",
+        "consequence": "bootstrap.js (CLAUDE_PLUGIN_ROOT) and session-identity.js (CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID) both resolve empty under Codex"
+      }
+    },
+    {
+      "id": "trust-procedure",
+      "codex_version": "0.153.4",
+      "question": "how does a hook become trusted (A4)",
+      "method": "identical runs with and without --dangerously-bypass-hook-trust",
+      "result": {
+        "trust_gates_dispatch": true,
+        "untrusted_behaviour": "silent zero dispatch — exit 0, no error, no warning",
+        "bypass_flag": "--dangerously-bypass-hook-trust (warns, then dispatches)",
+        "trust_record_persisted_in_scratch_home": false,
+        "non_interactive_approval_path": "NOT OBSERVED",
+        "consequence": "A1 cannot be promoted from any run in this session — every observed firing was bypassed"
+      }
+    },
+    {
+      "id": "plugin-autodiscovery",
+      "codex_version": "0.153.4",
+      "trust_mode": "bypassed",
+      "question": "is plugins/mccp/hooks/hooks.json discovered by install alone (A3)",
+      "method": "codex plugin marketplace add <repo>; codex plugin add mccp@mccp; codex exec in a disposable git workdir",
+      "result": {
+        "discovered": true,
+        "parsed": false,
+        "reject_reason": "unknown field `$schema`, expected `description` or `hooks` at line 2 column 11",
+        "severity": "WARNING — the run proceeds with zero hooks installed",
+        "note": "this struct uses deny_unknown_fields, unlike HooksToml in config.toml which ignores them",
+        "after_stripping_schema_in_the_CACHE_COPY_ONLY": {
+          "dispatched": true,
+          "fired": [
+            "SessionStart",
+            "Stop"
+          ],
+          "artifacts_written": [
+            ".claude/state/STATE.md",
+            ".claude/state/hook-caps.json",
+            ".claude/state/journal/records.jsonl",
+            ".claude/state/msw-events/",
+            ".claude/state/hook-trace/<codex-session-id>/consolidated.jsonl",
+            ".claude/cache/STATUS.md",
+            ".claude/cache/status.html"
+          ],
+          "runtime_divergences": [
+            "clamping SessionEnd hook timeout to 3s",
+            "running async SessionEnd hook synchronously"
+          ]
+        },
+        "repo_copy_modified": false
+      }
+    },
+    {
+      "id": "isolation",
+      "codex_version": "0.153.4",
+      "question": "did the measurement touch the real ~/.codex (revert integrity)",
+      "method": "DD3-b — mccp-attributed key/cache projection of the REAL home, before and after",
+      "result": {
+        "before": {
+          "config_mccp_keys": [],
+          "plugin_cache_entries": [
+            "plugins/cache/mccp/",
+            "plugins/cache/openai-curated-remote/deep-research-work/",
+            "plugins/cache/openai-curated-remote/openai-templates/",
+            "plugins/cache/openai-curated-remote/plugin-management/"
+          ]
+        },
+        "after": {
+          "config_mccp_keys": [],
+          "plugin_cache_entries": [
+            "plugins/cache/mccp/",
+            "plugins/cache/openai-curated-remote/deep-research-work/",
+            "plugins/cache/openai-curated-remote/openai-templates/",
+            "plugins/cache/openai-curated-remote/plugin-management/"
+          ]
+        },
+        "clean": true,
+        "config_sha256_informational": {
+          "before": "sha256:9a03a94f420dc2cffefadf20557f051c9fa97f2f62457e85eaff1d40c032c2b7",
+          "after": "sha256:9a03a94f420dc2cffefadf20557f051c9fa97f2f62457e85eaff1d40c032c2b7"
+        },
+        "note": "plugins/cache/mccp/ is an EMPTY directory in the real home both before and after — the PRD metric \"residual cache 0\" was already false before this measurement began (DD3-b)"
+      }
+    }
+  ],
+  "report": {
+    "schema": "mccp.codex-probe.report/1",
+    "axes": {
+      "A1_hook_fires": {
+        "verdict": "unmeasured",
+        "value": null,
+        "evidence": [],
+        "reason": "log has 6 line(s) but none with run.trust_mode=\"trusted\" (6 bypassed — does not promote A1)"
+      },
+      "A2_event_enum": {
+        "verdict": "measured",
+        "value": {
+          "fired": [
+            "PostToolUse",
+            "PreToolUse",
+            "SessionEnd",
+            "SessionStart",
+            "Stop",
+            "UserPromptSubmit"
+          ]
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "reason": null
+      },
+      "A3_auto_discovery": {
+        "verdict": "measured",
+        "value": {
+          "discovered_on_install": true,
+          "parsed": false,
+          "reject_reason": "unknown field `$schema`, expected `description` or `hooks`",
+          "failure_severity": "warning (run proceeds)",
+          "dispatches_after_stripping_schema_in_cache_copy": true,
+          "codex_runtime_divergences": [
+            "clamping SessionEnd hook timeout to 3s",
+            "running async SessionEnd hook synchronously"
+          ]
+        },
+        "evidence": [
+          0
+        ],
+        "reason": null
+      },
+      "A4_trust_procedure": {
+        "verdict": "measured",
+        "value": {
+          "trust_gates_dispatch": true,
+          "untrusted_behaviour": "silent zero dispatch — no error, no warning, exit 0",
+          "bypass_flag_recognised": "--dangerously-bypass-hook-trust (warns, then dispatches)",
+          "trust_record_persisted_in_scratch_home": false,
+          "non_interactive_approval_path": "NOT OBSERVED"
+        },
+        "evidence": [
+          0
+        ],
+        "reason": null
+      },
+      "A5_env_projection": {
+        "verdict": "measured",
+        "value": {
+          "value_carrying_names": [
+            "CODEX_HOME",
+            "PWD"
+          ],
+          "observed_names_only": [
+            "HOME",
+            "MCCP_PROBE_CODEX_VERSION",
+            "MCCP_PROBE_ENTRYPOINT",
+            "MCCP_PROBE_REPO_ROOT",
+            "MCCP_PROBE_RUN_ID",
+            "MCCP_PROBE_TRUST_MODE",
+            "PATH",
+            "PROBE_LOG",
+            "SHLVL",
+            "TERM",
+            "USER",
+            "_"
+          ],
+          "claude_plugin_root_present": false
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "reason": null
+      },
+      "A6_payload_shape": {
+        "verdict": "measured",
+        "value": {
+          "top_level_keys": [
+            "cwd",
+            "hook_event_name",
+            "last_assistant_message",
+            "model",
+            "permission_mode",
+            "prompt",
+            "reason",
+            "session_id",
+            "source",
+            "stop_hook_active",
+            "tool_input",
+            "tool_name",
+            "tool_response",
+            "tool_use_id",
+            "transcript_path",
+            "turn_id"
+          ],
+          "has_tool_name": true
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "reason": null
+      },
+      "revert_integrity": {
+        "verdict": "measured",
+        "value": {
+          "clean": true,
+          "added": [],
+          "removed": [],
+          "config_sha256_informational": {
+            "before": "sha256:9a03a94f420dc2cffefadf20557f051c9fa97f2f62457e85eaff1d40c032c2b7",
+            "after": "sha256:9a03a94f420dc2cffefadf20557f051c9fa97f2f62457e85eaff1d40c032c2b7"
+          }
+        },
+        "evidence": [
+          0
+        ],
+        "reason": null
+      }
+    },
+    "axis_order": [
+      "A1_hook_fires",
+      "A2_event_enum",
+      "A3_auto_discovery",
+      "A4_trust_procedure",
+      "A5_env_projection",
+      "A6_payload_shape",
+      "revert_integrity"
+    ],
+    "measured_count": 6,
+    "total_axes": 7,
+    "milestone_closeable": {
+      "ok": false,
+      "reason": "A1_hook_fires is unmeasured — M1 does not get to claim it saw the hook fire (log has 6 line(s) but none with run.trust_mode=\"trusted\" (6 bypassed — does not promote A1))"
+    }
+  },
+  "probe_log_shape_clean_env": [
+    {
+      "event_name": "SessionStart",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "session_id",
+        "source",
+        "transcript_path"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "UserPromptSubmit",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "prompt",
+        "session_id",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "PreToolUse",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "PostToolUse",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "Stop",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "last_assistant_message",
+        "model",
+        "permission_mode",
+        "session_id",
+        "stop_hook_active",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "SessionEnd",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "reason",
+        "session_id",
+        "transcript_path"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    }
+  ]
+}

@@ -2,17 +2,17 @@
 state_version: 1
 task_fingerprint: unknown
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T06:59:30.305Z
+updated_at: 2026-09-09T02:34:54.581Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-04T06:59:30.305Z
+last_event_at: 2026-09-09T02:34:54.581Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T08:40:00.651Z
+dep_check_at: 2026-09-09T02:12:42.485Z
 escalate_pending: true
-escalate_pending_decision_id: ci-full-suite
+escalate_pending_decision_id: codex-harness-portability-m1
 ---
 ## Goal
 ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M3 — ci-enforcement. **구현 착지**, 라이브 완주 대기.
@@ -50,4 +50,4 @@ Linux red 여섯을 수리하지 않고 전부 격리했다 — 여섯 다 Windo
 - Phase 2.5.6/2.5.7을 EXECUTE 뒤에 수행한 순서 이탈 — 사후 완료했고 report Deviations에 기록
 
 ## Last Updated
-2026-09-04T06:59:30.305Z
+2026-09-09T02:34:54.581Z

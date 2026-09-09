@@ -84,14 +84,36 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(h
 |---|---|---|---|---|
 | 1 | metric-boundary-unification | 어느 위치에서 derive를 돌려도 같은 A1이 나온다. 분모가 단일 granularity를 갖는다. 그 값이 `/mccp:work` 진입에 표시되고, 표시 라벨이 계산 단위(작업 단위)와 일치한다 | complete | `.claude/plans/orchestrator-step-wiring-m1.plan.md` · 결과 `.claude/PRPs/reports/orchestrator-step-wiring-m1-report.md` |
 | 2 | halt-step-recording | `/mccp:work`가 멈춘 step이 기록되어, A1이 하락했을 때 어느 phase가 막았는지 답해진다. 기록 실패는 체인을 멈추지 않는다 | complete | `.claude/plans/orchestrator-step-wiring-m2.plan.md` · 결과 `.claude/PRPs/reports/orchestrator-step-wiring-m2-report.md` |
+| 3 | instrumentation-closeout | 계측이 스스로 도입한 결함이 닫힌다 — A1이 착수 50을 넘겨도 죽지 않고, 공유 corpus가 B2·A2의 모집단을 오염시키지 않으며, 배너로 나가는 모든 값이 같은 좁히기를 지난다. 이 PRD의 Open Questions 5건이 근거와 함께 확정된다 | in-progress | `.claude/plans/orchestrator-step-wiring-m3-rev2.plan.md` · 결과 `.claude/PRPs/reports/orchestrator-step-wiring-m3-report.md` |
 
 ## Open Questions
 
-- [ ] **분모 granularity를 어느 쪽으로 정합화할 것인가.** PRD 단위 4건을 분모에서 제외할 것인지(`NON_WORK_UNIT_COMMANDS` 확장), milestone 단위로 정규화할 것인지, 아니면 두 축을 분리해 각각 산출할 것인지. 오늘 값 38.5%는 이 결정에 따라 달라진다 — **baseline을 확정하기 전에 답해야 한다.**
-- [ ] **집계를 어떻게 성립시킬 것인가** — 이벤트를 git common dir 같은 공유 위치에 쓸 것인지, 읽는 쪽이 `git worktree list`를 순회할 것인지. 전자는 producer를 바꾸고 후자는 reader를 바꾼다. 배포 위험이 다르다(전자는 hook 경로, 후자는 derive 경로).
-- [ ] **삭제된 worktree의 이벤트를 어떻게 할 것인가.** worktree를 지우면 그 이벤트가 사라져 과거 A1이 소급 변한다. 오늘도 이미 그렇지만 집계 경계를 올리면 표면화된다. 보존할 것인지, 사라지는 것을 받아들이고 그 사실을 표시할 것인지.
-- [ ] **값이 읽히는 화면이 어디여야 하는가.** `STATUS.md`는 `.claude/cache/`라 gitignored이고 산출한 worktree에만 있다. `/mccp:work` 진입 배너 하나로 충분한지, 대시보드의 위치도 함께 정해야 하는지.
-- [ ] **A1의 표시 라벨을 정정하는 범위.** `renderer/sections/msw-metrics.js`의 `name`/`desc`가 "세션"이라 적는데 계산은 작업 단위다. 라벨만 고칠 것인지, 같은 종류의 어긋남이 다른 지표에도 있는지 확인할 것인지.
+<!-- M3 (instrumentation-closeout) 에서 다섯 건을 확정했다. 각 항목은 M1·M2가 실제로
+     내린 답과 그 근거를 함께 싣는다 — 답만 적으면 다음 사이클이 같은 질문을 다시 연다. -->
+
+- [x] **분모 granularity를 어느 쪽으로 정합화할 것인가.** → **M1 DD3**: `work_unit_kind`
+  표식을 착수 이벤트에 싣고 PRD 단위를 분모에서 제외한다(두 축 분리도, 사후 정규화도
+  아니다). 레거시 착수는 `unknown`으로 잔류하며 **소급 부여하지 않는다** — 없는 정밀도를
+  지어내지 않기 위해서다. 그 잔류가 분모에 남는다는 사실은 backlog에 등재돼 있다.
+  근거: `derive/sources/session-activity.js`의 `startupKinds` 수집과 `unknown` 통.
+- [x] **집계를 어떻게 성립시킬 것인가** → **M1 DD1**: producer를 옮긴다. A1 축 세 kind
+  (`task_started` · `task_completed` · `task_ship_sealed`)만 git common dir로 올리고,
+  reader가 `git worktree list`를 순회하는 안은 채택하지 않았다. 나머지 kind는 worktree-local에
+  그대로 남아 B2 동시성 · 증거 taxonomy · findings 축의 격리를 보존한다
+  (`state/msw-events.js:254`의 `A1_AXIS_KINDS`, `:419` 라우팅).
+- [x] **삭제된 worktree의 이벤트를 어떻게 할 것인가.** → 공유 위치로 올라간 **A1 축은
+  worktree 삭제에 영향받지 않는다**(그 축의 회귀는 `msw-a1-boundary.test.js`의 "A1 values
+  survive deleting the worktree the events came from"이 고정한다). 나머지 축은 여전히
+  사라지며 **그것을 받아들인다** — 보존하려면 비-A1 kind까지 공유 위치로 올려야 하는데,
+  그것이 바로 위 항목이 격리를 위해 하지 않기로 한 일이다.
+- [x] **값이 읽히는 화면이 어디여야 하는가.** → **`/mccp:work` 진입 배너**로 확정한다.
+  `STATUS.md`의 위치 결정은 **하지 않는다**(`.claude/cache/`가 gitignored라 산출한 worktree
+  에만 있고, 그 성질은 이 PRD가 바꿀 축이 아니다). M3는 같은 배너 한 줄에
+  `spike-guard=dormant` 토큰을 더해, 잠든 무결성 가드도 그 화면에서 읽히게 했다.
+- [x] **A1의 표시 라벨을 정정하는 범위.** → **A1 라벨만** 정정했다(M1). "같은 종류의
+  어긋남이 다른 지표에도 있는가"의 전수 점검은 **실시하지 않았다** — 범위를 넓히면 이
+  PRD가 지표 전체의 명명 감사가 되고, 그것은 별도 축이다. 이 결정은 미확인 잔여를
+  남기며 그 사실을 여기 적는 것이 답의 일부다.
 
 ## Risks
 

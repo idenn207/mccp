@@ -229,6 +229,120 @@ MCCP_HARNESS=codex codex exec "/mccp:prp-implement .claude/plans/x.plan.md"
 MCCP_HARNESS_INGRESS=off codex exec "..."
 ```
 
+### MCCP_CODEX_BIN
+
+**종류** `string` — **값** 자유 문자열 — **기본값** `codex`
+
+**한 줄** bootstrap이 부르는 codex 실행 파일 — 절대경로 pin으로 PATH-hijack을 완화한다.
+
+**소비처** `plugins/mccp/scripts/lib/codex-bootstrap.js:273`
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_CODEX_BIN": "/usr/local/bin/codex"
+  }
+}
+```
+
+> **완화는 절반이다 — 그 사실을 여기 적어 둔다.** `codex-bootstrap.js`가 이 이름으로
+> pin 한 값은 `listHooks`가 spawn 하는 `codex-hooks-list.js` 자식에 **전파되지 않는다.**
+> 그 파일은 [MCCP_PROBE_CODEX_BIN](#mccp_probe_codex_bin)이라는 다른 이름을 독립적으로
+> 읽으므로, 운영자가 이쪽만 pin 하면 `hooks/list` 왕복 한 축은 여전히 PATH 탐색으로
+> `codex`를 찾는다. 지금 두 축을 함께 닫으려면 **두 이름을 모두** 설정해야 한다.
+> (codex-harness-portability M3.5 security R1 · §3.14로 이연 — 원문은
+> [codex-findings-backlog.md](../../.claude/plans/codex-findings-backlog.md).)
+
+### MCCP_CODEX_HOOKS_LIST_TIMEOUT_MS
+
+**종류** `int` — **값** 자유 문자열 — **기본값** `45000`
+
+**한 줄** bootstrap의 hooks/list 왕복 상한(ms).
+
+**소비처** `plugins/mccp/scripts/lib/codex-bootstrap.js:274`
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_CODEX_HOOKS_LIST_TIMEOUT_MS": "45000"
+  }
+}
+```
+
+> `hooks/list`는 `codex app-server` 왕복이라 Codex 자신의 기동 시간에 걸린다. 이 상한을
+> 넘기면 부트스트랩은 **발화 축을 성립했다고 주장하지 않고** 무엇을 관측하지 못했는지
+> 말하며 끝난다 — M3.5의 판정 규칙 3(«관측할 수 없었던 것은 `missing`이 아니라
+> `unmeasured`다», [m3_5-codex-ship.md](../codex-harness-portability/m3_5-codex-ship.md)).
+
+### MCCP_PROBE_CODEX_BIN
+
+**종류** `string` — **값** 자유 문자열 — **기본값** `codex`
+
+**한 줄** 프로브가 부르는 codex 실행 파일.
+
+**소비처** `plugins/mccp/scripts/lib/codex-hooks-list.js:30`
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_PROBE_CODEX_BIN": "/usr/local/bin/codex"
+  }
+}
+```
+
+> 이름은 `_PROBE_`지만 소비처는 더 이상 프로브 전용이 아니다 — M3.5가
+> `codex-hooks-list.js`를 프로브에서 배포 트리로 **이전**했고(사본이 아니다) 이름은
+> 그대로 뒀다. 그래서 [MCCP_CODEX_BIN](#mccp_codex_bin)과 이 이름은 닮았을 뿐 **다른
+> 축**이며, 둘 다 설정해야 두 호출이 같은 실행 파일을 본다.
+
+### MCCP_PROBE_HOOKS_LIST_TIMEOUT_MS
+
+**종류** `int` — **값** 자유 문자열 — **기본값** `45000`
+
+**한 줄** 프로브 hooks/list 왕복 상한(ms).
+
+**소비처** `plugins/mccp/scripts/lib/codex-hooks-list.js:21`
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_PROBE_HOOKS_LIST_TIMEOUT_MS": "45000"
+  }
+}
+```
+
+### MCCP_PLUGIN_ROOT_HINT
+
+**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+
+**한 줄** command-reach의 root 후보 힌트 — 캐시 후보보다 먼저 평가된다.
+
+**소비처** `plugins/mccp/scripts/lib/command-reach.js:266`
+
+**사용 예시**
+
+```json
+{
+  "env": {
+    "MCCP_PLUGIN_ROOT_HINT": "/home/me/.codex/plugins/cache/mccp/mccp/2.0.0"
+  }
+}
+```
+
+> 후보 순서는 `R-a`(`MCCP_PLUGIN_ROOT`·`CLAUDE_PLUGIN_ROOT`·`CODEX_PLUGIN_ROOT`) >
+> **`R-b`(이 힌트)** > `R-d`(캐시 레이아웃)이다(`command-reach.js:64-90`). 즉 이것을
+> 설정하면 **캐시 후보를 이긴다** — 개발 셸에서 워크트리를 가리켜 두면 `verify()`의
+> `rootSource`가 `R-d:codex-cache`가 되지 못하고, M3.5의 축 (ii) 해소는 그 값으로
+> 판정하므로 부트스트랩이 «Codex 도달»을 성립시키지 못한다. 설치 검증 중에는 비워 둔다.
+
 ### MCCP_CODEX_DISABLED
 
 **종류** `bypass-flag` — **값** `1` — **기본값** `off`

@@ -112,6 +112,15 @@ const RAW = [
   // 설계라(M1 원자료: Codex는 env를 주입하지 않는다) 이 이름이 없으면 ingress는 켜지지 않는다.
   ['MCCP_HARNESS', 'enum', ['claude', 'codex'], null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/harness-ingress.js:101', '호스트 하네스 명시 지정 — 오라클의 유일한 양성 codex 경로.', 'plugins/mccp/scripts/lib/harness-ingress.js#VALID_HARNESS'],
   ['MCCP_HARNESS_INGRESS', 'enum', ['on', 'off'], 'on', null, 'active', 'gates', 'plugins/mccp/scripts/lib/harness-ingress.js:95', 'Codex ingress kill switch — off만 끄고 그 밖의 값은 on으로 접힌다.', 'plugins/mccp/scripts/lib/harness-ingress.js#INGRESS_SWITCH_VALUES'],
+  // codex-harness-portability M3.5 — 부트스트랩과 프로브가 Codex를 부르는 축.
+  // 두 쌍(`_CODEX_` · `_PROBE_`)은 이름이 닮았을 뿐 **다른 소비처**다: 앞은 배포 트리의
+  // `codex-bootstrap.js`가, 뒤는 `codex-hooks-list.js`(프로브 경로)가 읽는다. 하나로
+  // 합치면 운영자가 부트스트랩만 pin 하려다 프로브까지 함께 옮기게 된다.
+  ['MCCP_CODEX_BIN', 'string', null, 'codex', null, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-bootstrap.js:273', 'bootstrap이 부르는 codex 실행 파일 — 절대경로 pin으로 PATH-hijack을 완화한다.'],
+  ['MCCP_CODEX_HOOKS_LIST_TIMEOUT_MS', 'int', null, '45000', null, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-bootstrap.js:274', 'bootstrap의 hooks/list 왕복 상한(ms).'],
+  ['MCCP_PROBE_CODEX_BIN', 'string', null, 'codex', null, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-hooks-list.js:30', '프로브가 부르는 codex 실행 파일.'],
+  ['MCCP_PROBE_HOOKS_LIST_TIMEOUT_MS', 'int', null, '45000', null, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-hooks-list.js:21', '프로브 hooks/list 왕복 상한(ms).'],
+  ['MCCP_PLUGIN_ROOT_HINT', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/command-reach.js:266', 'command-reach의 root 후보 힌트 — 캐시 후보보다 먼저 평가된다.'],
   ['MCCP_CODEX_DISABLED', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-bridge.js:135', 'Codex 호출 영구 skip.'],
   ['MCCP_CODEX_DESIGN_SCOPE_HONOR', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js:275', 'Codex design-scope preamble.'],
   ['MCCP_STOP_LOOP', 'enum', ['off', 'observe', 'enforce'], 'observe', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/stop-review-loop.js:54', 'Stop-loop 게이트 모드.', 'plugins/mccp/scripts/hooks/stop-review-loop.js#STOP_LOOP_VALUES'],
@@ -309,6 +318,7 @@ const RAW = [
   ['MCCP_EXPLORE_CONTROL_PLACEMENT', 'string', null, null, null, 'comment-only', 'retired', 'plugins/mccp/scripts/lib/renderer/html.js:1115', '제거됨 — 주석만 잔존.'],
   ['MCCP_PLAN_REVIEW_', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/plan-review/budget.js:26', '환경변수 아님 — 접두사 오탐.'],
   ['MCCP_DISABLE_VALUES', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/hooks/gateguard-fact-force.js:48', '환경변수 아님 — JS 상수.'],
+  ['MCCP_PLUGIN_NAME', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/codex-bootstrap.js:32', '환경변수 아님 — JS 상수.'],
   ['MCCP_IGNORE_BLOCK', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/gitignore-provision.js:60', '환경변수 아님 — JS 상수.'],
   ['MCCP_IGNORE_ENTRIES', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/lib/gitignore-provision.js:192', '환경변수 아님 — JS 상수.'],
   ['MCCP_JOURNAL_DEGRADED_UNRECORDED', 'string', null, null, null, 'scan-artifact', 'retired', 'plugins/mccp/scripts/state/state-writer.js:675', '환경변수 아님 — 에러 코드.'],

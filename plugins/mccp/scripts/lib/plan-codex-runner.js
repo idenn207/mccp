@@ -39,7 +39,7 @@ const { execFileSync } = require('child_process');
 const ic = require('./intent-context');
 const iclaims = require('./intent-claims');
 const iarb = require('./intent-arbiter');
-const codexInvoke = require('./codex-invoke');
+const codexInvoke = require('./reviewer-invoke');
 const codexPayload = require('./codex-review-payload');
 const receiptWrite = require('../receipt/write');
 const { planAwareMarkdownHash, gitRepoRoot } = require('../receipt/hash');
@@ -406,7 +406,13 @@ function run(opts, deps) {
     const arbiterMode = iarb.ARBITER_MODES.indexOf(o.arbiterMode) !== -1
       ? o.arbiterMode : iarb.DEFAULT_ARBITER_MODE;
 
+    const reviewerRoute = codexInvoke.route(env);
+    const reviewContext = reviewerRoute.reviewer === 'claude' ? require('./reviewer-evidence').prepareContext({
+      cwd, planPath, gateId: 'mccp-plan-codex', decisionId,
+    }) : null;
     const envelope = invoke(o.focus || '', {
+      cwd,
+      reviewContext,
       env: env,
       timeoutMs: o.codexTimeoutMs,
       json: true,
@@ -669,7 +675,7 @@ function run(opts, deps) {
       decision: decisionId,
       plan: planPath,
       cwd: cwd,
-      'codex-verdict': codexVerdict,
+      ...(envelope && envelope.reviewerFamily === 'claude' ? { reviewerRun: envelope } : { 'codex-verdict': codexVerdict }),
     }, passThrough, {
       intentDecision: {
         verdict: derived.verdict,

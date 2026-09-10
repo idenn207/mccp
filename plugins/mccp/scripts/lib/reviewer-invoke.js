@@ -4,6 +4,8 @@ const { resolveHarness } = require('./harness-ingress');
 const codex = require('./codex-invoke');
 const claude = require('./claude-review-invoke');
 const fs = require('fs');
+const executions = new WeakSet();
+const contexts = new WeakMap();
 
 function route(env) {
   const resolved = resolveHarness(env || process.env);
@@ -16,8 +18,11 @@ function invokeAdversarialReview(focus, opts) {
   const o = opts || {};
   const selected = route(o.env);
   if (selected.blocking) return { ...claude.failure('unknown-harness'), hostFamily: selected.host, reviewerFamily: null };
+  const context = o.reviewContext ? Object.freeze({ ...o.reviewContext }) : null;
   const result = selected.reviewer === 'claude' ? claude.invokeAdversarialReview(focus, o) : codex.invokeAdversarialReview(focus, o);
-  return { ...result, hostFamily: selected.host, reviewerFamily: selected.reviewer };
+  const out = Object.freeze({ ...result, hostFamily: selected.host, reviewerFamily: selected.reviewer });
+  if (out.ok && !out.blocking) { executions.add(out); contexts.set(out, context); }
+  return out;
 }
 
 function runCli(argv) {
@@ -41,5 +46,5 @@ function runCli(argv) {
   return result.blocking ? 12 : 0;
 }
 
-module.exports = { route, invokeAdversarialReview, runCli };
+module.exports = { route, invokeAdversarialReview, runCli, isExecutionResult: value => executions.has(value), executionContext: value => contexts.get(value) };
 if (require.main === module) process.exitCode = runCli(process.argv.slice(2));

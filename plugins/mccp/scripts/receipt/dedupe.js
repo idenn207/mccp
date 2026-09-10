@@ -430,8 +430,12 @@ function computeResidual(opts) {
 // Still fail-closed on everything else: a missing receipt, a missing verdict,
 // any non-'converged' verdict, a structurally broken proof, or a partial
 // review_* stamp all read false.
-function crossModelConverged(receipt) {
-  return !!(receipt && isCrossModelCorroborated(receipt.resolution));
+function crossModelConverged(receipt, context) {
+  if (!receipt) return false;
+  if (context && context.hostFamily === 'codex' && !require('../lib/reviewer-evidence').present(receipt.resolution)) return false;
+  return isCrossModelCorroborated(receipt.resolution, context && {
+    ...context, gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: receipt.subject_hash,
+  });
 }
 
 // Retained name — this is the predicate's historical identity and several
@@ -470,6 +474,7 @@ function evaluateForDedupe(opts) {
 
   const planReceipt = readReceipt(repoRoot, 'mccp-plan-codex', decisionId);
   const implementReceipt = readReceipt(repoRoot, 'mccp-implement-codex', decisionId);
+  const reviewContext = { repoRoot, hostFamily: o.hostFamily || require('../lib/harness-ingress').resolveHarness(o.env || process.env).harness };
 
   const residual = computeResidual({
     cwd: cwd,
@@ -487,7 +492,7 @@ function evaluateForDedupe(opts) {
   const convergence = {
     decision_id: decisionId,
     plan_codex_receipt: planReceipt ? {
-      converged: crossModelConverged(planReceipt),
+      converged: crossModelConverged(planReceipt, reviewContext),
       codex_verdict: (planReceipt.resolution && planReceipt.resolution.codex_verdict) || null,
       review_verdict: (planReceipt.resolution && planReceipt.resolution.review_verdict) || null,
       review_source: (planReceipt.resolution && planReceipt.resolution.review_source) || null,
@@ -502,7 +507,7 @@ function evaluateForDedupe(opts) {
       head_sha: planReceipt.head_sha,
     } : null,
     implement_codex_receipt: implementReceipt ? {
-      converged: crossModelConverged(implementReceipt),
+      converged: crossModelConverged(implementReceipt, reviewContext),
       codex_verdict: (implementReceipt.resolution && implementReceipt.resolution.codex_verdict) || null,
       review_verdict: (implementReceipt.resolution && implementReceipt.resolution.review_verdict) || null,
       review_source: (implementReceipt.resolution && implementReceipt.resolution.review_source) || null,

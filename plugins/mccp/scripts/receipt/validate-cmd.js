@@ -373,6 +373,16 @@ function validateCommand(command, opts) {
       continue;
     }
 
+    const reviewerProof = require('../lib/reviewer-evidence').verify(receipt.resolution, {
+      repoRoot, gateId, decisionId: result.decisionId, subjectHash: receipt.subject_hash,
+      hostFamily: opts.hostFamily || require('../lib/harness-ingress').resolveHarness(process.env).harness,
+    });
+    if (!reviewerProof.ok) {
+      result.blocking.push({ gate_id: gateId, decision_id: result.decisionId,
+        kind: 'reviewer-evidence', reason: reviewerProof.reason });
+      continue;
+    }
+
     if (opts.planPath) {
       try {
         const currentHash = planAwareMarkdownHash(path.resolve(cwd, opts.planPath));

@@ -440,7 +440,7 @@ function buildReceipt(args) {
   const repoRoot = gitRepoRoot(cwd);
   const dispatchCtx = detectDispatchContext(args, cwd);
   const phase = phaseFromGate(gateId);
-  const planAbs = path.resolve(cwd, planPath);
+  const planAbs = path.resolve(cwd, planPath.replace(/\\/g, '/'));
   const planHash = planAwareMarkdownHash(planAbs);
   // codex-intent-context M1 — read once for the DD1 free-form proof in
   // stampIntentDecision. Unreadable → null, which keeps the in-scope path
@@ -1033,6 +1033,13 @@ function buildReceipt(args) {
   stampIntentDecision(receipt, args, gateId, planText);
 
   receipt.subject_hash = subjectHash(receipt);
+  if (args.reviewerRun) {
+    if (Object.prototype.hasOwnProperty.call(receipt.resolution, 'codex_verdict') ||
+      Object.prototype.hasOwnProperty.call(receipt.resolution, 'review_verdict')) throw new Error('reviewer execution cannot coexist with legacy approval');
+    Object.assign(receipt.resolution, require('../lib/reviewer-evidence').seal(args.reviewerRun, receipt, repoRoot));
+  } else if (require('../lib/reviewer-evidence').present(receipt.resolution)) {
+    throw new Error('reviewer evidence requires an in-process reviewer run; JSON injection is forbidden');
+  }
   receipt.receipt_hash = receiptHash(receipt);
 
   const result = validate(receipt);

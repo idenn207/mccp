@@ -20,7 +20,7 @@ const path = require('path');
 
 const runner = require('../plan-codex-runner');
 const ic = require('../intent-context');
-const codexInvoke = require('../codex-invoke');
+const codexInvoke = require('../reviewer-invoke');
 const receiptWrite = require('../../receipt/write');
 const receiptStore = require('../../receipt/store');
 const codexPayload = require('../codex-review-payload');
@@ -142,7 +142,7 @@ function runWith(s, opts, envelope, writeImpl) {
 test('(a) default dependencies are the REAL modules, not test doubles', function () {
   assert.strictEqual(runner.defaultDeps.invokeAdversarialReview,
     codexInvoke.invokeAdversarialReview,
-    'runner must default to the real codex-invoke');
+    'runner must default to the real reviewer-invoke');
   assert.strictEqual(runner.defaultDeps.write, receiptWrite.write,
     'runner must default to the real receipt writer');
   // gate-guard-integrity M2 축 C — 주입된 fake 만 검증하면 "위임했다"가 test 안에서만

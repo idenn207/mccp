@@ -28,21 +28,21 @@
 // before. Only receipts that actually carry a review verdict take the new branch.
 const { resolveEffectiveVerdict } = require('./review-verdict');
 
-function isDivergentVerdict(resolution) {
+function isDivergentVerdict(resolution, context) {
   if (!resolution || typeof resolution !== 'object') return false;
-  const eff = resolveEffectiveVerdict(resolution);
+  const eff = resolveEffectiveVerdict(resolution, context);
   return eff.verdict === 'divergent' || eff.verdict === 'critical';
 }
 
-function isConvergedVerdict(resolution) {
+function isConvergedVerdict(resolution, context) {
   if (!resolution || typeof resolution !== 'object') return false;
-  const eff = resolveEffectiveVerdict(resolution);
+  const eff = resolveEffectiveVerdict(resolution, context);
 
   // On the review axis the verdict is the whole answer. resolution.converged
   // means "the writer finalized findings" (the B#11 split) and was never an
   // approval signal; deferring to it here would let an `unavailable` review —
   // a proof that did not hold, or a partial stamp — read as converged.
-  if (eff.axis === 'review') return eff.verdict === 'converged';
+  if (eff.axis === 'review' || eff.axis === 'reviewer') return eff.verdict === 'converged';
 
   if (eff.verdict === 'divergent' || eff.verdict === 'critical') return false;
   return resolution.converged === true;

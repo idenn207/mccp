@@ -4,6 +4,10 @@ const assert = require('node:assert/strict');
 const evidence = require('../../lib/reviewer-evidence');
 const { resolveEffectiveVerdict } = require('../../lib/review-verdict');
 const { isConvergedVerdict } = require('../../lib/receipt-convergence');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const reviewer = require('../../lib/reviewer-invoke');
 const hash = 'sha256:' + 'a'.repeat(64);
 function pair() {
   return { reviewer_verdict: 'converged', reviewer_execution: { schema_version: 1,
@@ -25,4 +29,37 @@ test('new pair owns the verdict and rejects partial, same-family, or mixed appro
 test('evidence must exist and match gate, decision, subject and content hash', () => {
   assert.equal(evidence.verify(pair(), { repoRoot: process.cwd(), gateId: 'mccp-pr-codex' }).ok, false);
   assert.equal(evidence.verify(pair(), { repoRoot: process.cwd() }).ok, false);
+});
+
+test('only a bound in-process execution seals; tampering and symlinks fail', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-evidence-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-outside-'));
+  try {
+    const receipt = { gate_id: 'mccp-implement-codex', decision_id: 'fixture', subject_hash: hash };
+    const raw = { status: 0, stdout: [
+      { type: 'assistant', message: { model: 'claude-opus-5' } },
+      { type: 'result', subtype: 'success', is_error: false, structured_output: { verdict: 'approve', summary: 'ok', findings: [] } },
+    ].map(JSON.stringify).join('\n') };
+    const run = reviewer.invokeAdversarialReview('fixture', { env: { MCCP_HARNESS: 'codex' },
+      budget: { allowed: true, canRecord: false }, spawn: () => raw,
+      reviewContext: { gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: hash, reviewText: 'Fixture plan under review.' } });
+    assert.throws(() => evidence.seal({ ...run }, receipt, root), /untrusted/);
+    assert.throws(() => evidence.seal(run, { ...receipt, decision_id: 'changed' }, root), /target changed/);
+    const sealed = evidence.seal(run, receipt, root);
+    const context = { repoRoot: root, subjectHash: hash, gateId: receipt.gate_id, decisionId: receipt.decision_id, hostFamily: 'codex' };
+    assert.equal(evidence.verify(sealed, context).ok, true);
+    assert.equal(resolveEffectiveVerdict(sealed).verdict, 'unavailable');
+    assert.equal(resolveEffectiveVerdict(sealed, context).verdict, 'converged');
+    const file = path.join(root, sealed.reviewer_execution.evidence_path);
+    const bytes = fs.readFileSync(file);
+    fs.appendFileSync(file, ' ');
+    assert.equal(evidence.verify(sealed, context).ok, false);
+    fs.unlinkSync(file);
+    fs.writeFileSync(path.join(outside, 'proof.json'), bytes);
+    fs.symlinkSync(path.join(outside, 'proof.json'), file);
+    assert.equal(evidence.verify(sealed, context).ok, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
 });

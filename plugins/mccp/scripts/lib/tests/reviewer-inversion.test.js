@@ -85,3 +85,14 @@ test('CLI rejects unknown flags and missing input before invoking a reviewer', (
   assert.equal(reviewer.runCli(['adversarial-review', '--timeout-ms', '-1']), 2);
   assert.equal(reviewer.runCli(['adversarial-review', '--intent-reference-file', '/missing-mccp-ref']), 2);
 });
+
+test('gate calls require review target text and pass it to the reviewer', () => {
+  let input = '';
+  const options = { budget: { allowed: true, canRecord: false }, reviewContext: {},
+    spawn: (bin, args, opts) => { input = opts.input; return response(); } };
+  assert.equal(claude.invokeAdversarialReview('', options).classification, 'missing-review-target');
+  assert.equal(input, '');
+  options.reviewContext.reviewText = 'EXACT_PLAN_FIXTURE';
+  assert.equal(claude.invokeAdversarialReview('', options).ok, true);
+  assert.ok(input.includes('EXACT_PLAN_FIXTURE'));
+});

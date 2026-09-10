@@ -269,6 +269,22 @@ P2도 마찬가지다(`verifyIngress({})` → `ok:false`).
 **이 라운드도 재리뷰하지 않았다.** 수정본은 PR-Codex R2를 받지 않았고, 그 사실은 report가
 기록한다.
 
+### security-reviewer R1 (2026-09-10) — 두 건은 위 P1 수정이 절반만 된 것이었다
+
+2.5.5 의무 호출이 **HIGH 4건**을 더 냈고 전부 라이브 재현했다.
+
+| # | 지목 | severity | 흡수 |
+|---|---|---|---|
+| S1 | `]`를 품은 인용 헤더가 여전히 삼켜진다 — `[^\]]*`가 리터럴 `]`를 못 넘는다 | high | 경계를 정규식 캡처가 아니라 **구조**로 판정(첫 글자 `[` · 끝 글자 `]`), 소유 판정은 `OUR_BLOCK_RE`로 분리 |
+| S2 | 따옴표 존중이 큰따옴표뿐 — TOML 리터럴 문자열(`'…'`)의 `#`가 헤더를 자른다 | high | `stripTomlComment`이 basic·literal 두 형식을 추적(리터럴은 이스케이프 없음까지) |
+| S3 | 설정 쓰기가 symlink를 따라가 임의 파일을 truncate하고, 원자적이지 않다 | high | `writeConfigAtomic` — `lstat` symlink 거부 + tmp+rename. 부수적으로 `0600`이 실제 적용됨(MEDIUM 1건 동반 해소) |
+| S4 | plugin **이름만** 보고 우리 것이라 판정 — 어느 marketplace의 `mccp`든 통과 | high | marketplace까지 대조. 이름만 같으면 `mccp-name-from-untrusted-marketplace`로 구별 거부. 확장은 `--trust-marketplace` 명시 전용 |
+| S5 | `MCCP_CODEX_BIN`이 `hooks/list` 자식에 전파 안 됨 | medium | backlog 이연(§3.14) |
+
+**S1·S2는 P1 수정이 절반만 된 것이었다.** 같은 버그 클래스에 트리거만 달랐고, 그것을
+"고쳤다"고 적은 것이 이 사이클에서 가장 정직하지 못했던 지점이다. 그래서 이번에는 문자열
+패턴을 넓히는 대신 **판정 구조를 바꿨다** — 경계는 관대하게, 소유는 엄격하게, 둘을 분리.
+
 **이 흡수가 주장하지 않는 것**: plan을 고쳤을 뿐 재리뷰하지 않았으므로, 흡수본 자체는
 리뷰를 받지 않았다. `reviewed_plan_hash`는 흡수 **이전** 본문에 묶여 있고 그 사실은 receipt와
 이 절이 함께 기록한다.

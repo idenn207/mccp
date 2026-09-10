@@ -68,65 +68,99 @@ function shortHookKey(key) {
   return base + ':' + rest;
 }
 
-// 선언원이 mccp plugin인가. plugin hook의 key는 `<plugin>@<marketplace>:...` 형태이고
-// config hook은 그 자리에 절대경로를 담는다 — 후자는 우리 소유가 아니다.
-function isMccpDeclared(key) {
+// 이 저장소의 marketplace 이름(`.claude-plugin/marketplace.json` 의 `name`).
+// plugin hook 의 key 는 `<plugin>@<marketplace>:...` 라 **양쪽을 다 봐야** 소유가 정해진다.
+const DEFAULT_TRUSTED_MARKETPLACES = ['mccp'];
+
+// 선언원이 **우리** mccp plugin인가. plugin hook의 key는 `<plugin>@<marketplace>:...`
+// 형태이고 config hook은 그 자리에 절대경로를 담는다 — 후자는 우리 소유가 아니다.
+//
+// **plugin 이름만 보면 안 된다** (security review R1, HIGH). 앞선 시도는
+// `origin.split('@')[0] === 'mccp'` 하나였고, 그것은 **아무 marketplace에서 온
+// `mccp`라는 이름의 plugin이든** 우리 것으로 인정한다는 뜻이다. 이 함수는 비대화형
+// 신뢰 승인의 유일한 관문이므로, 그 느슨함은 곧 "동명 위장 plugin의 hook에 실행
+// 신뢰를 부여한다"가 된다 — `selectTrustable` 자신의 docstring이 막겠다고 적은 바로
+// 그 권한 상승이다.
+//
+// 그래서 marketplace 도 대조하고, 목록 밖이면 **거부하되 사유를 말한다**. 운영자가
+// 다른 이름으로 marketplace를 등록했다면 `--trust-marketplace <name>` 으로 명시할 수
+// 있다 — 신뢰를 넓히는 것은 운영자의 명시적 행위여야지 기본값이어서는 안 된다.
+function isMccpDeclared(key, trustedMarketplaces) {
+  const allowed = Array.isArray(trustedMarketplaces) && trustedMarketplaces.length
+    ? trustedMarketplaces
+    : DEFAULT_TRUSTED_MARKETPLACES;
   const i = String(key).indexOf(':');
   if (i < 0) return false;
   const origin = String(key).slice(0, i);
   if (origin.includes('/') || origin.includes('\\')) return false;   // config.toml 선언
-  return origin.split('@')[0] === MCCP_PLUGIN_NAME;
+  const at = origin.indexOf('@');
+  if (at < 0) return false;                                          // marketplace 미상 — 판정 불가
+  if (origin.slice(0, at) !== MCCP_PLUGIN_NAME) return false;
+  return allowed.indexOf(origin.slice(at + 1)) !== -1;
 }
 
-// `[hooks.state."<key>"]` 블록만 골라 파싱한다. 완전한 TOML 파서가 아니다 —
-// 알아야 하는 것은 (a) 어느 key가 이미 기록돼 있는가, (b) 그 블록의 `enabled`가
-// 무엇인가, (c) 그 블록이 원문의 어느 줄 범위를 차지하는가 셋뿐이다.
-//
-// **완전하지 않아도 되지만, 경계는 놓치면 안 된다** (PR-Codex R1 F1 흡수).
-// 초안의 헤더 정규식은 `^\s*\[([^\]]*)\]\s*$` 였고 그래서 셋을 전부 틀렸다:
-//   - `[mcp_servers.production] # comment` — 트레일링 주석 때문에 헤더로 인식되지
-//     않아 **직전 trust 블록의 범위가 그 섹션까지 삼켰고, 교체가 그것을 삭제했다.**
-//   - `[[hooks.Stop]]` — 배열 테이블도 같은 이유로 헤더가 아니었다. 같은 삭제.
-//   - `enabled = false # comment` — 값 정규식도 트레일링 주석을 몰라 `null`이 되고,
-//     운영자가 명시적으로 끈 hook이 **다시 켜졌다.**
-// 셋 다 유효한 TOML이고 셋 다 재현됐다. 파서를 완전하게 만드는 대신 **경계 인식만**
-// 정확하게 한다 — 우리가 건드리는 것은 우리 블록뿐이고, 나머지는 바이트 그대로
-// 보존되기만 하면 된다. 그래서 헤더는 관대하게(무엇이든 섹션이면 경계다) 잡고,
-// 우리 것인지는 그 다음에 판정한다.
-//
-// 주석 제거는 따옴표를 존중한다 — key 안에 `#`가 들어갈 수 있고
-// (`[hooks.state."a#b:Stop:0"]`), 그것을 주석으로 잘라내면 그 블록을 우리 것으로
-// 인식하지 못해 중복이 쌓인다.
+// 이름은 맞는데 marketplace 가 다른 경우를 **구별해서** 보고하기 위한 술어.
+// "모르는 hook"과 "우리 이름을 쓰는 남의 hook"은 운영자에게 전혀 다른 정보다.
+function isMccpNameForeignMarketplace(key, trustedMarketplaces) {
+  const i = String(key).indexOf(':');
+  if (i < 0) return false;
+  const origin = String(key).slice(0, i);
+  if (origin.includes('/') || origin.includes('\\')) return false;
+  const at = origin.indexOf('@');
+  if (at < 0) return false;
+  return origin.slice(0, at) === MCCP_PLUGIN_NAME
+    && !isMccpDeclared(key, trustedMarketplaces);
+}
+
 function stripTomlComment(line) {
   let out = '';
-  let inStr = false;
+  let inBasic = false;    // "..." — backslash escapes apply
+  let inLiteral = false;  // '...' — TOML literal string, NO escapes at all
   let esc = false;
   for (let i = 0; i < line.length; i += 1) {
     const c = line[i];
     if (esc) { out += c; esc = false; continue; }
-    if (c === '\\' && inStr) { out += c; esc = true; continue; }
-    if (c === '"') { inStr = !inStr; out += c; continue; }
-    if (c === '#' && !inStr) break;
+    if (inBasic && c === '\\') { out += c; esc = true; continue; }
+    if (c === '"' && !inLiteral) { inBasic = !inBasic; out += c; continue; }
+    // Security review R1 — this branch did not exist. `'` is an equally valid
+    // TOML string delimiter (a LITERAL string), so `['prod#server']` had its
+    // header truncated at the `#`, stopped matching the header pattern, and the
+    // preceding trust block's range swallowed the whole section. Reproduced live:
+    // the section and its body vanished from the rewritten config.
+    if (c === "'" && !inBasic) { inLiteral = !inLiteral; out += c; continue; }
+    if (c === '#' && !inBasic && !inLiteral) break;
     out += c;
   }
   return out;
 }
+
+// 우리 블록의 **정확한** 형태. 경계 판정과 분리한다 — 경계는 관대하게, 소유 판정은
+// 엄격하게. 하나의 정규식이 둘 다 하려 들면 관대함이 소유 판정을 넓히거나 엄격함이
+// 경계를 놓친다(후자가 R1과 security R1이 각각 재현한 데이터 손실이다).
+const OUR_BLOCK_RE = /^\[hooks\.state\.("(?:[^"\\]|\\.)*")\]$/;
 
 function parseHookStateBlocks(toml) {
   const lines = String(toml == null ? '' : toml).split(/\r?\n/);
   const blocks = [];
   let cur = null;
   for (let i = 0; i < lines.length; i += 1) {
-    const line = stripTomlComment(lines[i]);
-    // 배열 테이블 `[[x]]` 도 섹션 경계다. 초안은 이것을 헤더로 보지 않아 앞 블록의
-    // 범위가 그 위로 확장됐고, 교체가 남의 설정을 지웠다.
-    const header = line.match(/^\s*(\[\[?)([^\]]*)(\]\]?)\s*$/);
-    if (header) {
+    const line = stripTomlComment(lines[i]).trim();
+    // **경계는 구조로 판정한다, 정규식 캡처로 하지 않는다** (security review R1).
+    // 앞선 시도는 `^\s*(\[\[?)([^\]]*)(\]\]?)\s*$` 였고, `[^\]]*`가 리터럴 `]`를
+    // 넘지 못해 `[my_section."weird]key"]` — 완전히 유효한 TOML — 이 헤더로 인식되지
+    // 않았다. 그러면 직전 trust 블록의 범위가 그 섹션을 삼키고 교체가 그것을 지운다.
+    // R1이 닫았다고 한 것과 같은 버그 클래스이고, 트리거만 달랐다.
+    //
+    // 무엇이 섹션인지는 첫 글자와 끝 글자가 말해 준다. 우리 것인지는 그 다음에
+    // OUR_BLOCK_RE 가 판정한다.
+    const isHeader = line.length >= 2 && line.charCodeAt(0) === 0x5b /* [ */
+      && line.charCodeAt(line.length - 1) === 0x5d /* ] */;
+    if (isHeader) {
       if (cur) { cur.end = i - 1; blocks.push(cur); cur = null; }
-      // 우리 블록은 단일 테이블 `[hooks.state."<key>"]` 하나뿐이다. 배열 테이블
-      // (`[[...]]`)은 경계로만 쓰고 절대 우리 것으로 취급하지 않는다.
-      if (header[1] === '[' && header[3] === ']') {
-        const m = header[2].trim().match(/^hooks\.state\.("(?:[^"\\]|\\.)*")$/);
+      // 배열 테이블(`[[...]]`)은 경계로만 쓰고 절대 우리 블록으로 취급하지 않는다.
+      const isArrayTable = line.startsWith('[[') && line.endsWith(']]');
+      if (!isArrayTable) {
+        const m = line.match(OUR_BLOCK_RE);
         if (m) {
           let key;
           try { key = JSON.parse(m[1]); } catch (_) { key = null; }
@@ -136,7 +170,7 @@ function parseHookStateBlocks(toml) {
       continue;
     }
     if (cur) {
-      const en = line.match(/^\s*enabled\s*=\s*(true|false)\s*$/);
+      const en = line.match(/^enabled\s*=\s*(true|false)$/);
       if (en) cur.enabled = en[1] === 'true';
     }
   }
@@ -146,7 +180,7 @@ function parseHookStateBlocks(toml) {
 
 // 승인 대상 선별 — **세 조건을 모두** 만족하는 것만. 나머지는 사유와 함께 보고한다.
 // 조용히 거르면 운영자는 왜 발화가 0인지 알 수 없고, 조용히 승인하면 그것이 권한 상승이다.
-function selectTrustable(hooks, existingToml) {
+function selectTrustable(hooks, existingToml, trustedMarketplaces) {
   const existing = parseHookStateBlocks(existingToml);
   const disabled = new Set(existing.filter(function (b) { return b.enabled === false; })
     .map(function (b) { return b.key; }));
@@ -158,8 +192,13 @@ function selectTrustable(hooks, existingToml) {
       return;
     }
     const short = shortHookKey(h.key);
-    if (!isMccpDeclared(h.key)) {
-      skipped.push({ key: short, reason: 'not-declared-by-mccp' });
+    if (!isMccpDeclared(h.key, trustedMarketplaces)) {
+      skipped.push({
+        key: short,
+        reason: isMccpNameForeignMarketplace(h.key, trustedMarketplaces)
+          ? 'mccp-name-from-untrusted-marketplace'
+          : 'not-declared-by-mccp',
+      });
       return;
     }
     // `modified`는 승인 후 본문이 바뀌었다는 신호다. 그것을 덮는 것은 승인이 아니라 은폐다.
@@ -220,6 +259,8 @@ module.exports = {
   tomlBasicString,
   shortHookKey,
   isMccpDeclared,
+  isMccpNameForeignMarketplace,
+  DEFAULT_TRUSTED_MARKETPLACES,
   parseHookStateBlocks,
   selectTrustable,
   mergeTrustBlocks,
@@ -391,6 +432,33 @@ function status(opts) {
 // 백업은 이 저장소가 비밀 인접 파일에 쓰는 원자적 관용구를 그대로 쓴다.
 // `copyFileSync`의 mode 보존은 Node 공개 API의 보장이 아니고, 백업본은 trust 해시
 // 전량과 운영자의 provider 설정을 담는다.
+// 설정 쓰기는 **원자적이고 symlink 를 따르지 않는다** (security review R1, HIGH).
+// 앞선 시도는 `fs.writeFileSync(configPath, …)` 하나였고 둘 다 틀렸다:
+//   - 기본 `'w'` 플래그는 **symlink 를 따라간다.** `config.toml` 이 symlink 이면
+//     그 대상 파일이 truncate 된다 — 실측으로 재현됐다. read 와 write 사이에
+//     `codex plugin add`(최대 300s) + `hooks/list` 왕복 두 번이 들어가므로 TOCTOU
+//     창이 분 단위로 열려 있다.
+//   - write 가 중간에 죽으면 설정이 잘린 채 남는다. 백업은 이미 있지만 되돌리는
+//     주체가 없다.
+// tmp + rename 은 이 저장소가 다른 곳에서 이미 쓰는 관용구이고(§3.6 evidence lock),
+// rename(2) 는 원자적이며 symlink 를 **대체**하지 따라가지 않는다.
+function writeConfigAtomic(codexHome, body) {
+  const target = configPath(codexHome);
+  let st = null;
+  try { st = fs.lstatSync(target); } catch (_) { st = null; }
+  if (st && st.isSymbolicLink()) {
+    throw new Error('refusing to write through a symlink at ' + target
+      + ' — resolve it by hand; following it would truncate an arbitrary file');
+  }
+  if (st && !st.isFile()) {
+    throw new Error('refusing to write: ' + target + ' is not a regular file');
+  }
+  const tmp = target + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp';
+  fs.writeFileSync(tmp, body, { mode: 0o600 });
+  try { fs.renameSync(tmp, target); }
+  catch (err) { try { fs.unlinkSync(tmp); } catch (_) {} throw err; }
+}
+
 function backupConfig(codexHome, body) {
   const dest = configPath(codexHome) + '.mccp-backup-' + new Date().toISOString().replace(/[:.]/g, '-');
   fs.writeFileSync(dest, body, { flag: 'wx', mode: 0o600 });
@@ -434,7 +502,7 @@ function bootstrap(opts) {
   if (!listed.ok) return fail('hooks-list', listed.reason);
   const cfg = readConfig(codexHome);
   if (cfg === null) return fail('read-config', 'config.toml unreadable');
-  const sel = selectTrustable(listed.hooks, cfg);
+  const sel = selectTrustable(listed.hooks, cfg, o.trustedMarketplaces);
   steps.push({
     step: 'select-trustable', ok: true,
     detail: 'grant=' + sel.grant.length + ' skipped=' + sel.skipped.length,
@@ -453,7 +521,8 @@ function bootstrap(opts) {
   let backup;
   try { backup = backupConfig(codexHome, cfg); }
   catch (err) { return fail('backup', err.message); }
-  fs.writeFileSync(configPath(codexHome), merged.toml, { mode: 0o600 });
+  try { writeConfigAtomic(codexHome, merged.toml); }
+  catch (err) { return fail('write-config', err.message); }
   steps.push({ step: 'merge-trust', ok: true, detail: 'replaced ' + merged.replaced + ' block(s)', backup: path.basename(backup) });
 
   // ── 성공 조건은 두 축이 **모두** 성립할 때만 ─────────────────────────────
@@ -489,6 +558,7 @@ module.exports.configPath = configPath;
 module.exports.listHooks = listHooks;
 module.exports.verifyReach = verifyReach;
 module.exports.verifyIngress = verifyIngress;
+module.exports.writeConfigAtomic = writeConfigAtomic;
 module.exports.status = status;
 module.exports.bootstrap = bootstrap;
 
@@ -513,6 +583,7 @@ if (require.main === module) {
       env: process.env,
       apply: argv.indexOf('--apply') !== -1,
       marketplace: flagVal('--marketplace'),
+      trustedMarketplaces: (flagVal('--trust-marketplace') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean),
       name: flagVal('--name'),
     });
     if (json) process.stdout.write(JSON.stringify(out, null, 2) + '\n');
@@ -521,7 +592,7 @@ if (require.main === module) {
     });
     process.exit(out.ok ? 0 : 1);
   } else {
-    process.stderr.write('usage: codex-bootstrap.js <status|bootstrap> [--apply] [--marketplace <ref>] [--name <command>] [--json]\n');
+    process.stderr.write('usage: codex-bootstrap.js <status|bootstrap> [--apply] [--marketplace <ref>] [--trust-marketplace <name[,name]>] [--name <command>] [--json]\n');
     process.exit(2);
   }
 }

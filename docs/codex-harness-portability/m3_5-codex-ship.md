@@ -79,11 +79,20 @@ Codex 도달을 전제로 하는 축이었는데 이제 그 전제 자체가 다
 
 | 조건 | 위반 시 | 왜 |
 |---|---|---|
-| 선언원이 `mccp@<marketplace>` | `not-declared-by-mccp` | 타 plugin과 `config.toml` 선언 hook은 우리 소유가 아니다 |
+| 선언원의 **plugin 이름과 marketplace가 둘 다** 맞음 | `not-declared-by-mccp` / `mccp-name-from-untrusted-marketplace` | 이름만 보면 **어느 marketplace의** `mccp`든 통과한다. 이 함수가 비대화형 신뢰 승인의 유일한 관문이므로 그 느슨함은 동명 위장 plugin에 실행 신뢰를 주는 것이다. 넓히려면 `--trust-marketplace <name>` — 운영자의 명시 행위여야 한다 |
 | `trustStatus !== 'modified'` | `trust-status-modified` | `modified`는 승인 후 본문이 바뀌었다는 신호다. 덮는 것은 승인이 아니라 은폐다 |
 | 운영자가 `enabled = false`로 끄지 않음 | `operator-disabled` | 명시적으로 끈 것을 켜는 것은 부트스트랩의 권한 밖이다 |
 
 거른 것은 조용히 버리지 않고 사유와 함께 보고한다 — 조용히 거르면 운영자는 왜 발화가 0인지 알 수 없다.
+
+### 설정 쓰기는 원자적이고 symlink를 따르지 않는다
+
+`fs.writeFileSync`의 기본 `'w'`는 symlink를 **따라가** 대상 파일을 truncate한다(실측 재현).
+그리고 read와 write 사이에 `codex plugin add`(최대 300s)와 `hooks/list` 왕복 둘이 들어가므로
+TOCTOU 창이 분 단위로 열려 있다. `writeConfigAtomic`은 `lstat`로 symlink·비정규 파일을
+거부하고 tmp+rename으로 쓴다 — `rename(2)`는 원자적이고 symlink를 **대체**하지 따라가지
+않는다(§3.6 evidence lock이 쓰는 것과 같은 관용구). 부수 효과로 `0600`이 실제로 적용된다:
+`writeFileSync`의 `mode`는 파일을 **새로 만들 때만** 먹으므로 기존 파일에는 no-op이었다.
 
 ### 병합은 남의 설정을 건드리지 않는다 — 경계 인식이 그 조건이다
 
@@ -96,7 +105,13 @@ PR-Codex R1이 초안의 TOML 파서에서 셋을 재현했다. 헤더 정규식
 | `[[hooks.Stop]]` | 같은 이유로 헤더 아님 → **삭제** |
 | `enabled = false # comment` | 값 정규식이 주석을 모름 → `null` → 운영자가 끈 hook을 **다시 켬** |
 
-셋 다 유효한 TOML이다. 파서를 완전하게 만드는 대신 **경계 인식만** 정확하게 했다 — 우리가
+**그 수정도 절반만 됐고 security 리뷰가 나머지를 찾았다** — `[^\]]*`가 리터럴 `]`를 넘지
+못해 `[my_section."weird]key"]`가 여전히 삼켜졌고, 따옴표 존중이 큰따옴표만이라
+`['prod#server']`도 그랬다. 둘 다 유효한 TOML이고 둘 다 재현됐다. 그래서 지금은 경계를
+**정규식 캡처가 아니라 구조로** 판정한다(첫 글자 `[` · 끝 글자 `]`), 소유 판정은 별도의
+엄격한 패턴이 하며, 주석 제거는 basic(`"`)과 literal(`'`) 두 문자열 형식을 모두 추적한다.
+
+다섯 다 유효한 TOML이다. 파서를 완전하게 만드는 대신 **경계 인식만** 정확하게 했다 — 우리가
 건드리는 것은 우리 블록뿐이고 나머지는 바이트 그대로 보존되면 된다. 그래서 헤더는 관대하게
 (무엇이든 섹션이면 경계다) 잡고 우리 것인지는 그 다음에 판정한다. 주석 제거는 따옴표를
 존중한다(`[hooks.state."a#b:Stop:0"]`의 `#`를 잘라내면 그 블록을 우리 것으로 인식하지 못해

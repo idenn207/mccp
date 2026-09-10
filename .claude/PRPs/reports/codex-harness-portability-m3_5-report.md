@@ -100,6 +100,41 @@ receipt가 없어 cross-gate dedupe가 열리지 않았고(residual 122 파일),
 §3.16이 라운드를 늘리지 않는 것을 요지로 한다. 흡수의 정당성은 재현 실측과 회귀 test 8건이
 뒷받침하되, cross-model 재검증은 없다 — 그 사실을 반올림하지 않고 여기 적는다.
 
+## security-reviewer도 실재 결함을 잡았다 — 그중 둘은 내 수정이 절반만 된 것이었다
+
+2.5.5 의무 호출로 돌린 `mccp:security-reviewer`가 **HIGH 4건**을 더 냈고 전부 라이브로
+재현했다. 정직하게 적자면 그중 둘은 PR-Codex R1에서 "고쳤다"고 한 것이 **절반만 된
+것**이었다.
+
+- **S1 — `]`를 품은 인용 헤더가 여전히 삼켜졌다.** 수정한 정규식이 `[^\]]*`를 써서 리터럴
+  `]`를 넘지 못했고, `[my_section."weird]key"]`(완전히 유효한 TOML)가 헤더로 인식되지 않아
+  직전 trust 블록이 그 섹션을 삼켰다. R1이 닫았다는 것과 **같은 버그 클래스, 다른 트리거**다.
+  경계 판정을 정규식 캡처에서 **구조 판정**(첫 글자 `[` · 끝 글자 `]`)으로 바꾸고, 소유
+  판정은 별도의 엄격한 패턴(`OUR_BLOCK_RE`)으로 분리했다.
+- **S2 — 따옴표 존중이 큰따옴표만이었다.** TOML 리터럴 문자열(`'...'`)의 `#`를 주석으로
+  잘라내 `['prod#server']`가 헤더 인식에 실패했고 같은 삭제가 일어났다. `stripTomlComment`이
+  두 따옴표 형식을 모두 추적한다(리터럴 문자열은 이스케이프가 없다는 점까지).
+- **S3 — 설정 쓰기가 symlink를 따라가고 원자적이지 않았다.** `fs.writeFileSync`의 기본
+  `'w'`는 symlink를 따라가 **대상 파일을 truncate**한다(실측 재현). read와 write 사이에
+  `codex plugin add`(최대 300s) + `hooks/list` 왕복 둘이 들어가 TOCTOU 창이 분 단위였다.
+  `writeConfigAtomic`이 `lstat`로 symlink를 거부하고 tmp+rename으로 원자적으로 쓴다.
+- **S4 — plugin 이름만 보고 "우리 것"이라 판정했다.** `origin.split('@')[0] === 'mccp'`는
+  **어느 marketplace의** `mccp`든 통과시킨다. 비대화형 신뢰 승인의 유일한 관문이 그렇게
+  느슨하면 동명 위장 plugin의 hook에 실행 신뢰를 주게 되고, 그것은 `selectTrustable`
+  docstring이 막겠다고 적은 바로 그 권한 상승이다. marketplace까지 대조하고, 이름은 맞는데
+  marketplace가 다르면 `mccp-name-from-untrusted-marketplace`로 **구별해서** 거부한다.
+  운영자는 `--trust-marketplace <name>`으로 명시적으로만 넓힐 수 있다.
+
+**MEDIUM 2건 중 하나는 S3 수정이 부수적으로 닫았다** — `{mode:0o600}`이 기존 파일에
+no-op이던 문제가 tmp+rename으로 실제 적용된다(실측 `644 → 600`). 나머지 하나
+(`MCCP_CODEX_BIN`이 `hooks/list` 자식에 전파되지 않음)는 §3.14대로 backlog로 이연했다.
+
+리뷰어가 **고쳐졌다고 확인한 것**도 기록한다: probe env allowlist · ingress 축 · R1의 세
+TOML 케이스 · `command-reach` realpath containment · `receipt-prompt-submit` FIFO/symlink
+가드 · 프로브의 `grantHookTrust`가 실제 home을 겨눌 수 없다는 것 · redact 관문 우회 없음.
+
+test 8건 추가, 전체 **100/100** green.
+
 ## 미충족 — 반올림하지 않는다
 
 - **축 (iii) ingress가 현재 `missing`이다.** `MCCP_HARNESS=codex`가 이 셸에 없다. 그리고

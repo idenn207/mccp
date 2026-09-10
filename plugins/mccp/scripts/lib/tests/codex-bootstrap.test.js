@@ -182,3 +182,81 @@ test('F2 — verifyIngress is true under MCCP_HARNESS=codex', function () {
   assert.strictEqual(r.harness, 'codex');
   assert.strictEqual(r.ingress, 'user_prompt_submit');
 });
+
+// ── security review R1 regressions ──────────────────────────────────────────
+// All four were REPRODUCED live before the fix. Two of them are the same bug
+// class the PR-Codex round had already "closed" — the fix was half-done, which
+// is why these assert the SHAPE that broke rather than the specific string.
+
+test('S1 — a quoted header key containing "]" is still a boundary', function () {
+  // `[^\]]*` cannot cross a literal `]`, so this valid TOML header stopped
+  // matching and the preceding trust block swallowed (and deleted) the section.
+  const cfg = [
+    '[hooks.state."mccp@mccp:Stop:0"]', 'enabled = true', 'trusted_hash = "old"', '',
+    '[my_section."weird]key"]', 'value = 1', '',
+  ].join('\n');
+  const out = b.mergeTrustBlocks(cfg, [HOOK('mccp@mccp:Stop:0', 'new')]).toml;
+  assert.ok(out.includes('weird]key'), 'the ]-bearing header must survive');
+  assert.ok(out.includes('value = 1'), 'and its body');
+});
+
+test('S2 — a single-quoted (TOML literal) string protects its "#" too', function () {
+  const SQ = String.fromCharCode(39);
+  const cfg = [
+    '[hooks.state."mccp@mccp:Stop:0"]', 'enabled = true', 'trusted_hash = "old"', '',
+    '[' + SQ + 'prod#server' + SQ + ']', 'url = ' + SQ + 'https://x' + SQ, '',
+  ].join('\n');
+  const out = b.mergeTrustBlocks(cfg, [HOOK('mccp@mccp:Stop:0', 'new')]).toml;
+  assert.ok(out.includes('prod#server'), 'a literal-string header must survive');
+  assert.ok(out.includes('https://x'), 'and its body');
+});
+
+test('S2b — stripTomlComment still strips a real comment outside both quote forms', function () {
+  // The fix must not make comment stripping inert: an unquoted # is still a comment.
+  const blocks = b.parseHookStateBlocks('[hooks.state."mccp@mccp:Stop:0"] # trailing\nenabled = false # off\n');
+  assert.strictEqual(blocks.length, 1);
+  assert.strictEqual(blocks[0].enabled, false);
+});
+
+test('S4 — the plugin NAME alone does not make a hook ours; the marketplace must match', function () {
+  const sel = b.selectTrustable([HOOK('mccp@evil-marketplace:Stop:0', 'x')], '');
+  assert.strictEqual(sel.grant.length, 0, 'a same-named plugin from another marketplace must not be trusted');
+  assert.strictEqual(sel.skipped[0].reason, 'mccp-name-from-untrusted-marketplace',
+    'and the reason must distinguish impersonation from an unrelated hook');
+});
+
+test('S4b — an operator can widen trust explicitly, never by default', function () {
+  const sel = b.selectTrustable([HOOK('mccp@my-fork:Stop:0', 'x')], '', ['my-fork']);
+  assert.strictEqual(sel.grant.length, 1);
+  assert.deepStrictEqual(b.DEFAULT_TRUSTED_MARKETPLACES, ['mccp'],
+    'the default set stays narrow');
+});
+
+test('S4c — a key with no marketplace component is not ours', function () {
+  assert.strictEqual(b.isMccpDeclared('mccp:Stop:0'), false);
+});
+
+test('S3 — the config write refuses to follow a symlink', function () {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-boot-'));
+  const outside = path.join(home, 'outside-target.txt');
+  fs.writeFileSync(outside, 'DO NOT CLOBBER');
+  try { fs.symlinkSync(outside, path.join(home, 'config.toml')); }
+  catch (_) { return; }   // platform without symlink permission — nothing to assert
+  assert.throws(function () { b.writeConfigAtomic(home, 'merged = true'); }, /symlink/);
+  assert.strictEqual(fs.readFileSync(outside, 'utf8'), 'DO NOT CLOBBER',
+    'the symlink target must be untouched');
+});
+
+test('S3b — the config write is atomic and leaves no tmp behind', function () {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-boot-'));
+  fs.writeFileSync(path.join(home, 'config.toml'), 'old = 1\n');
+  b.writeConfigAtomic(home, 'new = 2\n');
+  assert.strictEqual(fs.readFileSync(path.join(home, 'config.toml'), 'utf8'), 'new = 2\n');
+  assert.deepStrictEqual(fs.readdirSync(home).filter(function (f) { return f.endsWith('.tmp'); }), []);
+});

@@ -17,6 +17,36 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 > version 을 선언하지 않는다. 강제는
 > `node scripts/version-declaration-guard.js` 가 한다.
 
+### Fixed
+
+- **Codex hook 출력 계약 — 하네스 가드의 passthrough가 stdout을 오염시키던 것.**
+  `bootstrap.js`의 `passthroughStdinAndExit`는 stdin을 stdout으로 되돌린다. Claude 쪽 ALLOW
+  관용구이고 이 저장소의 hook 24곳이 공유하는 형태지만, Codex는 hook stdout을 **그 이벤트의
+  출력 계약**(`continue`/`stopReason`/`decision`/`systemMessage`)으로 파싱하므로 입력 이벤트를
+  되돌리면 `hook returned invalid stop hook JSON output`으로 거부하고 그 hook을 Failed로
+  보고한다. M3.5가 연 Codex 설치 경로에서 **모든** Claude 전용 hook이 이 경로를 타므로, 운영자는
+  매 턴 실패 표시를 보게 되고 그 노이즈가 진짜 실패를 가린다.
+
+  하네스 가드 호출처에만 `silent`를 넘긴다. 나머지 두 호출처(root 미해소 · target 부재)는
+  plugin이 실제로 깨진 경로라 Codex가 Failed로 보고하는 것이 옳고, 그 지점에서는 오라클을
+  로드할 수 없어 하네스를 알 방법도 없다. `MCCP_HARNESS`의 read site는 늘리지 않는다 —
+  registry 선언 evidence는 `harness-ingress.js:101` 하나여야 한다.
+
+  음성 대조 실측(2026-09-10, codex-cli 0.153.4, 같은 명령·echo 여부만 상이):
+  echo면 SessionStart Failed 1 · Completed 1, Stop **Failed 3**; 침묵이면 SessionStart
+  Completed 2, Stop **Completed 3**. 갈린 SessionStart 두 건이 판별자다 — `session:start`는
+  `bootstrap.js`를 거쳐 echo하고 `mccp:render-trigger:session-start`는 직접 실행이라 echo하지
+  않는다. 증상이 echo 경로에만 정확히 붙는다.
+
+  **부수 관측**: 이 대조가 M3.5가 `unmeasured`로 남긴 축 하나를 닫는다 — 진단용 env를 런처에
+  세우자 hook 자식의 동작이 바뀌었으므로 **Codex가 띄우는 hook 자식은 런처의 env를 상속한다.**
+  같은 경로로 `MCCP_HARNESS=codex`도 도달한다. 다만 이것은 `codex-cli 0.153.4` 한 버전의
+  관측이고 다른 버전에 대해서는 아무 말도 하지 않는다.
+
+  회귀는 `bootstrap-passthrough-contract.test.js`가 **비대칭으로** 고정한다 — "codex에서
+  조용하다"만 단언하면 세 호출처를 전부 침묵시키는 구현이 통과하고 그러면 Claude 쪽 ALLOW
+  신호가 사라지므로, 가드는 침묵·깨진 경로는 echo를 짝으로 단언한다.
+
 ### Added
 
 - **codex-harness-portability M3.5 — codex-ship (hotfix).** Codex 하네스에서 mccp가 **설치되고

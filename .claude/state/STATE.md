@@ -2,27 +2,26 @@
 state_version: 1
 task_fingerprint: unknown
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-10T07:09:57.915Z
+updated_at: 2026-09-10T09:52:06.699Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-10T07:09:57.915Z
+last_event_at: 2026-09-10T09:52:06.699Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/190
 dep_check_at: 2026-09-10T04:34:32.709Z
-escalate_pending: true
-escalate_pending_decision_id: codex-harness-portability-m4
 ---
 ## Goal
-codex-harness-portability M4 reviewer inversion 구현 진행 중; 전체 acceptance 미완료.
+codex-harness-portability M4 core 및 세 gate owner CLI 구현·검증 완료.
 
 ## Plan
-- PRD `.claude/prds/codex-harness-portability.prd.md` — milestone 4 = reviewer-inversion (in-progress)
-- plan `.claude/plans/codex-harness-portability-m4.plan.md` — Review Absorption 및 Execution Status 참조; 전체 acceptance 미완료
-- 진행 문서 `docs/codex-harness-portability/m4-reviewer-inversion.md` — Remaining work 참조
-- receipt `.claude/receipts/mccp-plan-codex/codex-harness-portability-m4.json` 및 `.claude/receipts/mccp-implement-codex/codex-harness-portability-m4.json` — 기존 divergent 판정 보존; 최종 구현 승인 증거 아님
-- branch `meta-codex-harness-portability` · plugin.json version 미선언(우산 결정 1, guard exit 0)
+- PRD `.claude/prds/codex-harness-portability.prd.md` — milestone 4 = complete
+- 승인 plan `.claude/plans/codex-harness-portability-m4.plan.md` — R5 converged; 승인 해시 유지
+- 완료 보고서 `.claude/PRPs/reports/codex-harness-portability-m4-report.md`
+- 상세 계약 `docs/codex-harness-portability/m4-reviewer-inversion.md`
+- 최신 plan/implement receipt는 converged. 과거 divergent/cap 기록은 이력이며 현재 판정을 대체하지 않는다.
+- branch `meta-codex-harness-portability` · plugin.json version 미선언 유지
 
 ## Done
 - PR #190 머지 — merge commit `cb2ee03`(§3.12 squash 아님). main 파일 유실 0(§3.5.1 머지 전후 두 번 검증)
@@ -33,13 +32,13 @@ codex-harness-portability M4 reviewer inversion 구현 진행 중; 전체 accept
 - CI 전 체크 green(test-suite · env-contract drift · version declaration · release manifest · axis-k)
 
 ## In Progress
-Task 1 Claude CLI 실측 완료; routing/adapter 및 evidence 기반 구현, plan runner 초기 연결. implement/PR runner-owned finalization과 세 게이트 실측은 미완료.
+M4 구현 완료; 이번 구현 파일의 MCCP 자동 커밋과 PR preflight 진행 중.
 
 ## Next Step
-docs/codex-harness-portability/m4-reviewer-inversion.md의 Remaining work부터 계속한다. receipt 테스트는 MCCP_BRIEFING=off로 실행하고, 기존 divergent/intent incomplete 판정을 보존한다.
+MCCP auto-chain commit check 통과. 이번 구현 변경을 커밋한 뒤 PR preflight를 실행한다. M5와 전체 workflow 교차 이어달리기는 별도 범위다.
 
 ## Last Decision
-사용자 승인 MCCP_SKIP_INTENT_GATE 사유를 최소 길이에 맞춰 확장해 재봉인 후 구현에 진입했다. CLI 측정은 성공했지만 세 게이트 acceptance 및 F1 미커밋 내용 binding은 미완료다.
+R5 계획 본문을 보존하고 현재 완료 상태를 별도 보고서에 기록했다. 실제 Claude plan/implement/PR owner CLI의 승인·실패 대조를 모두 통과했다. 관련 테스트 1,502개 통과; 최종 artifact 경계 23개 재검증. 보안 리뷰에서 발견한 HIGH 이상 결함을 수정했다.
 
 ## Open Questions
 - 축 (iii) ingress는 여전히 missing — MCCP_HARNESS=codex가 셸에 없고, Codex hook 자식이 그 env를 상속하는지는 별개 미측정 축
@@ -48,4 +47,4 @@ docs/codex-harness-portability/m4-reviewer-inversion.md의 Remaining work부터 
 - 워크트리 .worktrees/codex-harness-portability는 머지 후에도 남아 있다 — §3.8대로 cleanup 필요
 
 ## Last Updated
-2026-09-10T07:09:57.915Z
+2026-09-10T09:52:06.699Z

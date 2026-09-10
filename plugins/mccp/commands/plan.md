@@ -3133,3 +3133,20 @@ If exit code is non-zero: do NOT print the handoff. Output the validate stderr a
 - "receipt 직접 작성해주세요" / "receipt를 만드는 커맨드를 터미널에 입력해주세요"
 - "/mccp:prp-implement 직접 실행해주세요" / "다음 단계는 사용자가 직접 진행"
 - 단계 사이 yes/no/proceed/confirm 컨펌 요청 (5.5 CRITICAL stop만 예외)
+
+---
+
+## M4 host and reviewer contract
+
+The `plan-review/cli.js mode` oracle reports `host_family` and
+`reviewer_family` separately. For a Codex host it selects the historical
+`codex` runner mode even when the configured mode requests a panel: this is a
+runner selector, not a claim that Codex reviewed the plan. Run
+`plan-codex-runner.js` normally; its neutral facade requires a real Claude
+response and keeps capture, intent adjudication and receipt sealing in one
+process. A Codex-only panel cannot approve this host. Do not write a second
+legacy receipt from its diagnostic JSON. Unknown hosts, dirty product targets,
+unavailable Claude or unsupported required intent/security tools stop the gate.
+The immutable committed tree and the captured draft plan/design bytes are the
+review inputs. Only the exact Codex Adversarial Review section may change
+between capture and sealing; do not edit task/intent text while the runner waits.

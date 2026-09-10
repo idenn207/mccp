@@ -18,8 +18,31 @@ function invokeAdversarialReview(focus, opts) {
   const o = opts || {};
   const selected = route(o.env);
   if (selected.blocking) return { ...claude.failure('unknown-harness'), hostFamily: selected.host, reviewerFamily: null };
-  const context = o.reviewContext ? Object.freeze({ ...o.reviewContext }) : null;
-  const result = selected.reviewer === 'claude' ? claude.invokeAdversarialReview(focus, o) : codex.invokeAdversarialReview(focus, o);
+  const context = o.reviewContext || null;
+  let result;
+  try {
+    if (selected.reviewer === 'claude' && context) {
+      const target = require('./review-target');
+      target.assertCurrent(context);
+      let budget = o.budget;
+      if (!budget) {
+        const rounds = require('./review-rounds/seal');
+        const gitDir = rounds.resolveGitDir(context.root);
+        const prior = rounds.readCap({ gitDir });
+        if (prior.reason === 'unreadable') throw Error('round policy unreadable');
+        if (!prior.found || prior.gateId !== context.gateId || prior.decisionId !== context.decisionId) {
+          rounds.sealCap({ gitDir, env: o.env || process.env, gateId: context.gateId,
+            decisionId: context.decisionId, codexDisabled: false });
+        }
+        budget = codex.resolveRoundBudget(o.env || process.env, { cwd: context.root, gitDir });
+        if (!budget.canRecord || budget.gateId !== context.gateId || budget.decisionId !== context.decisionId) throw Error('round policy identity mismatch');
+      }
+      result = target.snapshot(context, snapshot => claude.invokeAdversarialReview(focus, {
+        ...o, budget, cwd: snapshot.cwd, ledgerCwd: context.root, toolsDisabled: true,
+        reviewContext: { reviewText: snapshot.reviewText },
+      }));
+    } else result = selected.reviewer === 'claude' ? claude.invokeAdversarialReview(focus, o) : codex.invokeAdversarialReview(focus, o);
+  } catch (_) { result = claude.failure('review-target-unavailable'); }
   const out = Object.freeze({ ...result, hostFamily: selected.host, reviewerFamily: selected.reviewer });
   if (out.ok && !out.blocking) { executions.add(out); contexts.set(out, context); }
   return out;

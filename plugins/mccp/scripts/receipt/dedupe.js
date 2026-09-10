@@ -433,8 +433,12 @@ function computeResidual(opts) {
 function crossModelConverged(receipt, context) {
   if (!receipt) return false;
   if (context && context.hostFamily === 'codex' && !require('../lib/reviewer-evidence').present(receipt.resolution)) return false;
+  if (require('../lib/reviewer-evidence').present(receipt.resolution)) {
+    const h = require('./hash');
+    if (!require('./schema').validate(receipt).ok || h.subjectHash(receipt) !== receipt.subject_hash || h.receiptHash(receipt) !== receipt.receipt_hash) return false;
+  }
   return isCrossModelCorroborated(receipt.resolution, context && {
-    ...context, gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: receipt.subject_hash,
+    ...context, gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: receipt.subject_hash, planHash: receipt.plan_hash,
   });
 }
 
@@ -474,7 +478,7 @@ function evaluateForDedupe(opts) {
 
   const planReceipt = readReceipt(repoRoot, 'mccp-plan-codex', decisionId);
   const implementReceipt = readReceipt(repoRoot, 'mccp-implement-codex', decisionId);
-  const reviewContext = { repoRoot, hostFamily: o.hostFamily || require('../lib/harness-ingress').resolveHarness(o.env || process.env).harness };
+  const reviewContext = { repoRoot, mode: 'current-target', hostFamily: o.hostFamily || require('../lib/harness-ingress').resolveHarness(o.env || process.env).harness };
 
   const residual = computeResidual({
     cwd: cwd,

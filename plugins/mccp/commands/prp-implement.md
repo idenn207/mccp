@@ -1910,3 +1910,32 @@ This Phase 7 is enabled by default. Opt-out via env:
 - Run `/prp-commit` to commit with a descriptive message
 - Run `/mccp:pr` to create a pull request
 - Run `/mccp:plan <next-phase>` if the PRD has more phases
+
+---
+
+## M4 host and reviewer contract
+
+**Codex host / Claude reviewer (M4).** Resolve the host with
+`reviewer-invoke.route(process.env)`; never infer it from a single environment
+variable. On a Codex host, use the same-process owner below instead of the
+legacy Codex invocation and receipt-write blocks (2.5.1–2.5.6):
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/implement-review-runner.js" \
+  --plan "$ARGUMENTS" --decision "<derived decision slug>"
+```
+
+Run the policy/round seals below first. The owner requires a clean committed
+product target; the exact current plan/design inputs are captured separately.
+It invokes Claude, validates the actual model, and seals the receipt in-process.
+Unknown host, dirty product, unavailable review, or non-approving verdict stops
+implementation. Do not use Codex disabled/advisory flags to bypass Claude.
+Keep the mandatory security review and design detection; unsupported required
+auxiliary tools are unavailable, not approval. Store this execution's review
+record separately under `.claude/reviews/` so recording the implement result
+does not invalidate the already-approved plan. After a successful owner result
+and upstream validation, continue with Phase 3. Do not perform a second CLI
+receipt write or relabel Claude's verdict as `codex_verdict`.
+
+On a Claude host, retain the legacy path below. The historical gate ID
+`mccp-implement-codex` does not identify the actual reviewer family.

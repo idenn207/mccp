@@ -9,6 +9,7 @@ const VERDICTS = ['converged', 'divergent', 'critical', 'unavailable', 'skipped'
 const GATES = ['mccp-plan-codex', 'mccp-implement-codex', 'mccp-pr-codex'];
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o || {}, k);
 const hash = value => 'sha256:' + crypto.createHash('sha256').update(value).digest('hex');
+const sealedRuns = new WeakSet();
 
 function present(r) { return own(r, 'reviewer_verdict') || own(r, 'reviewer_execution'); }
 function validPath(p) {
@@ -18,13 +19,10 @@ function validPath(p) {
 
 function prepareContext(options) {
   const o = options || {};
-  const h = require('../receipt/hash');
-  const refs = h.gitRefs({ cwd: o.cwd, base: o.base });
-  const subject = { task_id: null, phase: GATES.indexOf(o.gateId) === 0 ? 'plan' : GATES.indexOf(o.gateId) === 1 ? 'implement' : 'pr',
-    gate_id: o.gateId, plan_hash: h.planAwareMarkdownHash(path.resolve(o.cwd || process.cwd(), o.planPath)),
-    design_doc_hash: [], base_sha: refs.baseSha, head_sha: refs.headSha, round: o.round || 1 };
-  return { gateId: o.gateId, decisionId: o.decisionId, subjectHash: h.subjectHash(subject),
-    reviewText: fs.readFileSync(path.resolve(o.cwd || process.cwd(), o.planPath), 'utf8') };
+  const target = require('./review-target');
+  const base = o.base ? target.git(o.cwd || process.cwd(), ['rev-parse', '--verify', o.base + '^{commit}']).trim()
+    : require('../receipt/hash').gitRefs({ cwd: o.cwd }).baseSha;
+  return target.capture({ ...o, base });
 }
 
 function validatePair(r) {
@@ -37,7 +35,8 @@ function validatePair(r) {
     e.host_family !== e.reviewer_family && typeof e.actual_model === 'string' &&
     (e.reviewer_family === 'claude' ? /^claude-[a-z0-9][a-z0-9.-]*$/ : /^(gpt-|o[1-9])/).test(e.actual_model) &&
     /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(e.run_nonce || '') &&
-    SHA.test(e.subject_hash || '') && SHA.test(e.evidence_hash || '') && validPath(e.evidence_path);
+    SHA.test(e.subject_hash || '') && SHA.test(e.evidence_hash || '') && validPath(e.evidence_path) &&
+    require('./review-target').validateInput(e.reviewed_input) && SHA.test(e.reviewed_input_hash || '');
   return { ok: !!ok, absent: false, reason: ok ? null : 'invalid-reviewer-evidence-pair' };
 }
 
@@ -64,6 +63,14 @@ function verify(r, context) {
     for (const key of ['gate_id', 'decision_id', 'host_family', 'reviewer_family', 'actual_model', 'run_nonce', 'subject_hash']) {
       if (proof[key] !== e[key]) return { ok: false, reason: 'reviewer-evidence-binding' };
     }
+    const target = require('./review-target');
+    if (e.reviewed_input.gate_id !== e.gate_id || e.reviewed_input.decision_id !== e.decision_id ||
+        target.digest(target.canonical(e.reviewed_input)) !== e.reviewed_input_hash ||
+        proof.reviewed_input_hash !== e.reviewed_input_hash ||
+        target.canonical(proof.reviewed_input) !== target.canonical(e.reviewed_input) ||
+        !SHA.test(proof.plan_hash || '') || (c.planHash && proof.plan_hash !== c.planHash) ||
+        e.evidence_path !== target.outputs(e.gate_id, e.decision_id, e.run_nonce).proof) return { ok: false, reason: 'reviewed-input-binding' };
+    target.verify(e.reviewed_input, root, { mode: c.mode || 'upstream', runNonce: e.run_nonce });
     return { ok: true, absent: false };
   } catch (_) { return { ok: false, reason: 'reviewer-evidence-unavailable' }; }
 }
@@ -71,18 +78,21 @@ function verify(r, context) {
 // Programmatic runner path only. No CLI accepts a JSON claim as execution.
 function seal(run, receipt, root) {
   const reviewer = require('./reviewer-invoke');
-  if (!reviewer.isExecutionResult(run) || run.classification !== 'ok' || !run.ok || run.blocking) throw new Error('untrusted reviewer execution');
+  if (!reviewer.isExecutionResult(run) || sealedRuns.has(run) || run.classification !== 'ok' || !run.ok || run.blocking) throw new Error('untrusted reviewer execution');
   const context = reviewer.executionContext(run);
-  if (!context || context.gateId !== receipt.gate_id || context.decisionId !== receipt.decision_id ||
-    context.subjectHash !== receipt.subject_hash) throw new Error('review target changed before sealing');
+  const targetInput = require('./review-target');
+  if (!targetInput.isCapture(context) || context.gateId !== receipt.gate_id || context.decisionId !== receipt.decision_id ||
+      context.reviewedInput.target_commit !== receipt.head_sha || context.reviewedInput.base_commit !== receipt.base_sha) throw new Error('review target changed before sealing');
+  targetInput.assertCurrent(context);
   const parsed = JSON.parse(run.stdout).result;
   const verdict = parsed.verdict === 'approve' ? 'converged' : 'divergent';
   const execution = { schema_version: 1, gate_id: receipt.gate_id, decision_id: receipt.decision_id,
     host_family: run.hostFamily, reviewer_family: run.reviewerFamily, actual_model: run.actualModel,
-    run_nonce: crypto.randomUUID(), subject_hash: receipt.subject_hash };
-  const proof = { ...execution, ok: true, classification: 'ok', verdict };
+    run_nonce: context.runNonce, subject_hash: receipt.subject_hash,
+    reviewed_input: context.reviewedInput, reviewed_input_hash: context.reviewedInputHash };
+  const proof = { ...execution, plan_hash: receipt.plan_hash, ok: true, classification: 'ok', verdict, review: parsed };
   const bytes = JSON.stringify(proof, null, 2) + '\n';
-  execution.evidence_path = '.claude/reviews/reviewer-' + execution.run_nonce + '.json';
+  execution.evidence_path = context.outputPaths.proof;
   execution.evidence_hash = hash(bytes);
   const pair = { reviewer_verdict: verdict, reviewer_execution: execution };
   if (!validatePair(pair).ok) throw new Error('invalid reviewer execution');
@@ -96,6 +106,7 @@ function seal(run, receipt, root) {
   fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' });
   fs.renameSync(tmp, target);
   if (!verify(pair, { repoRoot: root, gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: receipt.subject_hash, hostFamily: run.hostFamily }).ok) throw new Error('reviewer evidence read-back failed');
+  sealedRuns.add(run);
   return pair;
 }
 

@@ -458,6 +458,12 @@ function buildReceipt(args) {
   });
 
   const refs = gitRefs({ cwd: cwd, base: args.base });
+  if (args.reviewerRun) {
+    const context = require('../lib/reviewer-invoke').executionContext(args.reviewerRun);
+    require('../lib/review-target').assertCurrent(context);
+    refs.baseSha = context.reviewedInput.base_commit;
+    refs.headSha = context.reviewedInput.target_commit;
+  }
   const branch = gitBranch(cwd);
 
   const findings = readJsonIfPresent(args['findings-file'], []);
@@ -1262,6 +1268,9 @@ function triggerEscalateIfNeeded(repoRoot, receipt, receiptPath) {
 function write(args) {
   const built = buildReceipt(args);
   const p = writeReceipt(built.repoRoot, built.receipt);
+  // The opposite-family owner seals a fixed set of outputs. Background
+  // briefing/state writes would mutate that subject after sealing.
+  if (args.reviewerRun) return { path: p, receipt: built.receipt };
   try {
     triggerEscalateIfNeeded(built.repoRoot, built.receipt, p);
   } catch (err) {

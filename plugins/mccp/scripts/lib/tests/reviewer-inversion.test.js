@@ -23,6 +23,14 @@ test('host routing requires a positive designation', () => {
   assert.equal(reviewer.route({ CODEX_HOME: '/home' }).blocking, true);
   assert.equal(reviewer.route({ MCCP_HARNESS: 'bad' }).blocking, true);
 });
+test('Codex-host plan mode forces the opposite-family runner, not a Codex panel', () => {
+  const { spawnSync } = require('child_process');
+  const cli = path.resolve(__dirname, '../plan-review/cli.js');
+  const r = spawnSync(process.execPath, [cli, 'mode'], { encoding: 'utf8', env: { ...process.env, MCCP_HARNESS: 'codex', MCCP_PLAN_REVIEW: 'multi-agent' } });
+  assert.equal(r.status, 0, r.stderr);
+  const mode = JSON.parse(r.stdout); assert.equal(mode.mode, 'codex'); assert.equal(mode.reviewer_family, 'claude');
+  assert.equal(mode.fires.l2, false);
+});
 
 test('structured Claude output requires an actual Claude assistant model', () => {
   assert.equal(claude.normalize(response()).ok, true);

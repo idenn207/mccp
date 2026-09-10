@@ -16,7 +16,7 @@ function pair() {
     subject_hash: hash, evidence_path: '.claude/reviews/fixture.json', evidence_hash: hash } };
 }
 test('new pair owns the verdict and rejects partial, same-family, or mixed approval', () => {
-  assert.equal(evidence.validatePair(pair()).ok, true);
+  assert.equal(evidence.validatePair(pair()).ok, false); // v1 checkpoint lacks reviewed_input
   for (const r of [ { reviewer_verdict: 'converged' },
     { ...pair(), codex_verdict: 'converged' },
     { ...pair(), reviewer_execution: { ...pair().reviewer_execution, reviewer_family: 'codex' } },
@@ -35,14 +35,21 @@ test('only a bound in-process execution seals; tampering and symlinks fail', () 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-evidence-'));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-outside-'));
   try {
-    const receipt = { gate_id: 'mccp-implement-codex', decision_id: 'fixture', subject_hash: hash };
+    const t = require('../../lib/review-target');
+    t.git(root, ['init', '-q']); t.git(root, ['config', 'user.name', 'Test']); t.git(root, ['config', 'user.email', 'test@example.invalid']);
+    fs.writeFileSync(path.join(root, 'plan.md'), '# Fixture plan\n');
+    t.git(root, ['add', '.']); t.git(root, ['commit', '-qm', 'fixture']);
+    const contextInput = evidence.prepareContext({ cwd: root, planPath: 'plan.md', gateId: 'mccp-implement-codex', decisionId: 'fixture' });
+    const receipt = { gate_id: 'mccp-implement-codex', decision_id: 'fixture', subject_hash: hash,
+      plan_hash: require('../hash').planAwareMarkdownHash(path.join(root, 'plan.md')),
+      head_sha: contextInput.reviewedInput.target_commit, base_sha: contextInput.reviewedInput.base_commit };
     const raw = { status: 0, stdout: [
       { type: 'assistant', message: { model: 'claude-opus-5' } },
       { type: 'result', subtype: 'success', is_error: false, structured_output: { verdict: 'approve', summary: 'ok', findings: [] } },
     ].map(JSON.stringify).join('\n') };
     const run = reviewer.invokeAdversarialReview('fixture', { env: { MCCP_HARNESS: 'codex' },
       budget: { allowed: true, canRecord: false }, spawn: () => raw,
-      reviewContext: { gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: hash, reviewText: 'Fixture plan under review.' } });
+      reviewContext: contextInput });
     assert.throws(() => evidence.seal({ ...run }, receipt, root), /untrusted/);
     assert.throws(() => evidence.seal(run, { ...receipt, decision_id: 'changed' }, root), /target changed/);
     const sealed = evidence.seal(run, receipt, root);

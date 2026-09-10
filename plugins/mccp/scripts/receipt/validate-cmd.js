@@ -375,8 +375,14 @@ function validateCommand(command, opts) {
 
     const reviewerProof = require('../lib/reviewer-evidence').verify(receipt.resolution, {
       repoRoot, gateId, decisionId: result.decisionId, subjectHash: receipt.subject_hash,
+      planHash: receipt.plan_hash, mode: 'upstream',
       hostFamily: opts.hostFamily || require('../lib/harness-ingress').resolveHarness(process.env).harness,
     });
+    const currentHost = opts.hostFamily || require('../lib/harness-ingress').resolveHarness(process.env).harness;
+    if (currentHost === 'codex' && reviewerProof.absent && ['mccp-plan-codex', 'mccp-implement-codex', 'mccp-pr-codex'].includes(gateId)) {
+      result.blocking.push({ gate_id: gateId, decision_id: result.decisionId, kind: 'reviewer-evidence', reason: 'Codex host requires opposite-family execution evidence; legacy approval is insufficient' });
+      continue;
+    }
     if (!reviewerProof.ok) {
       result.blocking.push({ gate_id: gateId, decision_id: result.decisionId,
         kind: 'reviewer-evidence', reason: reviewerProof.reason });
@@ -788,7 +794,9 @@ function validateCommand(command, opts) {
             prReceipt.head_sha + ' — unverifiable HEAD binding, cannot certify ship. push blocked.',
           prior_verdict: (prReceipt.resolution && prReceipt.resolution.codex_verdict) || null,
         });
-      } else if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha) {
+      } else if (curHeadSha && prReceipt.head_sha && prReceipt.head_sha !== curHeadSha &&
+          !(require('../lib/reviewer-evidence').present(prReceipt.resolution) &&
+            require('../lib/review-ship-target').verify(repoRoot, prReceipt, curHeadSha).ok)) {
         // R2 F4 — bind certification to the CURRENT diff. A stale converged receipt
         // (same decision slug, older head_sha) must not certify unreviewed commits
         // just because a receipt for this decision happens to exist.
@@ -830,8 +838,14 @@ function validateCommand(command, opts) {
             envOverrideReason = raw;
           }
         }
-        const decision = shipGate.deriveShipDecision(prReceipt,
-          { forceOverrideActive: overrideActive });
+        const hasReviewer = require('../lib/reviewer-evidence').present(prReceipt.resolution);
+        const reviewerVerdict = hasReviewer && require('../lib/review-verdict').resolveEffectiveVerdict(prReceipt.resolution, {
+          repoRoot, gateId: prReceipt.gate_id, decisionId: prReceipt.decision_id, subjectHash: prReceipt.subject_hash,
+          planHash: prReceipt.plan_hash, hostFamily: opts.hostFamily || require('../lib/harness-ingress').resolveHarness(process.env).harness,
+          mode: curHeadSha === prReceipt.head_sha ? 'current-target' : 'upstream',
+        });
+        const decision = hasReviewer ? { ship: reviewerVerdict.verdict === 'converged', blockingVerdict: reviewerVerdict.verdict }
+          : shipGate.deriveShipDecision(prReceipt, { forceOverrideActive: overrideActive });
         if (!decision.ship) {
           result.blocking.push({
             gate_id: 'mccp-pr-codex',

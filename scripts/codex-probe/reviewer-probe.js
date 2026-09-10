@@ -122,18 +122,89 @@ function live() {
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 }
 
-module.exports = { inspect, summarize, sanitize, invoke, live, REVIEW_SCHEMA };
+function gateLive(options) {
+  const { execFileSync } = require('child_process');
+  const pluginRoot = path.resolve(__dirname, '../../plugins/mccp');
+  const gates = {};
+  const selected = options && options.gates || ['plan', 'implement', 'pr'];
+  if (!selected.length || selected.some(g => !['plan', 'implement', 'pr'].includes(g))) throw Error('invalid gate probe selection');
+  for (const gate of selected) {
+    const records = {};
+    for (const negative of [false, true]) {
+      const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-m4-gate-live-'));
+      const root = path.join(temp, 'repo'); fs.mkdirSync(root);
+      const sh = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      try {
+        sh(['init', '-q']); sh(['config', 'user.name', 'MCCP Probe']); sh(['config', 'user.email', 'probe@example.invalid']);
+        sh(['commit', '--allow-empty', '-qm', 'base']); sh(['update-ref', 'refs/remotes/origin/main', 'HEAD']);
+        fs.writeFileSync(path.join(root, 'plan.md'), '# Fixture plan\n\n## Tasks\nExport a function returning 42 from app.js. This disposable fixture is the entire product under review.\n');
+        fs.writeFileSync(path.join(root, 'app.js'), 'module.exports = () => 42;\n');
+        fs.writeFileSync(path.join(root, 'app.test.js'), "const test = require('node:test'); const assert = require('node:assert/strict'); test('returns 42', () => assert.equal(require('./app')(), 42));\n");
+        fs.writeFileSync(path.join(root, '.gitignore'), '.claude/state/\n');
+        sh(['add', '.']); sh(['commit', '-qm', 'probe fixture']);
+        const target = sh(['rev-parse', 'HEAD']); const before = digest(path.join(root, 'app.js'));
+        const env = { ...process.env, MCCP_HARNESS: 'codex', MCCP_BRIEFING: 'off', CLAUDE_PLUGIN_ROOT: pluginRoot };
+        if (negative) {
+          const bin = path.join(temp, 'bin'); fs.mkdirSync(bin);
+          fs.writeFileSync(path.join(bin, 'claude'), '#!' + process.execPath + '\nprocess.exit(1);\n', { mode: 0o700 });
+          env.PATH = bin + path.delimiter + env.PATH;
+        }
+        const common = ['--plan', 'plan.md', '--decision', 'fixture'];
+        let script; let args;
+        if (gate === 'plan') { script = 'plan-codex-runner.js'; args = common.concat(['--run-nonce', crypto.randomUUID(), '--codex-timeout-ms', '90000']); }
+        else if (gate === 'implement') { script = 'implement-review-runner.js'; args = common.concat(['--timeout-ms', '90000']); }
+        else {
+          script = 'pr-phase-helpers/codex-runner.js';
+          const body = path.join(root, '.git', 'body.md'); fs.writeFileSync(body, 'Disposable PR fixture');
+          args = common.concat(['--base', 'origin/main', '--body-file', body, '--timeout-ms', '90000']);
+        }
+        const raw = spawnSync(process.execPath, [path.join(pluginRoot, 'scripts/lib', script), ...args], {
+          cwd: root, env, encoding: 'utf8', timeout: 120000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024,
+        });
+        const receipt = require('../../plugins/mccp/scripts/receipt/store').readReceipt(root, 'mccp-' + gate + '-codex', 'fixture');
+        const execution = receipt && receipt.resolution.reviewer_execution;
+        const proof = execution ? JSON.parse(fs.readFileSync(path.join(root, execution.evidence_path), 'utf8')) : null;
+        const verified = receipt && require('../../plugins/mccp/scripts/lib/reviewer-evidence').verify(receipt.resolution, {
+          repoRoot: root, gateId: receipt.gate_id, decisionId: receipt.decision_id, subjectHash: receipt.subject_hash,
+          planHash: receipt.plan_hash, hostFamily: 'codex', mode: 'current-target',
+        }).ok;
+        const unchanged = before === digest(path.join(root, 'app.js')) && target === sh(['rev-parse', 'HEAD']);
+        let diagnostic = null;
+        try {
+          const parsed = JSON.parse(raw.stdout);
+          diagnostic = Object.fromEntries(['ok', 'exitCode', 'verdict', 'reason', 'error'].filter(k => parsed[k] !== undefined).map(k => [k, parsed[k]]));
+        } catch (_) { diagnostic = { parse_error: true }; }
+        records[negative ? 'unavailable' : 'success'] = {
+          exit: raw.status, error: raw.error ? raw.error.code : null, target_commit: target,
+          protected_unchanged: unchanged, receipt, proof, verified: !!verified,
+          passed: negative ? raw.status !== 0 && !receipt && unchanged : raw.status === 0 && !!verified && unchanged && receipt.resolution.reviewer_verdict === 'converged',
+          diagnostic, stderr: raw.stderr || '',
+        };
+        process.stderr.write('[mccp:gate-probe] ' + gate + '/' + (negative ? 'unavailable' : 'success') +
+          ' exit=' + raw.status + ' passed=' + records[negative ? 'unavailable' : 'success'].passed + '\n');
+      } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+    }
+    gates[gate] = records;
+  }
+  const secrets = Object.entries(process.env).filter(([k]) => /token|secret|api.?key|password/i.test(k)).map(([, v]) => v);
+  return sanitize({ schema: 'mccp.reviewer-gates/1', at: new Date().toISOString(),
+    m4_gate_measurements_complete: Object.keys(gates).length === 3 && Object.values(gates).every(g => g.success.passed && g.unavailable.passed), gates }, secrets);
+}
+
+module.exports = { inspect, summarize, sanitize, invoke, live, gateLive, REVIEW_SCHEMA };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const out = args.indexOf('--out');
-  if (!args.includes('--live') || out < 0 || !args[out + 1]) {
+  if ((!args.includes('--live') && !args.includes('--gates-live')) || out < 0 || !args[out + 1]) {
     process.stderr.write('usage: reviewer-probe.js --live --out <json>\n');
     process.exitCode = 2;
   } else {
-    const result = live();
+    const result = args.includes('--gates-live') ? gateLive() : live();
     const saved = makeGate().writeGuarded({ path: args[out + 1], data: result });
-    console.log(JSON.stringify({ written: saved.written, task1_complete: result.task1_complete, m4_complete: false }));
-    process.exitCode = saved.written && result.task1_complete ? 0 : 1;
+    if (!saved.written) process.stderr.write(JSON.stringify({ redaction_hits: saved.hits, truncated: saved.truncated }) + '\n');
+    console.log(JSON.stringify({ written: saved.written, task1_complete: result.task1_complete,
+      m4_gate_measurements_complete: result.m4_gate_measurements_complete, m4_complete: false }));
+    process.exitCode = saved.written && (result.task1_complete || result.m4_gate_measurements_complete) ? 0 : 1;
   }
 }

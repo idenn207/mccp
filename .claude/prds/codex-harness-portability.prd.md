@@ -137,7 +137,7 @@ We'll know we're right when **Codex 단독으로 한 decision이 plan → implem
 | 2 | gate-ingress | receipt 게이트가 Codex에서 최소 하나의 ingress로 발화하고, 선행 receipt가 없을 때 **실제로 차단한다**. 조사의 "ingress가 하나로 준다"가 아니라 "0에서 1로 올린다" | complete | [codex-harness-portability-m2](../plans/codex-harness-portability-m2.plan.md) |
 | 3 | command-reach | 게이트 파이프라인 핵심 명령이 Codex에서 호출 가능해진다 — Codex의 비공개 변환 규칙에 **의존하지 않는 경로**로 | complete | [codex-harness-portability-m3](../plans/codex-harness-portability-m3.plan.md) |
 | 3.5 | codex-ship (hotfix) | Codex 하네스에서 mccp가 **설치되고 발화하는 상태**가 운영자 한 번의 명령으로 성립한다 — 비대화형 trust 승인을 프로브에서 제품 표면으로 승격하고, 그 산출물이 `release` 채널에 도달한다. 관측이 아니라 **배포**이며, 이 저장소의 첫 릴리스 컷을 동반한다 | in-progress | [codex-harness-portability-m3_5](../plans/codex-harness-portability-m3_5.plan.md) |
-| 4 | reviewer-inversion | Codex 호스트에서 리뷰어가 Claude 계열이 되어 세 게이트의 cross-model 불변식이 보존된다. 리뷰어를 부를 수 없으면 게이트는 통과가 아니라 **fail-closed** | in-progress | [codex-harness-portability-m4](../plans/codex-harness-portability-m4.plan.md) |
+| 4 | reviewer-inversion | Codex 호스트에서 리뷰어가 Claude 계열이 되어 세 게이트의 cross-model 불변식이 보존된다. 리뷰어를 부를 수 없으면 게이트는 통과가 아니라 **fail-closed** | complete | [codex-harness-portability-m4](../plans/codex-harness-portability-m4.plan.md) · [구현 보고서](../PRPs/reports/codex-harness-portability-m4-report.md) |
 | 5 | chain-parity | Codex가 만든 receipt chain이 Claude가 만든 것과 동일한 검증을 통과하고, **어느 하네스가 만들었는지 감사로 판별 가능**해진다 | pending | — |
 
 > **M1 종료 (2026-09-09).** 7축 **전부** `measured`이고 `report.js`의 `milestone_closeable`이

@@ -336,11 +336,15 @@ function deriveLinkageFlags(opts) {
   return out;
 }
 
-function run(args) {
+function run(args, reviewerRun) {
   if (!args.decision) return fail('--decision <slug> required');
   if (!args.plan) return fail('--plan <path> required');
 
   const gateId = args.gate || 'mccp-pr-codex';
+  const reviewer = require('../reviewer-invoke');
+  const claudeHostPath = reviewer.route(process.env).reviewer === 'claude';
+  if (claudeHostPath && !reviewer.isExecutionResult(reviewerRun)) return fail('Claude review must be finalized by its live owner; result JSON is not execution evidence', 12);
+  if (reviewerRun && (!reviewer.isExecutionResult(reviewerRun) || reviewerRun.reviewerFamily !== 'claude')) return fail('invalid reviewer owner', 12);
   const codexResult = loadCodexResult(args['codex-result']);
 
   const writeFlags = [
@@ -478,7 +482,17 @@ function run(args) {
   }
 
   const cli = locateReceiptCli();
-  const result = callReceiptCli(cli, writeFlags, { cwd: args.cwd, timeoutMs: 60000 });
+  let result;
+  if (reviewerRun) {
+    try {
+      const c = reviewer.executionContext(reviewerRun);
+      require('../review-target').assertCurrent(c);
+      const writeArgs = parseArgs(writeFlags.slice(1));
+      delete writeArgs._;
+      const written = require('../../receipt/write').write({ ...writeArgs, cwd: args.cwd, base: c.reviewedInput.base_commit, reviewerRun });
+      result = { exitCode: 0, stdout: JSON.stringify(written.receipt) };
+    } catch (err) { return fail(err.message, 12); }
+  } else result = callReceiptCli(cli, writeFlags, { cwd: args.cwd, timeoutMs: 60000 });
   if (result.error) {
     return fail('receipt cli error: ' + result.error, result.exitCode || 1);
   }
@@ -578,7 +592,12 @@ function run(args) {
     }
     const overrideActive = !!(prReceipt.meta
       && prReceipt.meta.pr_codex_force_override === true);
-    const decision = deriveShipDecision(prReceipt, { forceOverrideActive: overrideActive });
+    const effective = reviewerRun && require('../review-verdict').resolveEffectiveVerdict(prReceipt.resolution, {
+      repoRoot: args.cwd || process.cwd(), gateId, decisionId: args.decision, subjectHash: prReceipt.subject_hash,
+      planHash: prReceipt.plan_hash, hostFamily: 'codex', mode: 'current-target',
+    });
+    const decision = reviewerRun ? { ship: effective.verdict === 'converged', blockingVerdict: effective.verdict === 'converged' ? null : effective.verdict }
+      : deriveShipDecision(prReceipt, { forceOverrideActive: overrideActive });
     if (!decision.ship) {
       process.stderr.write('[MCCP-GATE-STOP] PR-Codex non-approving (verdict=' +
         decision.blockingVerdict + ') — push blocked. ' +
@@ -590,6 +609,10 @@ function run(args) {
       process.stderr.write('[mccp] PR-Codex ship-gate: shipping under ' +
         'MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE audited override (verdict=' +
         decision.blockingVerdict + ' sealed unchanged).\n');
+    }
+    if (reviewerRun) {
+      try { require('../review-ship-target').seal(reviewerRun, prReceipt, args.cwd || process.cwd()); }
+      catch (err) { return fail(err.message, 12); }
     }
   }
 

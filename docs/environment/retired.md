@@ -209,6 +209,16 @@
 
 **상태** `scan-artifact` — 환경변수가 아니다. 스캐너의 정규식이 같은 이름의 코드 식별자를 잡은 것이다.
 
+### MCCP_PLUGIN_NAME
+
+**종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)
+
+**한 줄** 환경변수 아님 — JS 상수.
+
+**소비처** `plugins/mccp/scripts/lib/codex-bootstrap.js:32`
+
+**상태** `scan-artifact` — 환경변수가 아니다. 스캐너의 정규식이 같은 이름의 코드 식별자를 잡은 것이다. `const MCCP_PLUGIN_NAME = 'mccp'`은 trust 승인 대상을 가르는 선언원 판정에 쓰이며, 운영자가 바꿀 수 있는 축이 아니다 — 바꿀 수 있으면 동명 위장 plugin에 실행 신뢰를 주는 통로가 된다.
+
 ### MCCP_IGNORE_BLOCK
 
 **종류** `string` — **값** 자유 문자열 — **기본값** 없음 (미설정이 기본)

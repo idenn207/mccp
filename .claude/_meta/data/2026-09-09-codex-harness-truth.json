@@ -1,0 +1,836 @@
+{
+  "schema": "mccp.codex-harness-truth/1",
+  "measured_at": "2026-09-09",
+  "codex_version": "0.153.4",
+  "host": {
+    "note": "single-operator dogfood (UI14); every record carries codex_version per UI13"
+  },
+  "runs": [
+    {
+      "id": "entrypoint-selection",
+      "codex_version": "0.153.4",
+      "question": "which Codex entrypoint actually parses [hooks] (Task 2-0)",
+      "method": "register a bogus event name, run each candidate, see which rejects it",
+      "result": {
+        "parses_hooks": [
+          "exec"
+        ],
+        "does_not_parse": [
+          "doctor",
+          "plugin list",
+          "features list",
+          "debug prompt-input",
+          "sandbox"
+        ],
+        "dispatches_hooks": [
+          "exec"
+        ],
+        "note": "no non-model entrypoint parses or dispatches hooks, so DD9 fallback to codex exec was required; each exec turn cost ~3.1k tokens"
+      }
+    },
+    {
+      "id": "hooks-config-schema",
+      "codex_version": "0.153.4",
+      "question": "what shape does config.toml [hooks] take",
+      "method": "type-error reverse engineering — feed wrong types and read the serde error",
+      "result": {
+        "hooks": "struct HooksToml (unknown fields SILENTLY IGNORED)",
+        "event_value": "sequence of struct MatcherGroup",
+        "matcher_group": "{ matcher: string, hooks: [HookHandlerConfig] } — every field optional",
+        "handler": "internally tagged enum; variants command | mcp_tool | prompt | agent",
+        "command_variant": "field `command` REQUIRED, type STRING (not an array)",
+        "working_form": "<Event> = [ { matcher = \"*\", hooks = [ { type = \"command\", command = \"<cmd>\" } ] } ]",
+        "trap": "`<Event> = [ { command = [...] } ]` PARSES CLEANLY and yields an empty matcher group with zero hooks — a valid config with zero dispatch and no warning"
+      }
+    },
+    {
+      "id": "event-enum",
+      "codex_version": "0.153.4",
+      "question": "which event names exist in HooksToml (A2)",
+      "method": "`<Event> = [ 5 ]` — a known field is type-checked (invalid type: expected struct MatcherGroup), an unknown one is silently ignored",
+      "result": {
+        "fields_present": [
+          "UserPromptSubmit",
+          "PreToolUse",
+          "PostToolUse",
+          "SessionStart",
+          "SessionEnd",
+          "Stop",
+          "PreCompact",
+          "PostCompact",
+          "SubagentStart",
+          "SubagentStop"
+        ],
+        "fields_absent_of_29_probed": [
+          "UserPromptExpansion",
+          "PostToolUseFailure",
+          "Notification",
+          "TurnStart",
+          "TurnEnd",
+          "ExecStart",
+          "PreResponse",
+          "PostResponse",
+          "TurnComplete",
+          "TaskStart",
+          "TaskEnd",
+          "Setup",
+          "Teardown",
+          "Compact",
+          "PreSession",
+          "PostSession",
+          "AgentStart",
+          "AgentStop",
+          "PreSubmit",
+          "PostSubmit",
+          "ToolUse",
+          "Error",
+          "Startup",
+          "Shutdown",
+          "SessionStarted",
+          "SessionEnded",
+          "UserPromptSubmitted",
+          "PreExec",
+          "PostExec"
+        ],
+        "mccp_events_present": [
+          "PreToolUse",
+          "PostToolUse",
+          "SessionStart",
+          "SessionEnd",
+          "PreCompact",
+          "Stop"
+        ],
+        "mccp_events_absent": [
+          "UserPromptExpansion",
+          "PostToolUseFailure"
+        ],
+        "limitation": "this enumerates what the CONFIG STRUCT accepts, which is a superset of what actually dispatches; only 6 of the 10 were observed firing"
+      }
+    },
+    {
+      "id": "dispatch-fired",
+      "codex_version": "0.153.4",
+      "trust_mode": "bypassed",
+      "question": "do hooks actually dispatch, and in what order (A1/A2/A6)",
+      "method": "probe hook registered on 15 names; one `codex exec` turn that used a tool",
+      "result": {
+        "fired_in_order": [
+          "SessionStart",
+          "UserPromptSubmit",
+          "PreToolUse",
+          "PostToolUse",
+          "Stop",
+          "SessionEnd"
+        ],
+        "registered_but_never_fired": [
+          "PreCompact",
+          "PostCompact",
+          "SubagentStart",
+          "SubagentStop"
+        ],
+        "has_tool_name": true,
+        "note": "payload shape is isomorphic to the Claude Code hook protocol; receipt-skill.js:152 tool_name requirement is satisfied"
+      }
+    },
+    {
+      "id": "env-projection-clean",
+      "codex_version": "0.153.4",
+      "trust_mode": "bypassed",
+      "clean_env": true,
+      "question": "what env does Codex inject into the hook child (A5 / OQ4 / OQ5)",
+      "method": "same run with a MINIMAL parent env; the first attempt inherited 13 CLAUDE_* names from the Claude Code parent and was confounded, so it is not cited",
+      "result": {
+        "injected_by_codex": [],
+        "value_carrying_observed": [
+          "CODEX_HOME",
+          "PWD"
+        ],
+        "CLAUDE_PLUGIN_ROOT_injected": false,
+        "session_id_env_name": null,
+        "session_id_arrives_via": "event payload field `session_id`, not env",
+        "consequence": "bootstrap.js (CLAUDE_PLUGIN_ROOT) and session-identity.js (CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID) both resolve empty under Codex"
+      }
+    },
+    {
+      "id": "trust-procedure",
+      "codex_version": "0.153.4",
+      "question": "how does a hook become trusted, and is there a non-interactive path (A4/A1)",
+      "method": "app-server `hooks/list` for key+currentHash, then write [hooks.state.\"<key>\"] into the scratch config.toml; negative control flips one hash byte",
+      "result": {
+        "trust_gates_dispatch": true,
+        "untrusted_behaviour": "silent zero dispatch — no error, no warning, exit 0",
+        "bypass_flag_recognised": "--dangerously-bypass-hook-trust (warns, then dispatches)",
+        "trust_record_written_by_codex_cli": false,
+        "non_interactive_approval_path": "config.toml [hooks.state.\"<key>\"] { enabled = true, trusted_hash = \"<currentHash>\" }",
+        "hook_state_schema": "hooks.state is a map key -> struct HookStateToml { enabled: bool, trusted_hash: string }; confirmed by type-error probing",
+        "key_and_hash_source": "app-server request `hooks/list` returns per-hook `key`, `currentHash`, `trustStatus`",
+        "key_shape": {
+          "user": "<config.toml absolute path>:<event_snake>:<i>:<j>",
+          "plugin": "<plugin>@<marketplace>:hooks/hooks.json:<event_snake>:<i>:<j>"
+        },
+        "trust_status_enum": [
+          "managed",
+          "untrusted",
+          "trusted",
+          "modified"
+        ],
+        "negative_control": "one wrong hash byte -> trustStatus `modified`, dispatch stays 0",
+        "cli_override_ineffective": "-c hooks.state.\"<key>\"=... has no effect; the key embeds a path so the dotted-path parser splits it. the record must be written into config.toml",
+        "note": "this is the value M1 previously recorded as NOT OBSERVED; it is what let A1 be promoted"
+      }
+    },
+    {
+      "id": "plugin-autodiscovery",
+      "codex_version": "0.153.4",
+      "trust_mode": "bypassed",
+      "question": "is plugins/mccp/hooks/hooks.json discovered by install alone (A3)",
+      "method": "codex plugin marketplace add <repo>; codex plugin add mccp@mccp; codex exec in a disposable git workdir",
+      "result": {
+        "discovered": true,
+        "parsed": false,
+        "reject_reason": "unknown field `$schema`, expected `description` or `hooks` at line 2 column 11",
+        "severity": "WARNING — the run proceeds with zero hooks installed",
+        "note": "this struct uses deny_unknown_fields, unlike HooksToml in config.toml which ignores them",
+        "after_stripping_schema_in_the_CACHE_COPY_ONLY": {
+          "dispatched": true,
+          "fired": [
+            "SessionStart",
+            "Stop"
+          ],
+          "artifacts_written": [
+            ".claude/state/STATE.md",
+            ".claude/state/hook-caps.json",
+            ".claude/state/journal/records.jsonl",
+            ".claude/state/msw-events/",
+            ".claude/state/hook-trace/<codex-session-id>/consolidated.jsonl",
+            ".claude/cache/STATUS.md",
+            ".claude/cache/status.html"
+          ],
+          "runtime_divergences": [
+            "clamping SessionEnd hook timeout to 3s",
+            "running async SessionEnd hook synchronously"
+          ]
+        },
+        "repo_copy_modified": false,
+        "remeasured_2026_09_09": {
+          "via": "app-server hooks/list on a locally installed mccp plugin (zero model tokens)",
+          "warning": "failed to parse plugin hooks config .../hooks/hooks.json: unknown field `$schema`, expected `description` or `hooks` at line 2 column 11",
+          "hooks_before_strip": 0,
+          "hooks_after_stripping_schema_in_cache_copy": 26,
+          "errors": 0,
+          "note": "reported as a warning, not an error — install looks successful and the gate fires zero times"
+        }
+      }
+    },
+    {
+      "id": "isolation",
+      "codex_version": "0.153.4",
+      "question": "did the measurement touch the real ~/.codex (revert integrity)",
+      "method": "DD3-b — mccp-attributed key/cache projection of the REAL home, before and after",
+      "result": {
+        "before": {
+          "config_mccp_keys": [],
+          "plugin_cache_entries": [
+            "plugins/cache/mccp/",
+            "plugins/cache/openai-curated-remote/deep-research-work/",
+            "plugins/cache/openai-curated-remote/openai-templates/",
+            "plugins/cache/openai-curated-remote/plugin-management/"
+          ]
+        },
+        "after": {
+          "config_mccp_keys": [],
+          "plugin_cache_entries": [
+            "plugins/cache/mccp/",
+            "plugins/cache/openai-curated-remote/deep-research-work/",
+            "plugins/cache/openai-curated-remote/openai-templates/",
+            "plugins/cache/openai-curated-remote/plugin-management/"
+          ]
+        },
+        "clean": true,
+        "config_sha256_informational": {
+          "before": "sha256:9a03a94f420dc2cffefadf20557f051c9fa97f2f62457e85eaff1d40c032c2b7",
+          "after": "sha256:9a03a94f420dc2cffefadf20557f051c9fa97f2f62457e85eaff1d40c032c2b7"
+        },
+        "note": "plugins/cache/mccp/ is an EMPTY directory in the real home both before and after — the PRD metric \"residual cache 0\" was already false before this measurement began (DD3-b)"
+      }
+    },
+    {
+      "id": "trusted-dispatch",
+      "codex_version": "0.153.4",
+      "question": "do mccp probe hooks fire after the trust procedure, without any bypass flag (A1)",
+      "method": "cli.js run --clean-env twice (one prompt with no tool use, one that forces a shell tool call); trust granted from hooks/list before each run",
+      "result": {
+        "trust_mode": "trusted",
+        "bypass_flag_used": false,
+        "hooks_trusted_per_run": 10,
+        "log_lines": 10,
+        "events_fired": [
+          "PostToolUse",
+          "PreToolUse",
+          "SessionEnd",
+          "SessionStart",
+          "Stop",
+          "UserPromptSubmit"
+        ],
+        "note": "same six events the earlier bypassed run saw, now observed through the trust procedure rather than around it"
+      }
+    },
+    {
+      "id": "block-protocol",
+      "codex_version": "0.153.4",
+      "question": "which hook output format actually stops a turn in Codex, and does the negative control hold (B1/B2)",
+      "method": "block-probe.js sweep — per-event protected-operation predicate, allow-control first; a blocked verdict requires the hook to have fired AND the protected operation not to have occurred. crashes/timeouts/no-fire are inconclusive, never blocked.",
+      "result": {
+        "negative_control": "UserPromptSubmit allow-control reached the protected operation (prompt reached the model)",
+        "blocking": [
+          "stdout-json-block",
+          "exit-nonzero-stderr"
+        ],
+        "not_honoured": [
+          "hook-specific-deny"
+        ],
+        "adopted": "stdout-json-block — the format receipt-prompt.js already emits, so the gate core needs no second serializer",
+        "per_run": [
+          {
+            "event": "UserPromptSubmit",
+            "protocol": "allow-control",
+            "hook_fired": true,
+            "protected_op_occurred": true,
+            "verdict": "not-blocked"
+          },
+          {
+            "event": "UserPromptSubmit",
+            "protocol": "stdout-json-block",
+            "hook_fired": true,
+            "protected_op_occurred": false,
+            "verdict": "blocked"
+          },
+          {
+            "event": "UserPromptSubmit",
+            "protocol": "exit-nonzero-stderr",
+            "hook_fired": true,
+            "protected_op_occurred": false,
+            "verdict": "blocked"
+          },
+          {
+            "event": "UserPromptSubmit",
+            "protocol": "hook-specific-deny",
+            "hook_fired": true,
+            "protected_op_occurred": true,
+            "verdict": "not-blocked"
+          },
+          {
+            "event": "PreToolUse",
+            "protocol": "allow-control",
+            "hook_fired": true,
+            "protected_op_occurred": false,
+            "verdict": "inconclusive"
+          }
+        ],
+        "limitation": "PreToolUse is UNMEASURED: its allow-control did not reach the protected operation (the model did not use a tool), so no block attempt was run for that event. A missing control makes any blocked observation unattributable."
+      }
+    },
+    {
+      "id": "gate-block-live",
+      "codex_version": "0.153.4",
+      "question": "does the real mccp receipt gate actually block a Codex turn when a prerequisite receipt is absent (Metric 2)",
+      "method": "cli.js gate-demo — scratch CODEX_HOME registers the SHIPPED receipt-prompt-submit.js (not a synthetic payload); scratch repo on a feature branch; MCCP_HARNESS=codex, MCCP_RECEIPT_GATE_MODE=hard. Terminal /mccp:pr is used because a non-terminal gate with a missing-only receipt takes the v1.3.1 informational ALLOW path by design.",
+      "result": {
+        "pair_ok": true,
+        "blocked_run": {
+          "phase": "missing",
+          "exit_status": 0,
+          "exit_signal": null,
+          "prompt_reached_model": false,
+          "verdict": "blocked"
+        },
+        "control_run": {
+          "phase": "receipt-present",
+          "exit_status": 0,
+          "exit_signal": null,
+          "prompt_reached_model": true,
+          "verdict": "passed"
+        },
+        "note": "the block payload carried hookSpecificOutput.hookEventName=UserPromptSubmit — the injected event name reached the wire, which a synthetic-payload probe could not have shown"
+      }
+    },
+    {
+      "id": "reach-install-path",
+      "codex_version": "0.153.4",
+      "question": "how is a local mccp build actually installed into a Codex home (C-axis precondition)",
+      "method": "codex plugin marketplace add <scratch> ; codex plugin add mccp@<scratch> ; CODEX_HOME=<scratch>",
+      "result": {
+        "directory_copy_alone": "NOT discovered — 3 sweeps, control never fired even with a synthesized .codex-plugin/plugin.json",
+        "official_path": "codex plugin marketplace add + codex plugin add — install_ok=true, run-command skill and hooks/hooks.json both present in the installed tree",
+        "repo_marketplace_json_installs_release_not_worktree": true,
+        "repo_marketplace_ref": "release",
+        "consequence": "dogfooding a local build on Codex needs a scratch marketplace whose plugin source is a local relative path; the shipped marketplace.json points at the release git ref (CLAUDE.md 3.7)",
+        "local_source_shape": "source is a marketplace-root-relative PATH STRING; object forms ({source:'local'|'directory'|'path'}) are not listed by 0.153.4",
+        "worktree_unpolluted": true
+      }
+    },
+    {
+      "id": "reach-sweep",
+      "codex_version": "0.153.4",
+      "question": "can a core mccp command body be REACHED from Codex through a single dispatcher skill (C1/C3), and does the plugin hooks.json substitute ${CLAUDE_PLUGIN_ROOT} (C2)",
+      "method": "scratch CODEX_HOME + official install; codex exec --dangerously-bypass-hook-trust, stdin closed; positive paired with a negative control in every axis",
+      "result": {
+        "C1_skill_invocable": {
+          "verdict": "measured",
+          "value": true,
+          "evidence": "the dispatcher skill ran and produced the resolver's output in both arms"
+        },
+        "C3_command_body_reached": {
+          "verdict": "measured",
+          "value": true,
+          "positive": "codex quoted '## Phase 0 — CO-CREATION REQUIRED (Autonomy Contract Exception)' verbatim; that string occurs in exactly one file in the repo (commands/plan-prd.md)",
+          "negative_control": "same procedure with a non-existent command name produced NO marker and the resolver's exact reason instead",
+          "control_passed": true
+        },
+        "C4_unknown_name_distinguished": {
+          "verdict": "measured",
+          "value": "unknown-command: <name> is not among the 22 installed commands",
+          "note": "the live session surfaced the distinct rejection, not a bare ENOENT"
+        },
+        "C2_plugin_root_substitution": {
+          "verdict": "unmeasured",
+          "reason": "the negative control never fired. Four sweeps: config.toml surface (wrong surface — no plugin context), hooks.json after a directory copy (not installed), hooks.json after a synthesized .codex-plugin manifest (still not installed), hooks.json after a REAL install (install_ok=true, yet neither the ${CLAUDE_PLUGIN_ROOT} arm nor the ABSOLUTE-PATH control fired). Without a passing control a non-firing observation says nothing about substitution.",
+          "not_concluded": "this is NOT evidence that ${CLAUDE_PLUGIN_ROOT} is unsubstituted, and NOT evidence that it is",
+          "consequence": "Task 6 makes no change to hooks.json — editing a shipped surface on an unmeasured axis is the rounding DD4 forbids"
+        },
+        "C5_name_collision": {
+          "verdict": "measured",
+          "value": "run-command does not collide: no commands/run-command.md and no skills/run-command before this milestone",
+          "note": "a single dispatcher adds exactly one entry to a Claude Code session's skill list (DD2/DD6 cost)"
+        }
+      }
+    }
+  ],
+  "report": {
+    "schema": "mccp.codex-probe.report/1",
+    "axes": {
+      "A1_hook_fires": {
+        "verdict": "measured",
+        "value": true,
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "reason": null
+      },
+      "A2_event_enum": {
+        "verdict": "measured",
+        "value": {
+          "fired": [
+            "PostToolUse",
+            "PreToolUse",
+            "SessionEnd",
+            "SessionStart",
+            "Stop",
+            "UserPromptSubmit"
+          ]
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "reason": null
+      },
+      "A3_auto_discovery": {
+        "verdict": "measured",
+        "value": {
+          "discovered_on_install": true,
+          "parsed": false,
+          "reject_reason": "unknown field `$schema`, expected `description` or `hooks`",
+          "failure_severity": "warning (run proceeds)",
+          "dispatches_after_stripping_schema_in_cache_copy": true,
+          "hooks_materialised_after_stripping_schema": 26,
+          "codex_runtime_divergences": [
+            "clamping SessionEnd hook timeout to 3s",
+            "running async SessionEnd hook synchronously"
+          ],
+          "remeasured_via": "app-server hooks/list errors+warnings on a locally installed mccp plugin (zero model tokens)"
+        },
+        "evidence": [
+          0
+        ],
+        "reason": null
+      },
+      "A4_trust_procedure": {
+        "verdict": "measured",
+        "value": {
+          "trust_gates_dispatch": true,
+          "untrusted_behaviour": "silent zero dispatch — no error, no warning, exit 0",
+          "bypass_flag_recognised": "--dangerously-bypass-hook-trust (warns, then dispatches)",
+          "trust_record_written_by_codex_cli": false,
+          "non_interactive_approval_path": "config.toml [hooks.state.\"<key>\"] with enabled = true and trusted_hash = \"<currentHash>\"",
+          "key_and_hash_source": "app-server request `hooks/list` returns per-hook `key`, `currentHash`, `trustStatus`",
+          "trust_status_enum": [
+            "managed",
+            "untrusted",
+            "trusted",
+            "modified"
+          ],
+          "wrong_hash_behaviour": "trustStatus becomes `modified` and dispatch stays zero",
+          "cli_override_ineffective": "-c hooks.state.\"<key>\"=... does not take effect; the key embeds the config file path so the dotted-path parser splits it. the record must be written into config.toml",
+          "hook_state_schema": "hooks.state is a map of key -> struct HookStateToml { enabled: bool, trusted_hash: string }"
+        },
+        "evidence": [
+          0
+        ],
+        "reason": null
+      },
+      "A5_env_projection": {
+        "verdict": "measured",
+        "value": {
+          "value_carrying_names": [
+            "CODEX_HOME",
+            "PWD"
+          ],
+          "observed_names_only": [
+            "HOME",
+            "MCCP_PROBE_CODEX_VERSION",
+            "MCCP_PROBE_ENTRYPOINT",
+            "MCCP_PROBE_REPO_ROOT",
+            "MCCP_PROBE_RUN_ID",
+            "MCCP_PROBE_TRUST_MODE",
+            "PATH",
+            "PROBE_LOG",
+            "SHLVL",
+            "TERM",
+            "USER",
+            "_"
+          ],
+          "claude_plugin_root_present": false,
+          "names_only_disclosure": "full env NAME inventory of the measuring host; values excluded (A5/OQ5). the DD10 gate scans for absolute paths only — names are not filtered"
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "reason": null
+      },
+      "A6_payload_shape": {
+        "verdict": "measured",
+        "value": {
+          "top_level_keys": [
+            "cwd",
+            "hook_event_name",
+            "last_assistant_message",
+            "model",
+            "permission_mode",
+            "prompt",
+            "reason",
+            "session_id",
+            "source",
+            "stop_hook_active",
+            "tool_input",
+            "tool_name",
+            "tool_response",
+            "tool_use_id",
+            "transcript_path",
+            "turn_id"
+          ],
+          "has_tool_name": true
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "reason": null
+      },
+      "revert_integrity": {
+        "verdict": "measured",
+        "value": {
+          "clean": true,
+          "added": [],
+          "removed": [],
+          "config_sha256_informational": {
+            "before": "sha256:3249bef8b490342c188e3510f15204ef35b161aaf06af8a0dfbaeb4aacfdd2d5",
+            "after": "sha256:3249bef8b490342c188e3510f15204ef35b161aaf06af8a0dfbaeb4aacfdd2d5"
+          }
+        },
+        "evidence": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "reason": null
+      }
+    },
+    "axis_order": [
+      "A1_hook_fires",
+      "A2_event_enum",
+      "A3_auto_discovery",
+      "A4_trust_procedure",
+      "A5_env_projection",
+      "A6_payload_shape",
+      "revert_integrity"
+    ],
+    "measured_count": 7,
+    "total_axes": 7,
+    "milestone_closeable": {
+      "ok": true,
+      "reason": "A1_hook_fires measured"
+    }
+  },
+  "probe_log_shape_clean_env": [
+    {
+      "event_name": "SessionStart",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "session_id",
+        "source",
+        "transcript_path"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "UserPromptSubmit",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "prompt",
+        "session_id",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "PreToolUse",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "PostToolUse",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "model",
+        "permission_mode",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_response",
+        "tool_use_id",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "Stop",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "last_assistant_message",
+        "model",
+        "permission_mode",
+        "session_id",
+        "stop_hook_active",
+        "transcript_path",
+        "turn_id"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    },
+    {
+      "event_name": "SessionEnd",
+      "event_keys": [
+        "cwd",
+        "hook_event_name",
+        "reason",
+        "session_id",
+        "transcript_path"
+      ],
+      "env_value_names": [
+        "CODEX_HOME",
+        "PWD"
+      ],
+      "env_names_only": [
+        "HOME",
+        "MCCP_PROBE_CODEX_VERSION",
+        "MCCP_PROBE_ENTRYPOINT",
+        "MCCP_PROBE_REPO_ROOT",
+        "MCCP_PROBE_RUN_ID",
+        "MCCP_PROBE_TRUST_MODE",
+        "PATH",
+        "PROBE_LOG",
+        "SHLVL",
+        "TERM",
+        "USER",
+        "_"
+      ],
+      "run": {
+        "trust_mode": "bypassed",
+        "codex_version": "0.153.4",
+        "entrypoint": "exec"
+      }
+    }
+  ]
+}

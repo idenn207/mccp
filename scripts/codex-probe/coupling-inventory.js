@@ -99,6 +99,20 @@ const COUPLING_INVENTORY = [
     owner_milestone: null,
     note: '런타임 영향 없음. 런타임 항목이 port/additive될 때 함께 따라간다',
   },
+  {
+    name: 'renderer-version-comment-only',
+    rule: 'claude-home-path',
+    covers: ['plugins/mccp/scripts/lib/renderer/plugin-version.js'],
+    axis: 'render provenance',
+    disposition: 'defer',
+    owner_milestone: null,
+    note: '**결합이 아니다 — 주석 한 줄이 걸렸다.** 매칭은 :21의 산문뿐이고(캐시 레이아웃을 '
+      + '설명하며 경로를 적었다), 실제 해소는 `MANIFEST_REL`의 모듈 상대 경로라 하네스 '
+      + '중립이다. `bootstrap.js`(위)와 형태만 같고 성질이 반대다 — 그쪽은 가려져 있던 '
+      + '진짜 결합이 주석 덕에 보이게 된 것이고, 이쪽은 결합이 없다. 스캐너가 주석을 코드와 '
+      + '구별하지 않는 것이 원인이며 그 축은 별개다(규칙을 좁히면 bootstrap.js가 다시 '
+      + '가려지므로 좁히지 않는다). 열거로 처분하고 포팅 대상으로 세지 않는다',
+  },
 
   // ── claude-env-name ────────────────────────────────────────────────────────
   {
@@ -210,7 +224,12 @@ const COUPLING_INVENTORY = [
 ];
 
 // 항목을 늘리려면 이 상수를 함께 올려야 한다. 그 편집이 diff에 숫자로 남는 것이 목적이다.
-const COUPLING_INVENTORY_CEILING = 16;
+//
+// 16 → 17: main 머지가 `renderer/plugin-version.js`를 들여왔고 그 파일의 주석 한 줄이
+// `claude-home-path`에 걸렸다. 새 결합이 아니라 **결합이 아닌 것**이 후보로 올라온
+// 경우이며(항목의 note가 그 구분을 적는다), 스캐너는 목록을 읽지 않고 후보를 내므로
+// 열거하는 것 말고 다른 처분이 없다.
+const COUPLING_INVENTORY_CEILING = 17;
 
 // 로드 시점 강제. test에만 두면 지켜지지 않는다(§3.17 — 이 저장소의 test는 어떤 CI도 돌리지 않는다).
 if (COUPLING_INVENTORY.length > COUPLING_INVENTORY_CEILING) {

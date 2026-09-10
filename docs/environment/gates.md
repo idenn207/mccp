@@ -168,6 +168,67 @@ MCCP_ALLOW_CODEX_UNAVAILABLE=1 /mccp:pr
   MCCP_ALLOW_CODEX_UNAVAILABLE=1           # advisory mode (non-approving receipt). terminal /mccp:pr은 거부 ─ live (v0.2.2)
 ```
 
+### MCCP_HARNESS
+
+**종류** `enum` — **값** `claude` · `codex` — **기본값** 미설정
+
+**한 줄** 호스트 하네스 명시 지정 — 오라클의 유일한 양성 codex 경로.
+
+**소비처** `plugins/mccp/scripts/lib/harness-ingress.js:82`
+
+**왜 이 이름이 필요한가.** Codex는 자기 존재를 알리는 환경변수를 **하나도 주입하지 않는다**
+(M1 실측: `.claude/_meta/data/2026-09-09-codex-harness-truth.json`의
+`runs[id=env-projection-clean].result.injected_by_codex === []`). 그래서 "Codex에서 돌고
+있다"를 환경에서 **추론할 수 없다**. 초안은 `CODEX_HOME`이 값을 가지면 codex로 보려 했으나
+그 이름은 프로브가 스스로 설정한 값이었고, 기본 운용에서는 존재하지 않는다.
+
+부재를 근거로 삼는 대안(예: `CLAUDE_PLUGIN_ROOT`가 없으면 codex)은 더 나쁘다 — 그 이름이
+어떤 이유로든 빠진 Claude Code 세션이 곧바로 이중 게이트가 된다. 그래서 판별은 **양성
+신호로만** 성립하고, codex 쪽 양성 신호는 이 명시 지정 하나뿐이다.
+
+**대가를 숨기지 않는다.** 이 값을 켜지 않으면 Codex에서 receipt 게이트는 발화하지 않는다.
+"설치만 하면 켜진다"가 아니다. trust 승인이 이미 수동 절차이므로(§3.3 DD6) 설치 절차에
+줄 하나가 더해지는 것이고, 그 줄은 **문서화된 설치 단계**이지 우회가 아니다.
+
+**값별 결과**
+
+- `codex` — 이 호스트를 Codex로 지목한다. `UserPromptSubmit` ingress가 켜지고, Claude 전용 hook 29건은 통과된다(UI16 — 0에서 1로 올리는 것이지 0에서 29로가 아니다).
+- `claude` — Claude Code로 지목한다. 기존 `UserPromptExpansion` 경로가 그대로 쓰이고 새 ingress는 켜지지 않는다.
+- 미설정 — `CLAUDE_PLUGIN_ROOT`가 값을 가지면 `claude`, 그 밖에는 `unknown`이고 `unknown`은 아무 일도 하지 않는다.
+- 열거 밖 값 — `unknown`으로 접힌다. 기본값으로 흡수하지 않는 것이 의도다: 운영자가 켰다고 믿는 채로 꺼져 있는 상태를 만들지 않는다.
+
+**사용 예시**
+
+```bash
+# Codex 호스트에서 mccp receipt 게이트를 켠다
+MCCP_HARNESS=codex codex exec "/mccp:prp-implement .claude/plans/x.plan.md"
+```
+
+### MCCP_HARNESS_INGRESS
+
+**종류** `enum` — **값** `on` · `off` — **기본값** `on`
+
+**한 줄** Codex ingress kill switch — off만 끄고 그 밖의 값은 on으로 접힌다.
+
+**소비처** `plugins/mccp/scripts/lib/harness-ingress.js:76`
+
+**접힘 방향이 형제들과 반대다.** 대부분의 토글은 오타를 안전한 쪽(=꺼짐)으로 접지만, 이
+스위치에서 안전한 쪽은 **켜짐**이다. 오타 하나로 게이트가 조용히 꺼지면 그것이야말로 UI15가
+금지한 껍데기다. 그래서 정확히 `off`(대소문자 무시)일 때만 끈다.
+
+**값별 결과**
+
+- `on` — ingress가 켜져 있다(기본값). 실제 발화 여부는 `MCCP_HARNESS`의 지목과 차단 프로토콜 측정값이 함께 정한다.
+- `off` — 이 ingress만 끈다. 게이트 자체를 끄는 것이 아니며 Claude Code의 `UserPromptExpansion` 경로는 영향받지 않는다.
+- 열거 밖 값 — `on`으로 접힌다. 오타 하나로 게이트가 조용히 꺼지는 것이 여기서는 더 나쁜 실패이기 때문이다.
+
+**사용 예시**
+
+```bash
+# Codex ingress만 끈다 (Claude 경로는 그대로)
+MCCP_HARNESS_INGRESS=off codex exec "..."
+```
+
 ### MCCP_CODEX_DISABLED
 
 **종류** `bypass-flag` — **값** `1` — **기본값** `off`

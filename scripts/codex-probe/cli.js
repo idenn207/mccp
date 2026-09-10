@@ -84,6 +84,93 @@ function buildHooksConfig(command, events) {
 }
 
 
+// ── A1 — 비대화형 trust 승인 (M1 종료 축) ───────────────────────────────────
+// M1의 첫 측정은 발화를 6건 보고도 A1을 접었다. 전부 `--dangerously-bypass-hook-trust`
+// 였고, "신뢰 절차를 지나 발화한다"와 "신뢰 절차를 껐다"는 다른 사실이기 때문이다.
+// 비대화형 승인 경로가 **없다고** 판정한 것이 아니라 **찾지 못했다**고 적었고, 여기가
+// 그 값이다.
+//
+// 경로는 셋이 맞물린다:
+//   1. `config.toml`의 `[hooks.state."<key>"] { enabled, trusted_hash }`가 trust 기록이다.
+//      스키마는 타입 오류로 확정했다 — `hooks.state`는 map, 그 값은 struct HookStateToml.
+//   2. `<key>`와 기대 hash를 **추측하지 않는다.** app-server의 `hooks/list`가 hook마다
+//      `key` · `currentHash` · `trustStatus`를 그대로 준다. 우리가 계산하면 Codex의
+//      산식이 바뀌는 날 조용히 어긋나고, 그 어긋남은 "발화 0"과 같은 모양이라 계측기가
+//      자기 측정을 오염시킨다(`buildHooksConfig`의 이스케이프와 같은 실패 모드).
+//   3. `-c hooks.state."<key>"=...` **CLI override로는 안 된다** — key가 config.toml의
+//      절대경로를 담아 점을 포함하므로 dotted-path 파서가 그것을 쪼갠다. 파일에 쓴다.
+//
+// **음성 대조로 이 배선이 실재함을 고정한다**: hash를 한 글자 틀리면 `trustStatus`는
+// `modified`가 되고 발화는 0이다. 즉 이 함수가 승인하지 않으면 hook은 돌지 않는다.
+function listHooks(home, cwd, timeoutMs) {
+  // M3.5 — 단일 원본으로 이전됐다. 제품 CLI(`codex-bootstrap.js`)도 같은 파일을 부르므로
+  // 사본을 두면 갈라진다. 프로브는 배포 트리 밖이고 그 파일은 안이라 방향은 이쪽이다.
+  const client = path.resolve(__dirname, '..', '..', 'plugins', 'mccp', 'scripts', 'lib', 'codex-hooks-list.js');
+  const r = spawnSync(process.execPath, [client, home, cwd], {
+    encoding: 'utf8',
+    shell: false,
+    timeout: timeoutMs || 60000,
+    env: Object.assign({}, process.env, { CODEX_HOME: home }),
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (r.status !== 0) return { ok: false, reason: 'hooks/list exited ' + r.status, hooks: [] };
+  let parsed;
+  try { parsed = JSON.parse(String(r.stdout || '')); } catch (err) {
+    return { ok: false, reason: 'hooks/list output unparsable: ' + err.message, hooks: [] };
+  }
+  const entries = (parsed && parsed.data) || [];
+  const hooks = [];
+  entries.forEach(function (e) {
+    (e.hooks || []).forEach(function (h) {
+      if (h && typeof h.key === 'string' && typeof h.currentHash === 'string') hooks.push(h);
+    });
+  });
+  return { ok: true, reason: null, hooks: hooks };
+}
+
+// 승인 기록을 config.toml에 덧붙인다. **관측한 hook만** 승인한다 — 목록에 없는 것을
+// 미리 승인할 수단이 없고, 있어도 그것은 승인이 아니라 추측이다.
+// key의 첫 구간은 **선언원**이다 — config hook이면 `config.toml`의 절대경로, plugin hook이면
+// `<plugin>@<marketplace>`. 전자를 그대로 레코드에 실으면 DD10 관문이 `posix-home`으로
+// 거부한다(실측: 10건 전부). 관문을 넓히는 대신 값을 줄인다 — 이 필드가 답해야 하는 것은
+// "무엇이 승인됐는가"이고, 그것은 파일명과 이벤트·색인이면 성립한다. 절대경로는 감사값이
+// 없고(스크래치 home은 teardown으로 사라진다) 유출값만 있다.
+function shortHookKey(key) {
+  const i = String(key).indexOf(':');
+  if (i < 0) return String(key);
+  const origin = String(key).slice(0, i);
+  const rest = String(key).slice(i + 1);
+  const base = origin.includes('/') || origin.includes('\\') ? path.basename(origin) : origin;
+  return base + ':' + rest;
+}
+
+function grantHookTrust(home, cwd, timeoutMs) {
+  const listed = listHooks(home, cwd, timeoutMs);
+  if (!listed.ok) return { granted: 0, ok: false, reason: listed.reason, keys: [] };
+  if (listed.hooks.length === 0) {
+    return { granted: 0, ok: false, reason: 'hooks/list returned no hooks — nothing to trust', keys: [] };
+  }
+  const block = buildTrustBlock(listed.hooks);
+  fs.appendFileSync(path.join(home, 'config.toml'), block.toml);
+  return { granted: block.keys.length, ok: true, reason: null, keys: block.keys };
+}
+
+// TOML 조립은 순수 함수라 test가 실제 spawn 없이 형태를 단언한다 —
+// `buildHooksConfig`와 같은 이유이고, 그 이유가 여기서 더 무겁다: 이 블록이 어긋나면
+// 발화가 0이 되고 그것은 "hook이 발화하지 않는다"와 **같은 모양**이다.
+function buildTrustBlock(hooks) {
+  const lines = [''];
+  const keys = [];
+  hooks.forEach(function (h) {
+    lines.push('[hooks.state.' + tomlBasicString(h.key) + ']');
+    lines.push('enabled = true');
+    lines.push('trusted_hash = ' + tomlBasicString(h.currentHash));
+    lines.push('');
+    keys.push(shortHookKey(h.key));
+  });
+  return { toml: lines.join('\n'), keys: keys };
+}
+
 function gitPath(rel) {
   const r = spawnSync('git', ['rev-parse', '--git-path', rel], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error('git rev-parse failed: ' + (r.stderr || '').trim());
@@ -104,6 +191,11 @@ function defaultLog() { return path.join(tmpDir(), 'codex-probe.jsonl'); }
 function codexBin() { return process.env.MCCP_PROBE_CODEX_BIN || 'codex'; }
 
 // argv 배열 + shell:false. 문자열 보간 경로를 이 파일에 만들지 않는다.
+//
+// **stdin은 반드시 닫힌 채로 간다.** `spawnSync`는 `input`이 없으면 stdin 파이프를 즉시
+// EOF로 닫으므로 여기서는 저절로 성립하지만, 같은 명령을 셸에서 손으로 부르면 터미널
+// stdin을 물려받아 `codex exec`가 "Reading additional input from stdin..."에서 멎는다
+// (M3에서 실측 — 타임아웃까지 0바이트). 프로브 밖에서 재현할 때는 `< /dev/null`을 붙여라.
 function runCodex(args, opts) {
   const o = opts || {};
   return spawnSync(codexBin(), args, {
@@ -246,12 +338,19 @@ function cmdReport(args) {
   const before = readJson(flag(args, '--before', ''));
   const after = readJson(flag(args, '--after', ''));
   const observations = readJson(flag(args, '--observations', '')) || {};
+  // M2 B축 입력. plan Validation 4·5는 `report --in <file>`을 불렀는데 그런 플래그는
+  // 존재한 적이 없어 **조용히 기본 로그를 읽었다** — 검사가 아무것도 검사하지 않았다.
+  // 이름을 지어내는 대신 실제 입력 둘을 각각 받는다.
+  const block = readJson(flag(args, '--block', ''));
+  const truth = readJson(flag(args, '--truth', ''));
   const rec = report.deriveReport({
     log: log,
     before: before,
     after: after,
     diff: snapshot.diff(before, after),
     observations: observations,
+    block: block,
+    truth: truth,
   });
   const out = flag(args, '--out', null);
   const gate = makeGate({ repoRoot: process.cwd() });
@@ -303,6 +402,7 @@ function cmdRun(args) {
   let result;
   let authCopied = false;
   let trustMode;
+  let trustGrant = null;
   let cleanEnv = false;
   try {
     // [hooks] 등록. probe-hook의 절대경로가 필요하지만 이 파일은 config.toml(scratch home,
@@ -347,12 +447,24 @@ function cmdRun(args) {
     } catch (_) { /* 부재·이미 존재는 관측값이다 — 인증 실패로 나타난다 */ }
 
     // ── M2: 플래그와 trust_mode를 **같은 분기에서** 세운다 ──────────────────────
+    //
+    // **`trusted`는 이제 주장이 아니라 결과다** (A1). 이전에는 bypass 플래그가 없기만 하면
+    // 이 값이 `trusted`가 됐는데, 그때 hook은 실제로 승인되지 않아 발화가 0이었다 — 즉
+    // 값은 `trusted`인데 신뢰 절차를 지난 발화는 하나도 없는 상태를 레코드가 구분하지
+    // 못했다. 승인이 실제로 기록됐을 때만 `trusted`를 쓰고, 그러지 못하면 `untrusted`다.
+    // A1의 승격 규칙이 `trusted` 줄만 보므로 이 구분이 곧 축의 정직성이다.
     const argv = [entrypoint];
     if (bypass) {
       argv.push('--dangerously-bypass-hook-trust');
       trustMode = 'bypassed';
     } else {
-      trustMode = 'trusted';
+      trustGrant = grantHookTrust(home, process.cwd());
+      trustMode = trustGrant.granted > 0 ? 'trusted' : 'untrusted';
+      if (!trustGrant.ok) {
+        process.stderr.write('[codex-probe] hook trust NOT granted: ' + trustGrant.reason + '\n');
+      } else {
+        process.stderr.write('[codex-probe] hook trust granted for ' + trustGrant.granted + ' hook(s)\n');
+      }
     }
     argv.push(prompt);
 
@@ -393,6 +505,9 @@ function cmdRun(args) {
     run_id: runId,
     entrypoint: entrypoint,
     trust_mode: trustMode,
+    // 승인이 일어났는지를 레코드가 스스로 말한다. `trust_mode`만 있으면 `untrusted`가
+    // "승인을 시도했는데 실패했다"인지 "애초에 hook이 없었다"인지 구분되지 않는다.
+    hook_trust: trustGrant,
     clean_env: cleanEnv,
     codex_version: version,
     status: result ? result.status : null,
@@ -409,18 +524,84 @@ function main() {
   if (sub === 'snapshot') return cmdSnapshot(args);
   if (sub === 'report') return cmdReport(args);
   if (sub === 'teardown') {
+    // `--verify`는 **read-only**다. plan Validation 10이 이 플래그로 "격리 잔재 부재"를
+    // 확인하려 했는데 `main()`은 `--force`만 알았고, 결과적으로 그 검사는 파괴적 teardown을
+    // 실행하면서 남의 live run이 lock을 쥐고 있으면 exit 1(=잔재 있음)로 읽혔다.
+    // 검사와 파괴를 가른다.
+    if (args.indexOf('--verify') !== -1) {
+      const residue = [scratchHome(), authCopy(), runLock()].filter(function (p) {
+        try { return fs.existsSync(p); } catch (_) { return false; }
+      });
+      process.stdout.write(JSON.stringify({ clean: residue.length === 0, residue: residue.map(function (p) { return path.basename(p); }) }, null, 2) + '\n');
+      return process.exit(residue.length === 0 ? 0 : 1);
+    }
     const res = teardown({ force: args.indexOf('--force') !== -1 });
     process.stdout.write(JSON.stringify(res, null, 2) + '\n');
     return process.exit(res.removed ? 0 : 1);
   }
   if (sub === 'run') return cmdRun(args);
-  process.stderr.write('usage: cli.js <snapshot|report|teardown|run> [...]\n');
+  if (sub === 'gate-demo') {
+    const bp = require('./block-probe');
+    const outIdx = args.indexOf('--out');
+    const out = outIdx !== -1 ? args[outIdx + 1] : null;
+    const rec = bp.gateDemo({ repoRoot: process.cwd() });
+    const gate = makeGate({ repoRoot: process.cwd() });
+    if (out) {
+      const res = gate.writeGuarded({ path: out, data: rec });
+      if (!res.written) {
+        process.stderr.write('[codex-probe] DD10 gate REFUSED write: ' + res.hits.length + ' residual hit(s)\n');
+        return process.exit(1);
+      }
+    }
+    emitGuarded(gate, rec);
+    return process.exit(rec.pair_ok ? 0 : 1);
+  }
+  if (sub === 'block') {
+    // 계측 본문은 block-probe.js가 소유한다. 여기서는 진입점만 잇는다.
+    const bp = require('./block-probe');
+    const outIdx = args.indexOf('--out');
+    const out = outIdx !== -1 ? args[outIdx + 1] : null;
+    const rec = bp.sweep({ cwd: process.cwd() });
+    const gate = makeGate({ repoRoot: process.cwd() });
+    if (out) {
+      const res = gate.writeGuarded({ path: out, data: rec });
+      if (!res.written) {
+        process.stderr.write('[codex-probe] DD10 gate REFUSED write: ' + res.hits.length + ' residual hit(s)\n');
+        return process.exit(1);
+      }
+    }
+    emitGuarded(gate, rec);
+    return;
+  }
+  if (sub === 'reach') {
+    // C축 계측. 본문은 reach-probe.js가 소유하고 여기서는 진입점만 잇는다 —
+    // `block`과 같은 형태다. **모든 산출은 DD10 관문을 지난다**: 이 스윕은 plugin root
+    // 절대경로를 재는 것이 목적이라 지금까지 중 가장 위험한 producer다(security S7).
+    const rp = require('./reach-probe');
+    const outIdx = args.indexOf('--out');
+    const out = outIdx !== -1 ? args[outIdx + 1] : null;
+    const onlyIdx = args.indexOf('--only');
+    const only = onlyIdx !== -1 && args[onlyIdx + 1] ? args[onlyIdx + 1].split(',') : null;
+    const rec = rp.sweep({ cwd: process.cwd(), only: only });
+    const gate = makeGate({ repoRoot: process.cwd() });
+    if (out) {
+      const res = gate.writeGuarded({ path: out, data: rec });
+      if (!res.written) {
+        process.stderr.write('[codex-probe] DD10 gate REFUSED write: ' + res.hits.length + ' residual hit(s)\n');
+        return process.exit(1);
+      }
+    }
+    emitGuarded(gate, rec);
+    return;
+  }
+  process.stderr.write('usage: cli.js <snapshot|report|teardown|run|block|gate-demo|reach> [...]\n');
   process.exit(2);
 }
 
 module.exports = {
   teardown, scratchHome, authCopy, runLock, defaultLog, pidAlive, STALE_MS, runCodex,
   EVENT_CANDIDATES, tomlBasicString, buildHooksConfig, emitGuarded,
+  shortHookKey, buildTrustBlock,
 };
 
 if (require.main === module) main();

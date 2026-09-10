@@ -410,3 +410,103 @@ test('the coupling scanner skips vendored trees so the ratchet does not track in
   assert.ok(!keys.includes('CLAUDE_BETA'), 'node_modules must not enter the candidate universe');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// ── A1 — 비대화형 trust 승인 배선 ─────────────────────────────────────────────
+// M1의 첫 측정은 발화 6건을 보고도 A1을 접었다: 전부 bypass였기 때문이다. 이 배선이
+// 그 축을 닫는다. 아래 넷은 배선이 조용히 풀리는 방식을 하나씩 막는다.
+
+test('(a1-1) the trust block names the key and the hash Codex reported, not a computed one', () => {
+  const block = cli.buildTrustBlock([
+    { key: '/tmp/probe-home/config.toml:session_start:0:0', currentHash: 'sha256:aaaa' },
+    { key: 'mccp@mccp-local:hooks/hooks.json:pre_tool_use:1:0', currentHash: 'sha256:bbbb' },
+  ]);
+  assert.match(block.toml, /\[hooks\.state\."\/tmp\/probe-home\/config\.toml:session_start:0:0"\]/);
+  assert.match(block.toml, /trusted_hash = "sha256:aaaa"/);
+  assert.match(block.toml, /\[hooks\.state\."mccp@mccp-local:hooks\/hooks\.json:pre_tool_use:1:0"\]/);
+  assert.match(block.toml, /trusted_hash = "sha256:bbbb"/);
+  // `enabled`가 빠지면 기록은 있는데 발화는 0이다 — 그 상태는 "승인 안 함"과 구분되지 않는다.
+  assert.strictEqual((block.toml.match(/^enabled = true$/gm) || []).length, 2);
+});
+
+test('(a1-2) the key is escaped as a TOML basic string so a path cannot break the block', () => {
+  const block = cli.buildTrustBlock([{ key: 'C:\\probe\\config.toml:stop:0:0', currentHash: 'sha256:c' }]);
+  assert.ok(block.toml.includes('[hooks.state."C:\\\\probe\\\\config.toml:stop:0:0"]'), block.toml);
+});
+
+test('(a1-3) emitted keys drop the absolute origin so the DD10 gate does not refuse the record', () => {
+  // 실측: 절대경로 key 10건을 그대로 실었더니 관문이 `posix-home` 11건으로 쓰기를 거부했다.
+  // 관문을 넓히는 것이 아니라 값을 줄이는 것이 답이다 — 절대경로는 감사값이 없다.
+  assert.strictEqual(cli.shortHookKey('/home/someone/.codex/config.toml:session_start:0:0'),
+    'config.toml:session_start:0:0');
+  // plugin hook의 첫 구간은 경로가 아니라 식별자이므로 **그대로 둔다**.
+  assert.strictEqual(cli.shortHookKey('mccp@mccp-local:hooks/hooks.json:stop:0:0'),
+    'mccp@mccp-local:hooks/hooks.json:stop:0:0');
+});
+
+test('(a1-4) `untrusted` is a distinct mode and still does not promote A1', () => {
+  // 승인에 실패한 실행을 `trusted`로 적으면 A1이 거짓으로 승격한다. 별도 값이어야 하고,
+  // 그 별도 값이 승격 규칙으로 새면 안 된다.
+  const l = line({ run: { run_id: 'r1', trust_mode: 'untrusted', codex_version: V, entrypoint: 'exec' } });
+  const r = report.deriveReport({
+    log: [l], before: snap(), after: snap(),
+    diff: { comparable: true, clean: true, added: [], removed: [] },
+  });
+  assert.strictEqual(r.axes.A1_hook_fires.verdict, 'unmeasured');
+  assert.match(r.axes.A1_hook_fires.reason, /none with run\.trust_mode="trusted"/);
+  assert.strictEqual(r.milestone_closeable.ok, false);
+});
+
+// ── M2 Task 1 — hooks.json이 두 하네스 모두에서 파싱되는 형태인가 ─────────────
+//
+// Codex의 plugin hooks 구조체는 `deny_unknown_fields`라 상위키 하나가 **전체 파싱을**
+// 죽인다. 그리고 그 실패는 error가 아니라 warning이라 설치는 성공으로 보이고 hook은
+// 전부 사라진다 — UI15가 금지한 껍데기의 교과서적 사례다. 수용 집합은 우리가 정한 것이
+// 아니라 Codex가 오류 메시지로 알려 준 것이다:
+//   `unknown field '$schema', expected 'description' or 'hooks'`
+
+const HOOKS_JSON = require('../../plugins/mccp/hooks/hooks.json');
+const TRUTH = require('../../.claude/_meta/data/2026-09-09-codex-harness-truth.json');
+
+test('M2/1(a) hooks.json의 상위키는 {description, hooks}의 부분집합이다', () => {
+  const allowed = new Set(['description', 'hooks']);
+  const bad = Object.keys(HOOKS_JSON).filter((k) => !allowed.has(k));
+  assert.deepEqual(bad, [], 'Codex rejects the whole file on any unknown top-level key');
+});
+
+test('M2/1(b) $schema가 되살아나면 red — 재유입은 산문이 아니라 test가 막는다', () => {
+  assert.equal(Object.prototype.hasOwnProperty.call(HOOKS_JSON, '$schema'), false);
+});
+
+test('M2/1(c) 등록된 이벤트 이름은 Codex enum이거나 열거된 예외뿐이다', () => {
+  // 기대값을 원자료에서 파생한다 — 두 표면이 조용히 갈라지지 못하게 하는 형태
+  // (`EVENT_CANDIDATES` 선례와 같다).
+  const enumRun = TRUTH.runs.find((r) => r.id === 'event-enum');
+  assert.ok(enumRun, 'event-enum run must exist');
+  const codexAccepts = new Set(enumRun.result.fields_present);
+
+  // Claude Code에만 있는 이름. 이 목록 **밖의** 새 이름이 들어오면 red가 된다 —
+  // Codex에서 조용히 무시될 hook을 늘리는 일이 리뷰 없이 일어나지 않게 한다.
+  const CLAUDE_ONLY = new Set(enumRun.result.mccp_events_absent);
+
+  const unexpected = Object.keys(HOOKS_JSON.hooks)
+    .filter((e) => !codexAccepts.has(e) && !CLAUDE_ONLY.has(e));
+  assert.deepEqual(unexpected, [],
+    'a registered event that neither harness enumerates is silently dead on at least one of them');
+});
+
+test('M2/1(d) Codex ingress가 등록돼 있고 그 id가 안정적이다', () => {
+  const ups = HOOKS_JSON.hooks.UserPromptSubmit;
+  assert.ok(Array.isArray(ups) && ups.length === 1, 'exactly one UserPromptSubmit group');
+  assert.equal(ups[0].id, 'mccp:receipt-prompt-submit');
+  const cmds = ups[0].hooks.map((h) => h.command);
+  assert.equal(cmds.length, 1);
+  assert.match(cmds[0], /receipt-prompt-submit\.js/);
+});
+
+test('M2/1(e) UserPromptSubmit은 Codex enum에 실재한다 — 죽은 이벤트에 걸지 않았다', () => {
+  const enumRun = TRUTH.runs.find((r) => r.id === 'event-enum');
+  assert.ok(enumRun.result.fields_present.indexOf('UserPromptSubmit') !== -1);
+  const fired = TRUTH.runs.find((r) => r.id === 'dispatch-fired');
+  assert.ok(fired.result.fired_in_order.indexOf('UserPromptSubmit') !== -1,
+    'the chosen ingress must be an event that was observed FIRING, not merely accepted');
+});

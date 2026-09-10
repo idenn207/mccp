@@ -4,8 +4,12 @@
 
 Codex CLI `0.153.4`에서 mccp hook이 실제로 무엇을 하는지를 **실행으로** 쟀다. 산출은 셋이다 —
 재현 가능한 계측 하네스(`scripts/codex-probe/`, 7 모듈 1,317줄) · 판정 문서 · 원자료 JSON.
-7축 중 **6축이 `measured`**이고, A1(hook 발화)은 규칙에 따라 `unmeasured`로 남아
-**milestone은 닫히지 않았다**(`milestone_closeable.ok = false`).
+~~7축 중 **6축이 `measured`**이고, A1(hook 발화)은 규칙에 따라 `unmeasured`로 남아
+**milestone은 닫히지 않았다**(`milestone_closeable.ok = false`).~~
+**정정 (같은 날 A1 재측정).** 7축 **전부** `measured`이고 `milestone_closeable.ok = true`다.
+막고 있던 것은 비대화형 trust 승인 경로의 부재였고, 그것을 찾아 프로브에 배선한 뒤
+**bypass 플래그 없이** 6종 10건을 발화시켰다. `report.js`의 승격 규칙은 한 글자도 바뀌지 않았다 —
+바뀐 것은 그 규칙을 만족하는 실행이 실재하게 됐다는 사실뿐이다.
 
 가장 값나가는 결과 넷:
 
@@ -157,9 +161,10 @@ M6은 통제가 test 안에 있다(`gate.inspect(payload).ok === true`가 구조
 
 **반올림 없이 열거한다.**
 
-- **A1 hook 발화 — `unmeasured`.** 발화 6건을 보았으나 전부 `--dangerously-bypass-hook-trust` 하였다.
-  비대화형 trust 승인 경로를 찾지 못했고, 찾기 전에는 "게이트가 신뢰 절차를 지나 발화한다"를
-  주장할 수 없다. **milestone 1은 이 때문에 닫히지 않았다.**
+- ~~**A1 hook 발화 — `unmeasured`.**~~ **해소(같은 날).** 승인 기록은 `config.toml`의
+  `[hooks.state."<key>"] { enabled, trusted_hash }`이고 key·기대 hash는 app-server `hooks/list`가
+  준다. 음성 대조(hash 1바이트 오류 → `trustStatus=modified` → 발화 0)로 경로의 실재를 고정했다.
+  **milestone 1은 이제 닫힌다.** 이 줄을 지우지 않는 이유는 축이 한 번 접혔다는 사실 자체가 기록이기 때문이다.
 - **발화하지 않은 이벤트 4종** — `PreCompact` · `PostCompact` · `SubagentStart` · `SubagentStop`은
   config가 받지만 한 턴짜리 `exec`에서 도달하지 않았다. 수용 확인, 발화 미확인.
 - **대화형 세션 미측정** — 전 측정이 `codex exec`(비대화형)다. TTY 세션의 trust 프롬프트와
@@ -179,4 +184,5 @@ M6은 통제가 test 안에 있다(`gate.inspect(payload).ok === true`가 구조
 - [ ] `/mccp:code-review` 또는 `/mccp:prp-commit` → `/mccp:pr`
 - [ ] M2 진입 시 **첫 작업**: `plugins/mccp/hooks/hooks.json`의 `$schema` 제거 (1행, 이것 없이는 전 게이트가 껍데기)
 - [ ] M2: receipt 게이트의 대체 ingress 선정 (`UserPromptExpansion` 부재)
-- [ ] M2: 비대화형 trust 승인 경로 조사 — A1을 `measured`로 올려 milestone 1을 닫는다
+- [x] ~~M2: 비대화형 trust 승인 경로 조사 — A1을 `measured`로 올려 milestone 1을 닫는다~~
+      **M1 안에서 완료.** M2는 이 값을 물려받아 쓰기만 하면 된다

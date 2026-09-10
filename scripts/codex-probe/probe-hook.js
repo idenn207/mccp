@@ -37,7 +37,10 @@ const VALUE_ALLOWLIST = [
 // 목록 편집 실수 한 번이 곧 유출이 되지 않게 한다.
 const SECRET_NAME_RE = /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i;
 
-const TRUST_MODES = ['trusted', 'bypassed', 'unknown'];
+// `untrusted`는 `unknown`과 다르다 — 전자는 승인을 시도했고 실패했다는 관측이고, 후자는
+// 부모가 값을 넘기지 않았다는 뜻이다. A1은 `trusted`만 승격하므로 둘 다 접히지만, 접힌
+// 이유가 레코드에서 갈려야 M2가 무엇을 고칠지 안다.
+const TRUST_MODES = ['trusted', 'bypassed', 'untrusted', 'unknown'];
 
 const MAX_EVENT_DEPTH = 8;
 const MAX_STRING = 4096;

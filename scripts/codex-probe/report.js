@@ -23,6 +23,15 @@ const AXES = [
   'A4_trust_procedure',
   'A5_env_projection',
   'A6_payload_shape',
+  // ── M2 B축 ────────────────────────────────────────────────────────────────
+  // A축과 승격 규칙이 다르다. A축의 증거는 프로브 **로그 줄 인덱스**인데 B축의 증거는
+  // 스윕 레코드의 **run 인덱스**다. 그래서 `promote`(로그 줄 + 스냅샷 버전 결속)를
+  // 재사용하지 않고 자기 관문을 갖는다 — 재사용하면 로그가 빈 실행에서 B축이 통째로
+  // 접히는데, B축은 로그와 무관하게 성립하는 관측이다.
+  'B1_block_protocol',
+  'B2_block_negative_control',
+  'B3_plugin_root_substitution',
+  'B4_harness_discriminator',
   'revert_integrity',
 ];
 
@@ -185,6 +194,9 @@ function deriveReport(input) {
     }, allLines, ctx);
   }
 
+  // ── B축 ────────────────────────────────────────────────────────────────────
+  deriveBlockAxes(axes, inp.block || null, inp.truth || null);
+
   const measuredCount = AXES.filter(function (a) { return axes[a].verdict === 'measured'; }).length;
 
   // **milestone_closeable** (리뷰 R1 invariant-HIGH 흡수). plan Task 6은 측정 결과와 무관하게
@@ -207,4 +219,77 @@ function deriveReport(input) {
   };
 }
 
-module.exports = { SCHEMA, AXES, deriveReport, eventNameOf, versionBinding };
+// B축 승격. **버전 없는 값은 인용하지 않는다**(UI13) — 스윕 레코드가 `codex_version`을
+// 갖지 않으면 그 축은 접힌다. 그리고 `blocked` 관측이 있어도 **음성 대조가 성립하지
+// 않으면 B1은 승격하지 않는다**: 통제 없는 양성은 배선의 실재를 고정하지 못한다(M1 A4).
+function deriveBlockAxes(axes, block, truth) {
+  const unmeasuredAll = function (reason) {
+    ['B1_block_protocol', 'B2_block_negative_control'].forEach(function (k) {
+      axes[k] = unmeasured(reason);
+    });
+  };
+
+  if (!block || !Array.isArray(block.runs) || block.runs.length === 0) {
+    unmeasuredAll('no block-probe sweep supplied');
+  } else if (!block.codex_version) {
+    unmeasuredAll('block sweep carries no codex_version (UI13)');
+  } else {
+    const runs = block.runs.filter(function (r) { return r && !r.skipped; });
+    const controls = runs.filter(function (r) { return r.protocol === 'allow-control'; });
+    const okControls = controls.filter(function (r) { return r.verdict === 'not-blocked'; });
+    const blockedRuns = runs.filter(function (r) { return r.verdict === 'blocked'; });
+
+    if (okControls.length === 0) {
+      axes.B2_block_negative_control = unmeasured(
+        'no allow-control run reached the protected operation — the control itself failed');
+      axes.B1_block_protocol = unmeasured(
+        'without a passing negative control a blocked observation cannot be attributed to the protocol');
+    } else {
+      axes.B2_block_negative_control = measured({
+        events: okControls.map(function (r) { return r.event; }),
+        protected_ops: okControls.map(function (r) { return r.protected_op; }),
+      }, okControls.map(function (r) { return runs.indexOf(r); }));
+
+      // 통제가 성립한 **그 이벤트**의 차단만 센다.
+      const controlledEvents = new Set(okControls.map(function (r) { return r.event; }));
+      const attributable = blockedRuns.filter(function (r) { return controlledEvents.has(r.event); });
+      if (attributable.length === 0) {
+        axes.B1_block_protocol = measured({
+          blocking_protocols: [],
+          note: 'no candidate format blocked — the receipt gate cannot be enforced on this harness/version',
+          codex_version: block.codex_version,
+        }, runs.map(function (_, i) { return i; }));
+      } else {
+        axes.B1_block_protocol = measured({
+          blocking_protocols: attributable.map(function (r) { return r.protocol; }),
+          events: Array.from(new Set(attributable.map(function (r) { return r.event; }))),
+          not_honoured: runs.filter(function (r) { return r.verdict === 'not-blocked' && r.protocol !== 'allow-control'; })
+            .map(function (r) { return r.protocol; }),
+          codex_version: block.codex_version,
+        }, attributable.map(function (r) { return runs.indexOf(r); }));
+      }
+    }
+  }
+
+  // B3 — `${CLAUDE_PLUGIN_ROOT}` 문자열 치환 여부. 아직 재지 않았다.
+  axes.B3_plugin_root_substitution = unmeasured(
+    'not probed: the sweep registers absolute hook paths, so the substitution axis never fired');
+
+  // B4 — 판별자. **음성 결과가 곧 측정값이다.** M1이 Codex의 env 투영을 쟀고 주입이
+  // 하나도 없음을 확인했다. 그것이 DD3를 반증하고 "명시 designation 외에 양성 codex
+  // 신호가 없다"를 고정한다.
+  const envRun = truth && Array.isArray(truth.runs)
+    ? truth.runs.find(function (r) { return r.id === 'env-projection-clean'; }) : null;
+  if (envRun && Array.isArray(envRun.result.injected_by_codex)) {
+    axes.B4_harness_discriminator = measured({
+      codex_injects: envRun.result.injected_by_codex,
+      claude_plugin_root_injected_by_codex: envRun.result.CLAUDE_PLUGIN_ROOT_injected,
+      consequence: 'no environment variable positively identifies a Codex host; the oracle requires an explicit MCCP_HARNESS designation',
+      codex_version: truth.codex_version || null,
+    }, [0]);
+  } else {
+    axes.B4_harness_discriminator = unmeasured('no env-projection run in the truth record');
+  }
+}
+
+module.exports = { SCHEMA, AXES, deriveReport, eventNameOf, versionBinding, deriveBlockAxes };

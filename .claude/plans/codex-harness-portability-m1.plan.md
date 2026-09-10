@@ -365,10 +365,10 @@ test ! -e "$(git rev-parse --git-path mccp/tmp)/codex-probe-home"
 
 ## Acceptance
 
-- [ ] All tasks complete
-- [ ] Validation passes
-- [ ] Patterns mirrored, not reinvented
-- [ ] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
+- [x] All tasks complete
+- [x] Validation passes
+- [x] Patterns mirrored, not reinvented
+- [x] 게이트/경로를 실제로 1회 완주하고 산출물을 확인 (단위 test 통과 ≠ 경로 작동)
 
 라이브 완주가 반드시 내야 하는 산출물:
 
@@ -482,3 +482,11 @@ surface를 만들지 않으므로 implement 단계에서도 대부분 강등될 
 - References section sha256: 418212b71a4c1719a2686c561b4ccfa35258753ea632cf71be75fe0fc9d96efa
 - Stamped at: 2026-09-09T01:57:35.679Z
 - Anchor: plan body content is hash-anchored by the plan-codex receipt's plan_hash. Any post-stamp PRD mutation in ## References will mismatch on the next /mccp:plan validate.
+
+## Milestone Closure Provenance
+
+- Milestone : 1-harness-truth
+- Verdict   : done
+- Closure   : .claude/milestone-closures/1-harness-truth.md
+- sha256    : sha256:3e7ed5be7bfcee8a4ff7982f18f7ecf7f5c202308175c0fd0d27c80916fb749e
+- Stamped at: 2026-09-09T05:40:14Z

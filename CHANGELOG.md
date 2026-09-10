@@ -19,6 +19,126 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- **codex-harness-portability M3.5 — codex-ship (hotfix).** Codex 하네스에서 mccp가 **설치되고
+  발화하는 상태**를 운영자 한 번의 명령으로 만든다. `plugins/mccp/scripts/lib/codex-bootstrap.js`
+  (`status` 진단 4축 · `bootstrap [--apply]` 부트스트랩)와, 프로브에서 배포 트리로 **이전**된
+  `plugins/mccp/scripts/lib/codex-hooks-list.js`(사본이 아니라 단일 원본 — 프로브가 이쪽을 부른다).
+  M4·M5를 완주할 예산이 남지 않아 남은 축을 Codex 하네스에서 이어가기로 한 결정에 따른 hotfix이며,
+  이 저장소의 첫 릴리스 컷을 동반한다.
+
+  **성공 조건이 두 축인 것이 이 milestone의 실질이다.** 파일이 해소된다는 사실은 hook이
+  발화한다는 사실이 아니다 — `command-reach.js`의 `verify()`는 codex 캐시가 비면 claude 캐시로
+  폴백하고, `ROOT_ENV_NAMES`가 캐시 후보보다 먼저 오며, `harness==='claude'`면 즉시 단락된다.
+  실측(2026-09-10, mccp 미설치 상태)이 그것을 확증했다: `resolved via R-d:claude-cache, not the
+  Codex plugin cache`. 그래서 `--apply`의 exit 0은 (i) `hooks/list`가 mccp hook을
+  `trustStatus='trusted'`로 보고하고 (ii) `verify()`의 `rootSource`가 `R-d:codex-cache`일 때만
+  나온다. 축 (ii)는 root env 4종을 **지운 자식 프로세스**에서 돈다.
+
+  **trust 승인은 mccp 소유 hook에 한정된다.** 프로브의 `grantHookTrust`는 `hooks/list` 반환
+  전량을 승인하는데, 스크래치 home에서만 안전한 동작이고 실사용 `~/.codex/config.toml`에 같은
+  짓을 하면 서드파티 hook 전부를 무차별 승인하는 권한 상승이다. 세 조건(선언원=`mccp@…` ·
+  `trustStatus!=='modified'` · 운영자가 끄지 않음)을 모두 만족하는 것만 승인하고 나머지는
+  사유와 함께 보고한다. 병합은 멱등이고(두 번 = 한 번, 바이트 동일) 타 plugin 블록을 보존하며,
+  `--apply`는 `{flag:'wx', mode:0o600}` 백업을 먼저 남긴다. dry-run이 기본이다.
+
+  순서는 **`컷 → 설치 → trust → 검증`**이다 — `trusted_hash`는 hook 본문의 해시라 컷이 본문을
+  바꾸면 기존 승인이 `modified`가 되고 발화가 0으로 돌아간다.
+  상세: [docs/codex-harness-portability/m3_5-codex-ship.md](docs/codex-harness-portability/m3_5-codex-ship.md)
+
+- **codex-harness-portability M3 — command-reach.** Codex에서 mccp 명령 **본문에 도달**한다.
+  `plugins/mccp/skills/run-command/SKILL.md`(dispatcher 하나, 명령 목록도 본문 사본도 싣지
+  않는다) + `plugins/mccp/scripts/lib/command-reach.js`(순수 후보 계산과 fs 검증을 가른
+  해소 오라클, `resolve` CLI shim). 라이브 실증: 실제 Codex 세션이 `plan-prd` 본문의 고유
+  헤딩을 축자 인용했고, 존재하지 않는 이름으로는 나오지 않았다(음성 대조 성립).
+  `scripts/codex-probe/reach-probe.js` + `cli.js reach`로 C축을 계측한다.
+- **DD10 redact 관문 커버리지 래칫** (`scripts/tests/redact-gate-coverage.test.js`). 관문을
+  지나지 않는 쓰기를 금지하지 않고 **가시화**한다 — 면제를 늘리려면 상한 상수를 올리는 별도
+  편집이 필요하고 그 사실이 diff에 숫자로 남는다.
+
+### Fixed
+
+- **`--plan` 인자로 임의 파일을 읽히던 경로를 닫았다** (보안, 재현됨). 진입점은 넷이었고
+  (`receipt-prompt.js` · `receipt-skill.js` · `receipt-prompt-submit.js` · `receipt/cli.js`)
+  그중 셋은 어떤 검사도 하지 않아 **평문 `--plan /dev/zero`만으로** 무제한 동기 read에
+  도달했다. 방어를 ingress마다 두지 않고 공유 초크포인트 `hash.js#markdownHash` 하나에
+  걸었다 — `open(O_NONBLOCK)` → `fstat(fd)` → `isFile()` → 상한 → bounded read.
+  `isFile()`이 실효 가드다(`/dev/zero`는 size를 0으로 보고하므로 상한만으로는 통과한다).
+  정상 파일의 해시값은 **불변**이라 기존 receipt는 stale이 되지 않는다.
+- **sanitizer와 소비처의 tokenizer 불일치를 없앴다.** `receipt-prompt-submit.js`가 공백으로
+  쪼개는 동안 `extract-plan-path.js`는 따옴표를 해석해, `"--plan" /dev/zero`가 검사를 그대로
+  통과했다. 이제 소비처의 tokenizer를 **빌려 쓰고** 재조립은 무손실이다 — 부수 효과로
+  공백을 품은 정당한 경로(`--plan "a b.md"`)가 처음으로 온전히 전달된다.
+- **중간 디렉토리 symlink 탈출을 막았다.** `checkPlanPath`가 어휘적 경로로 containment를
+  재고 마지막 요소만 `lstat`해, `/proc/self/root/etc/passwd`류가 통과했다(실측). 이제
+  `realpath` 기준으로 잰다.
+
+- **Codex receipt-gate ingress** — codex-harness-portability **M2 (gate-ingress)**. Codex에서
+  게이트 발화 수를 0에서 1로 올리고, 선행 receipt 부재 시 **실제로 차단하는 것**을 실측했다
+  (`runs[id=gate-block-live].pair_ok=true`). 신규 3면: `plugins/mccp/scripts/lib/harness-ingress.js`
+  (하네스 판별 + ingress 지목 오라클, 순수) · `plugins/mccp/scripts/hooks/receipt-prompt-submit.js`
+  (`UserPromptSubmit` ingress) · `scripts/codex-probe/block-probe.js`(B1·B2 스윕 + `gate-demo`).
+  판정은 [docs/codex-harness-portability/m2-gate-ingress.md](docs/codex-harness-portability/m2-gate-ingress.md).
+- **차단 프로토콜 실측(B1)** — `UserPromptSubmit`에서 stdout `{"decision":"block"}` + exit 0과
+  `exit 2 + stderr`가 **둘 다 차단**하고 `hookSpecificOutput.permissionDecision=deny`는
+  **존중되지 않는다**(codex-cli 0.153.4). 채택은 전자 — `receipt-prompt.js`가 이미 내는 형식이라
+  게이트 코어에 두 번째 직렬화기가 필요 없다. 판정은 종료 코드가 아니라 **보호 대상 연산의
+  미발생**이며, 음성 대조 없이는 어떤 차단 관측도 승격하지 않는다.
+- `MCCP_HARNESS` · `MCCP_HARNESS_INGRESS` — env-contract registry·색인·상세 앵커 3면 등재.
+- `scripts/codex-probe/cli.js teardown --verify` — read-only 잔재 검사(파괴적 teardown과 분리).
+
+### Changed
+
+- `plugins/mccp/scripts/hooks/receipt-prompt.js` — 게이트 코어를 `runGate(event, opts)`로 export
+  하고 stdout 방출 **5곳 전부**를 주입 가능한 seam 뒤로 냈다(`block()`만이 아니다 — 그러면
+  recovery·tempfail·debug ALLOW가 번역되지 않은 채 남는다). 기본값이 곧 무변경 보장이라 Claude
+  경로는 바이트 동일하고, 기존 hook·receipt test 1032건이 green이다.
+- `plugins/mccp/scripts/hooks/bootstrap.js` — `resolveRoot()` 해소 순서를
+  `env(+marker 검증) → __dirname 상대 → home 스캔`으로 바꿨다. 이전에는 `CLAUDE_PLUGIN_ROOT`를
+  **무검증으로 require**했고 env가 비면 곧바로 `~/.claude/plugins/cache/…`를 훑어, 호스트가 승인한
+  본문과 실제로 실행되는 본문이 갈릴 수 있었다.
+- `plugins/mccp/hooks/hooks.json` — `$schema` 제거(Codex의 hooks 구조체는 `deny_unknown_fields`라
+  그 한 줄이 전체 파싱을 죽이고, 실패가 warning이라 조용하다) + `UserPromptSubmit` ingress 등록.
+  제거는 **하네스 가드가 선 뒤에** 착지시켰다 — 그 한 줄이 Codex에서 살리는 것은 hook 1건이 아니라
+  핸들러 29건이고 그중 다섯이 exit 2 default-deny 가드다.
+- `scripts/codex-probe/scan-coupling.js` — `claude-env-name` 추출 정규식이 후행 `_`를 물어
+  실재하지 않는 이름(`CLAUDE_PLUGIN_ROOT_`)을 후보로 올리던 결함을 닫았다. 인벤토리에 화석으로
+  남아 있던 같은 산물도 정정.
+
+### Fixed
+
+- plan Validation 4건이 구조적으로 무효였다: `report --in`은 존재한 적 없는 플래그라 조용히 기본
+  로그를 읽었고, `scan-coupling`의 `unlisted`는 **수**라 `.length` 검사가 어떤 입력에도 falsy였으며,
+  Node 22의 `--test`는 디렉토리 인자를 모듈 경로로 해석하고, `teardown --verify`는 구현된 적이 없어
+  잔재 확인 대신 파괴적 teardown을 실행했다.
+
+### Added
+
+- `scripts/codex-probe/` — codex-harness-portability **M1 (harness-truth)**. Codex CLI
+  0.153.4에서 mccp hook이 실제로 무엇을 하는지 재는 계측 하네스(실행/순수 2층 · DD10 redaction
+  관문 · 결합 스캐너). 7축 전부 `measured`이고 `report.js`의 `milestone_closeable`이 `ok:true`를
+  낸다. 판정은 [docs/codex-harness-portability/m1-harness-truth.md](docs/codex-harness-portability/m1-harness-truth.md),
+  원자료는 `.claude/_meta/data/2026-09-09-codex-harness-truth.json`.
+- `scripts/codex-probe/hooks-list.js` — app-server `hooks/list` 왕복 1회. hook마다
+  `key` · `currentHash` · `trustStatus`를 그대로 받아 온다. `cli.js`가 `spawnSync` 한 번으로
+  부르도록 비동기 stdio JSON-RPC를 이 파일에 가둔다.
+- **비대화형 hook trust 승인**(A1을 닫은 값). 승인 기록은 `config.toml`의
+  `[hooks.state."<key>"] { enabled = true, trusted_hash = "<currentHash>" }`이고, key와 기대
+  hash는 **계산하지 않고** `hooks/list`가 준 것을 그대로 쓴다. `-c` dotted-path override로는
+  적용되지 않는다(key가 경로를 담아 파서가 쪼갠다). 음성 대조: hash 1바이트 오류 →
+  `trustStatus=modified` → 발화 0.
+
+### Changed
+
+- `scripts/codex-probe/cli.js` — `trust_mode`가 **주장이 아니라 결과**가 됐다. 이전에는 bypass
+  플래그가 없기만 하면 `trusted`로 적혔는데 그때 hook은 승인되지 않아 발화가 0이었다 — 값은
+  `trusted`인데 신뢰 절차를 지난 발화가 하나도 없는 상태를 레코드가 구분하지 못했다. 승인이
+  실제로 기록됐을 때만 `trusted`이고, 실패하면 새 값 `untrusted`다(A1 승격 규칙은 무변경).
+  레코드에 `hook_trust`(승인 건수·사유·축약 key)를 함께 싣는다.
+- `scripts/codex-probe/cli.js` — 승인 key를 레코드에 실을 때 절대경로 구간을 basename으로
+  줄인다. 실측: 전체 key 10건을 그대로 실었더니 DD10 관문이 `posix-home` 11건으로 쓰기를
+  거부했다. 관문을 넓히는 대신 값을 줄였다 — 스크래치 home은 teardown으로 사라지므로 절대경로에
+  감사값이 없다.
+
 - `plugins/mccp/scripts/lib/leadtime-surface.js` — 한 줄 포매터. `formatLeadtimeLine`이
   CLI · `STATUS.md` · `status.html` · `distribution.json` **네 면이 공유하는 유일한 문장**을
   만든다. `assertCoverageAdjacency`가 "커버리지 없는 값 토큰은 존재할 수 없다"를 기계적으로

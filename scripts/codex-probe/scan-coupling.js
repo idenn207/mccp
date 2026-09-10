@@ -84,7 +84,11 @@ const RULES = [
     id: 'claude-env-name',
     kind: 'name',
     why: 'CLAUDE_* env 이름에 결속한다 — Codex가 주입하는 이름은 측정되지 않았다(A5)',
-    extract: /CLAUDE_[A-Z0-9_]+/g,
+    // 후행 `_`를 포함하지 않는다. `CLAUDE_PLUGIN_ROOT_injected`(측정 레코드의 필드명)
+    // 에서 `CLAUDE_PLUGIN_ROOT_`를 잡아 **실재하지 않는 env 이름**을 후보로 올리던 결함을
+    // 닫는다 — env 이름은 `_`로 끝나지 않는다. 이제 같은 문자열이 실재하는
+    // `CLAUDE_PLUGIN_ROOT`로 접혀 기존 항목이 덮는다.
+    extract: /CLAUDE_[A-Z0-9_]*[A-Z0-9]/g,
     include: /\.(js|mjs|cjs)$/,
   },
   {

@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: codex-harness-portability-m1
+task_fingerprint: codex-harness-portability-m3
 gate_id: stop-review-loop
-decision_id: codex-harness-portability-m1
-created_at: 2026-09-09T02:34:54.571Z
-expires_at: 2026-09-16T02:34:54.571Z
+decision_id: codex-harness-portability-m3
+created_at: 2026-09-09T08:47:49.352Z
+expires_at: 2026-09-16T08:47:49.352Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-implement-codex/codex-harness-portability-m1.json
+  - .claude/receipts/mccp-implement-codex/codex-harness-portability-m3.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-implement-codex/codex-harness-portability-m1.json
+- .claude/receipts/mccp-implement-codex/codex-harness-portability-m3.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/codex-harness-portability-m1>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/codex-harness-portability-m3>'

@@ -72,6 +72,8 @@ lint L12가 대조한다.
 |`MCCP_RECEIPT_DEBUG`|bool|on/off|off|receipt 디버그 출력.|[→](environment/gates.md#mccp_receipt_debug)|
 |`MCCP_RECEIPT_DEBUG_LEGACY_INLINE`|bool|on/off|on|구형 inline 디버그 유지.|[→](environment/gates.md#mccp_receipt_debug_legacy_inline)|
 |`MCCP_ALLOW_CODEX_UNAVAILABLE`|bypass-flag|1|off|Codex 미가용 시 advisory.|[→](environment/gates.md#mccp_allow_codex_unavailable)|
+|`MCCP_HARNESS`|enum|claude/codex|—|호스트 하네스 명시 지정 — 오라클의 유일한 양성 codex 경로.|[→](environment/gates.md#mccp_harness)|
+|`MCCP_HARNESS_INGRESS`|enum|on/off|on|Codex ingress kill switch — off만 끄고 그 밖의 값은 on으로 접힌다.|[→](environment/gates.md#mccp_harness_ingress)|
 |`MCCP_CODEX_DISABLED`|bypass-flag|1|off|Codex 호출 영구 skip.|[→](environment/gates.md#mccp_codex_disabled)|
 |`MCCP_CODEX_DESIGN_SCOPE_HONOR`|bool|on/off|on|Codex design-scope preamble.|[→](environment/gates.md#mccp_codex_design_scope_honor)|
 |`MCCP_STOP_LOOP`|enum|off/observe/enforce|observe|Stop-loop 게이트 모드.|[→](environment/gates.md#mccp_stop_loop)|

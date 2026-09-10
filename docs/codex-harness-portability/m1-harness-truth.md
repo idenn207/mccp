@@ -1,6 +1,6 @@
 # M1 harness-truth — Codex CLI 0.153.4에서 mccp hook이 실제로 무엇을 하는가
 
-> 측정일 2026-09-09 · `codex-cli 0.153.4` · 단일 운영자 dogfood(UI14).
+> 측정일 2026-09-09(A1·A4 재측정 동일자) · `codex-cli 0.153.4` · 단일 운영자 dogfood(UI14).
 > 모든 수치는 [`.claude/_meta/data/2026-09-09-codex-harness-truth.json`](../../.claude/_meta/data/2026-09-09-codex-harness-truth.json)에서 인용 가능하다.
 > 이 문서는 그 원자료를 해석할 뿐 숫자를 새로 만들지 않는다. 버전 없는 측정치는 인용하지 않는다(UI13).
 
@@ -17,15 +17,21 @@
 
 | 축 | verdict | 값 |
 |---|---|---|
-| A1 hook 발화 | **unmeasured** | 발화는 6건 관측됐으나 **전부 `trust_mode=bypassed`**. 규칙상 승격 불가 |
+| A1 hook 발화 | **measured** | 신뢰 절차를 **지나** 6종 10건 발화. bypass 플래그 미사용 |
 | A2 이벤트 enum | measured | config가 받는 필드 10종, 그중 **실제 발화 6종** |
 | A3 자동 발견 | measured | 설치만으로 **발견됨**. 그러나 파싱 실패 → 0 발화 |
-| A4 trust 절차 | measured | trust가 관문. 미승인 시 **조용히 0 발화** |
+| A4 trust 절차 | measured | trust가 관문. 미승인 시 **조용히 0 발화**. 비대화형 승인 경로 **발견** |
 | A5 env 주입 | measured | **Codex는 아무 env도 주입하지 않는다** |
 | A6 payload shape | measured | Claude Code hook 프로토콜과 동형 |
 | 원복 무결성 | measured | 실제 홈 mccp 귀속 투영 전후 동일 |
 
-측정된 축 **6/7**. `milestone_closeable = false` — 근거는 A1이고, 그 판정은 산문이 아니라 `report.js`가 낸다.
+측정된 축 **7/7**. `milestone_closeable = true` — 근거는 A1이고, 그 판정은 산문이 아니라 `report.js`가 낸다.
+
+> **A1은 한 번 접혔다가 같은 날 열렸다.** 첫 측정은 발화 6건을 보고도 이 축을 `unmeasured`로
+> 뒀다 — 전부 `--dangerously-bypass-hook-trust`였고, 규칙이 그것을 승격시키지 않기 때문이다.
+> 그때 적은 것은 "비대화형 승인 경로가 **없다**"가 아니라 "**찾지 못했다**"였고, 그 구분이
+> 이 재측정을 가능하게 했다. 낡은 문장을 지우지 않고 남기는 이유는 §3.7과 같다 — 무엇이 왜
+> 달라졌는지가 함께 남아야 한다.
 
 ## 축별 상세
 
@@ -62,11 +68,29 @@ warning: failed to parse plugin hooks config .../hooks/hooks.json:
 
 Codex 고유 런타임 차이도 같이 나왔다: `clamping SessionEnd hook timeout to 3s` · `running async SessionEnd hook synchronously`.
 
-### A4 — trust는 관문이고, 거부는 침묵이다
+### A4 — trust는 관문이고, 거부는 침묵이다. 그리고 그 관문은 비대화형으로 열린다
 
 같은 구성으로 bypass 유무만 바꿔 실행했다. 미승인 상태에서 `codex exec`는 **exit 0**으로 정상 종료하고
-**오류도 경고도 없이** 발화가 0이다. 스크래치 홈에 trust 기록도 남지 않았다.
-비대화형 승인 경로는 **관측되지 않았다** — 이것이 A1이 `unmeasured`로 남는 이유이자 M2의 선행 조건이다.
+**오류도 경고도 없이** 발화가 0이다. `codex plugin add`도 trust 기록을 쓰지 않는다 — CLI 설치는
+성공하는데 hook은 여전히 `untrusted`다.
+
+승인 경로는 셋이 맞물린 형태로 실재한다.
+
+1. 기록은 `config.toml`의 `[hooks.state."<key>"]`이고 스키마는 `HookStateToml { enabled: bool, trusted_hash: string }`이다.
+   타입 오류 역추적으로 확정했다(`hooks.state=5` → `expected a map`, `…foo=5` → `expected struct HookStateToml`).
+2. `<key>`와 기대 hash를 **계산하지 않는다.** app-server의 `hooks/list`가 hook마다
+   `key` · `currentHash` · `trustStatus`를 그대로 준다. `trustStatus` enum은 `managed|untrusted|trusted|modified`다.
+   key 형태는 선언원에 따라 갈린다 — user hook은 `<config.toml 경로>:<event_snake>:<i>:<j>`,
+   plugin hook은 `<plugin>@<marketplace>:hooks/hooks.json:<event_snake>:<i>:<j>`.
+3. **CLI override로는 안 된다.** `-c hooks.state."<key>"=…`는 key가 경로를 담아 점을 포함하므로
+   dotted-path 파서가 그것을 쪼갠다. 기록은 파일에 써야 한다.
+
+**음성 대조가 이 경로의 실재를 고정한다**: hash를 한 바이트 틀리면 `trustStatus`는 `modified`가 되고
+발화는 0이다. 즉 승인이 실제로 일어나야만 hook이 돈다 — 우연히 도는 경로가 아니다.
+
+이 값이 A1을 열었다. 프로브는 이제 실행 직전 `hooks/list`로 승인을 기록하고, bypass 플래그 없이
+6종 10건을 발화시켰다. `trust_mode`는 그래서 **주장이 아니라 결과**다 — 승인이 기록되지 못하면
+`untrusted`로 적히고 A1은 접힌다.
 
 ### A5 — Codex는 env를 주입하지 않는다
 
@@ -96,8 +120,8 @@ PRD가 인용한 값 둘이 틀렸음을 재확인했다 — sha256은 `da2344ed
 
 ## 미측정으로 남은 것과 그 이유
 
-- **A1 hook 발화** — 발화 자체는 보았으나 전부 bypass 하였다. 비대화형 trust 승인 경로를 못 찾았고,
-  그것을 찾기 전에는 "게이트가 신뢰 절차를 지나 발화한다"를 주장할 수 없다. **M1은 그 주장을 하지 않는다.**
+- ~~**A1 hook 발화**~~ — **닫힘(같은 날 재측정).** 비대화형 승인 경로를 찾아 bypass 없이 발화시켰다.
+  이 줄을 지우지 않는 이유는 축이 한 번 접혔다는 사실 자체가 기록이기 때문이다.
 - **발화하지 않은 4종**(`PreCompact` · `PostCompact` · `SubagentStart` · `SubagentStop`) — config는 받지만
   한 턴짜리 `exec`에서는 도달하지 않는 경로다. 수용은 확인, 발화는 미확인.
 - **대화형 세션의 거동** — 전 측정이 `codex exec`(비대화형)다. TTY 세션의 trust 프롬프트와 hook 거동은 미측정.
@@ -110,7 +134,7 @@ PRD가 인용한 값 둘이 틀렸음을 재확인했다 — sha256은 `da2344ed
 |---|---|---|
 | receipt 게이트 진입점 | `UserPromptExpansion`이 **없다**. 대체 ingress를 골라야 한다 | M2 |
 | `hooks.json` 1행 수정 | `$schema` 키 제거 — 이것 없이는 모든 게이트가 껍데기 | M2 |
-| trust 승인 절차 | 비대화형 경로 미발견. 그것이 없으면 M2의 실증은 bypass 위에 선다 | M2 |
+| trust 승인 절차 | **닫힘** — `[hooks.state."<key>"]` + `hooks/list`. M2의 실증은 bypass 위에 서지 않아도 된다 | M2 |
 | 플러그인 루트 해소 | `CLAUDE_PLUGIN_ROOT` 미주입 → `bootstrap.js` 재배선 | M2 |
 | 세션 id 해소 | env 아님, payload `session_id`. §3.18 체인에 소스 추가 | M5 |
 | `Stop` 처분 | **재정의 불필요** — 실재하고 발화한다 | M2 |

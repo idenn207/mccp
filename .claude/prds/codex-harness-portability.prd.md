@@ -93,7 +93,7 @@ We'll know we're right when **Codex 단독으로 한 decision이 plan → implem
 | Metric | Target | How measured |
 |---|---|---|
 | Codex 단독 체인 완주 | 1 decision | `mccp-plan-codex`·`mccp-implement-codex`·`mccp-pr-codex` receipt 3건 + `evidence-audit --json`이 `state≠blind` |
-| 게이트 실차단 실증 | ≥1회 | 선행 receipt 부재 상태에서 Codex 게이트가 비영점 종료하고 진행을 막은 로그 |
+| 게이트 실차단 실증 | ≥1회 | ~~선행 receipt 부재 상태에서 Codex 게이트가 **비영점 종료**하고 진행을 막은 로그~~ → **정정(2026-09-09 M2 실측)**: 전제가 틀렸다. Codex가 존중하는 형식은 stdout `{"decision":"block"}` + **exit 0**이고, `exit 2 + stderr`도 차단하지만 채택하지 않았다(전자가 `receipt-prompt.js`가 이미 내는 형식이라 코어에 두 번째 직렬화기가 필요 없다). 따라서 판정 기준은 종료 코드가 아니라 **보호 대상 연산의 미발생**이다 — 프롬프트가 모델에 도달하지 못했음을 음성 대조와 짝지어 관측한다. 달성: `runs[id=gate-block-live].pair_ok=true` |
 | 리뷰어 교차성 보존 | 3/3 게이트 | 각 receipt의 리뷰어 모델 계열이 호스트 계열과 다름 |
 | 하네스 결합 지점 열거 완전성 | 미열거 잔여 0 | 결합 지점 전수 목록과 각 처분(수정·additive·이연)이 대조 가능 |
 | 원복 무결성 | diff 0 | ~~측정 전후 `~/.codex/config.toml` sha256 일치 + 잔여 캐시 0~~ → **정정(2026-09-09)**: mccp 귀속 키 부재 + 캐시 엔트리 전후 동일. whole-file sha256은 informational. 프로브가 한 줄도 안 남으면 이 축은 `unmeasured`이지 통과가 아니다 |
@@ -133,19 +133,59 @@ We'll know we're right when **Codex 단독으로 한 decision이 plan → implem
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | harness-truth | Codex에서 mccp hook이 **실제로 발화하는 것**을 본다. `Stop` 바인딩 가능 여부 · `hooks.json` 자동 발견 · hook trust 승인 절차 · hook 자식 프로세스의 env(플러그인 루트·세션 id)가 측정으로 닫힌다. 구현이 아니라 관측이며, 이 값이 나오기 전에는 아래 넷의 범위를 확정하지 않는다 | in-progress | [codex-harness-portability-m1](../plans/codex-harness-portability-m1.plan.md) |
-| 2 | gate-ingress | receipt 게이트가 Codex에서 최소 하나의 ingress로 발화하고, 선행 receipt가 없을 때 **실제로 차단한다**. 조사의 "ingress가 하나로 준다"가 아니라 "0에서 1로 올린다" | pending | — |
-| 3 | command-reach | 게이트 파이프라인 핵심 명령이 Codex에서 호출 가능해진다 — Codex의 비공개 변환 규칙에 **의존하지 않는 경로**로 | pending | — |
+| 1 | harness-truth | Codex에서 mccp hook이 **실제로 발화하는 것**을 본다. `Stop` 바인딩 가능 여부 · `hooks.json` 자동 발견 · hook trust 승인 절차 · hook 자식 프로세스의 env(플러그인 루트·세션 id)가 측정으로 닫힌다. 구현이 아니라 관측이며, 이 값이 나오기 전에는 아래 넷의 범위를 확정하지 않는다 | complete | [codex-harness-portability-m1](../plans/codex-harness-portability-m1.plan.md) |
+| 2 | gate-ingress | receipt 게이트가 Codex에서 최소 하나의 ingress로 발화하고, 선행 receipt가 없을 때 **실제로 차단한다**. 조사의 "ingress가 하나로 준다"가 아니라 "0에서 1로 올린다" | complete | [codex-harness-portability-m2](../plans/codex-harness-portability-m2.plan.md) |
+| 3 | command-reach | 게이트 파이프라인 핵심 명령이 Codex에서 호출 가능해진다 — Codex의 비공개 변환 규칙에 **의존하지 않는 경로**로 | complete | [codex-harness-portability-m3](../plans/codex-harness-portability-m3.plan.md) |
+| 3.5 | codex-ship (hotfix) | Codex 하네스에서 mccp가 **설치되고 발화하는 상태**가 운영자 한 번의 명령으로 성립한다 — 비대화형 trust 승인을 프로브에서 제품 표면으로 승격하고, 그 산출물이 `release` 채널에 도달한다. 관측이 아니라 **배포**이며, 이 저장소의 첫 릴리스 컷을 동반한다 | in-progress | [codex-harness-portability-m3_5](../plans/codex-harness-portability-m3_5.plan.md) |
 | 4 | reviewer-inversion | Codex 호스트에서 리뷰어가 Claude 계열이 되어 세 게이트의 cross-model 불변식이 보존된다. 리뷰어를 부를 수 없으면 게이트는 통과가 아니라 **fail-closed** | pending | — |
 | 5 | chain-parity | Codex가 만든 receipt chain이 Claude가 만든 것과 동일한 검증을 통과하고, **어느 하네스가 만들었는지 감사로 판별 가능**해진다 | pending | — |
 
-> **M1 측정 완료, 그러나 milestone은 닫히지 않았다 (2026-09-09).** 7축 중 6축이 `measured`이고
-> 판정은 [docs/codex-harness-portability/m1-harness-truth.md](../../docs/codex-harness-portability/m1-harness-truth.md),
+> **M1 종료 (2026-09-09).** 7축 **전부** `measured`이고 `report.js`의 `milestone_closeable`이
+> `ok:true`를 낸다. 판정은 [docs/codex-harness-portability/m1-harness-truth.md](../../docs/codex-harness-portability/m1-harness-truth.md),
 > 원자료는 [.claude/_meta/data/2026-09-09-codex-harness-truth.json](../_meta/data/2026-09-09-codex-harness-truth.json)에 있다.
-> 닫지 않은 이유는 **A1(hook 발화)이 `unmeasured`**이기 때문이다 — 발화는 6건 관측됐으나 전부
-> `--dangerously-bypass-hook-trust` 하였고, 비대화형 trust 승인 경로는 발견되지 않았다.
-> "신뢰 절차를 지나 발화한다"와 "신뢰 절차를 껐다"는 다른 사실이므로 전자를 주장하지 않는다.
-> 이 판정은 산문이 아니라 `report.js`의 `milestone_closeable`이 낸다(`ok:false`).
+>
+> ~~닫지 않은 이유는 **A1(hook 발화)이 `unmeasured`**이기 때문이다 — 발화는 6건 관측됐으나 전부
+> `--dangerously-bypass-hook-trust` 하였고, 비대화형 trust 승인 경로는 발견되지 않았다.~~
+> **같은 날 그 경로를 찾아 A1을 닫았다.** 승인 기록은 `config.toml`의
+> `[hooks.state."<key>"] { enabled, trusted_hash }`이고, `<key>`와 기대 hash는 app-server의
+> `hooks/list`가 준다. 그 승인을 프로브에 배선해 **bypass 플래그 없이** 6종 10건을 발화시켰다.
+> 음성 대조(hash 1바이트 오류 → `trustStatus=modified` → 발화 0)가 이 경로의 실재를 고정한다.
+> 낡은 문장을 지우지 않는 이유는 §3.7과 같다 — 무엇이 왜 달라졌는지가 함께 남아야 한다.
+>
+> 그 재측정이 M1의 원래 판정 규칙을 완화한 것이 **아님**을 밝힌다. `report.js`의 승격 규칙
+> (`trust_mode==='trusted'` 줄만 A1을 승격)은 **한 글자도 바뀌지 않았고**, 바뀐 것은 그 규칙을
+> 만족하는 실행이 실재하게 됐다는 사실뿐이다.
+
+> **M3.5를 여는 사유 (2026-09-10) — 예산이 정한 순서 변경.**
+>
+> M3까지 착지한 시점에 **M4·M5를 이 하네스에서 완주할 Claude 예산이 남지 않았다.** 그래서
+> 운영자가 남은 두 축을 **Codex 하네스에서 이어가기로** 결정했다. 그 결정이 이 PRD의 순서를
+> 바꾼다 — 원래 M4·M5는 Codex 도달을 **전제로** 하는 축이었는데, 이제 그 전제 자체가 다음에
+> 해야 할 일이 된다.
+>
+> **이것은 Problem이 말한 실패 모드의 실물이다.** "한도에 도달하면 작업이 그 자리에서 멈춘다"가
+> 이 PRD 자신에게 일어났다. M3.5는 그 자리에서 하네스를 바꿔 이어가기 위한 최소 수정이고,
+> 그래서 새 축이 아니라 **hotfix**다.
+>
+> **왜 배포가 범위 안인가.** M1~M3의 산출물(`run-command` skill · `command-reach.js` ·
+> M2 ingress)은 이 저장소에만 있고 Codex에는 도달할 경로가 없다. `marketplace.json`의
+> plugin `source`가 `ref: release`이므로(§3.7 release-channel-separation M1) `codex plugin add`가
+> 여는 본문은 `release` 브랜치의 것이고, 그 브랜치는 이 작업들을 모른다. 실측(2026-09-10):
+> `~/.codex/plugins/cache/mccp/`는 **빈 디렉토리**이고 `~/.codex/config.toml`에 mccp hook
+> trust 기록이 **0건**이다. 즉 도구를 아무리 잘 만들어도 배포하지 않으면 Codex 쪽에서는
+> 아무 일도 일어나지 않는다. **배포가 이 milestone의 acceptance에 포함되는 이유가 그것이다.**
+>
+> **컷 시점은 PR 머지 뒤다.** 릴리스 컷은 `origin/main`을 `release`로 fast-forward하는
+> 행위이므로([docs/release-channel.md](../../docs/release-channel.md) §2.1) 이 브랜치가 main에
+> 머지되기 전에는 선행조건이 성립하지 않는다. 순서는 고정이다 — 구현 → PR → main 머지 →
+> 컷. 브랜치는 여전히 번호를 선언하지 않으며(결정 4 · §3.7 우산 결정 1) 번호는 컷이 정한다.
+> 그 컷이 이 저장소의 **첫 컷**이라 `docs/release-channel.md` §2의 라벨이 `미측정`에서
+> 바뀌는 시점이기도 하다.
+>
+> **M3.5가 주장하지 않는 것.** 리뷰어 교차성(M4)도 chain 동등성(M5)도 열지 않는다. 명령
+> 본문이 Codex에서 **실행 가능**하다고도 주장하지 않는다 — M3가 이미 그 경계를 그었고
+> (`Task`·`Workflow`·`AskUserQuestion` 도구 어휘 부재, 결합 열거 `agent-tool-declaration`),
+> M3.5는 그 경계를 옮기지 않는다. 여는 것은 **설치와 발화**뿐이다.
 
 ## Open Questions
 
@@ -157,13 +197,17 @@ We'll know we're right when **Codex 단독으로 한 decision이 plan → implem
       **실제로 발화했다**(`SessionStart → UserPromptSubmit → PreToolUse → PostToolUse → Stop → SessionEnd`).
       따라서 stop-loop · auto-handoff · STATE.md 갱신 7건의 처분을 다시 정할 필요가 **없다**.
       낡은 문장("설정 enum에는 없다")은 바이너리 문자열 `[정황]`에 기댄 것이었고 실행이 그것을 뒤집었다.
-- [ ] **hook은 어떻게 trusted가 되는가.** `HookStateToml{enabled, trusted_hash}` +
+- [x] **hook은 어떻게 trusted가 되는가.** `HookStateToml{enabled, trusted_hash}` +
       `--dangerously-bypass-hook-trust`가 있다. 승인 절차가 수동이면 Milestone 2의 실증
       비용과 후속 운영 비용이 함께 오른다.
-      **절반 닫힘(2026-09-09 실측).** trust가 관문임은 확인됐다 — 미승인 상태에서 `codex exec`는
-      **exit 0으로 정상 종료하고 오류도 경고도 없이 발화가 0**이며, 스크래치 홈에 trust 기록도 남지 않는다.
-      `--dangerously-bypass-hook-trust`는 경고 후 발화시킨다. **비대화형 승인 경로는 발견되지 않았다** —
-      그것이 M1의 A1을 `unmeasured`로 남긴 원인이자 Milestone 2의 선행 조건이다. 열린 채로 둔다.
+      ~~**절반 닫힘(2026-09-09 실측).**~~ **닫힘(2026-09-09 재측정).** trust가 관문임은 확인됐다 —
+      미승인 상태에서 `codex exec`는 **exit 0으로 정상 종료하고 오류도 경고도 없이 발화가 0**이며,
+      `codex plugin add`도 trust 기록을 쓰지 않는다. ~~비대화형 승인 경로는 발견되지 않았다.~~
+      **비대화형 경로는 실재한다**: `config.toml`에 `[hooks.state."<key>"] { enabled = true,
+      trusted_hash = "<currentHash>" }`를 쓰면 된다. `<key>`·`currentHash`·`trustStatus`
+      (`managed|untrusted|trusted|modified`)는 app-server의 `hooks/list`가 준다. `-c` dotted-path
+      override로는 **안 된다** — key가 경로를 담아 점을 포함하므로 파서가 쪼갠다.
+      승인 비용이 수동이 아니므로 Milestone 2의 실증 비용과 후속 운영 비용은 **오르지 않는다**.
 - [ ] **Codex 안에서 Claude 계열 리뷰어를 부르는 경로가 실재하는가.** 결정 3이 요구하지만
       기존 `codex-invoke.js`는 방향이 반대라 재사용이 아니다. 부를 수 없으면 결정 3은
       "게이트가 항상 fail-closed"를 뜻하게 되고 MVP가 성립하지 않는다.
@@ -177,6 +221,30 @@ We'll know we're right when **Codex 단독으로 한 decision이 plan → implem
       **사거리 축소(2026-09-09).** hook 이벤트 enum과 payload 필드는 M1이 **실행으로** 직접 쟀으므로
       더는 `[정황]`이 아니다(config struct 필드 10종 · 실제 발화 6종 · payload 키 집합).
       공개 스펙의 남은 값은 교차검증과 버전 내성이지 1차 확증이 아니다.
+- [x] **Codex가 hook의 차단을 존중하는가, 어떤 형식으로.** ~~M1은 재지 않았고 바이너리 문자열
+      `[정황]`뿐이었다.~~ **닫힘(2026-09-09 M2 실측).** `UserPromptSubmit`에서 음성 대조가
+      성립한 상태로 `stdout {"decision":"block"} + exit 0`과 `exit 2 + stderr`가 **둘 다
+      차단**했고, `hookSpecificOutput.permissionDecision=deny`는 **존중되지 않았다**.
+      `PreToolUse`는 ALLOW 통제가 성립하지 않아 미측정으로 남는다.
+      상세: [m2-gate-ingress.md](../../docs/codex-harness-portability/m2-gate-ingress.md)
+- [ ] **`hooks.json`의 `${CLAUDE_PLUGIN_ROOT}`가 Codex에서 문자열 치환되는가.** M2가
+      **열지 못한 축**이고(B3 `unmeasured`) **M3도 열지 못했다**(C2 `unmeasured`).
+      `gate-demo`는 절대경로로 hook을 등록해 우회했고, `bootstrap.js#resolveRoot()`의
+      `__dirname` 폴백이 그 값과 무관하게 성립하므로 배선은 이 측정에 의존하지 않는다.
+      그러나 **출하되는 `hooks.json`은 여전히 그 변수를 쓰므로**, 치환되지 않으면 Codex
+      사용자의 hook은 시작조차 못 한다.
+      M3는 네 번 쟀고 **네 번 다 음성 대조가 성립하지 않았다** — 틀린 표면(`config.toml`) ·
+      디렉토리 사본 · `.codex-plugin` 합성 · **공식 설치**(`install_ok=true`)까지 갔는데도
+      절대경로 통제조차 발화하지 않았다. 통제 없는 미발화는 치환 실패와 hook 배선 실패를
+      구분하지 못하므로 축은 `unmeasured`로 남고, 그래서 M3는 `hooks.json`을 **바꾸지
+      않았다**(미측정 축 위의 편집은 DD4가 금지한 반올림이다).
+      다음에 열 사람이 먼저 볼 것: plugin `hooks.json` 경로의 hook이 `codex exec`
+      비대화형에서 애초에 발화하는가(M1 `plugin-autodiscovery`는 `SessionStart`·`Stop`
+      발화를 봤으나 그 실행의 모드가 이 프로브와 같은지 확인되지 않았다).
+      상세: [m3-command-reach.md](../../docs/codex-harness-portability/m3-command-reach.md)
+- [ ] **Claude Code의 `UserPromptSubmit` payload 형태는 무엇인가.** 재지 않았다. 그래서 M2의
+      payload 판별자는 한 방향(codex 지목을 내리는 쪽)으로만 작동한다. 재면 판별자를 env
+      의존에서 더 떼어낼 수 있다.
 - [ ] **교차 이어달리기를 언제 측정하는가.** MVP가 동기를 직접 검증하지 않는다는 사실은
       기록됐다. 미룬 것을 잊지 않기 위한 항목이다.
 

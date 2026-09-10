@@ -40,18 +40,18 @@ const COUPLING_INVENTORY = [
       'plugins/mccp/scripts/lib/resolve-ecc-root.js',
     ],
     axis: 'dependency detection',
-    disposition: 'additive',
-    owner_milestone: 2,
-    note: 'Claude 홈의 설치 상태를 읽어 게이트 분기를 정한다. Codex 홈은 레지스트리 형태가 다르다',
+    disposition: 'defer',
+    owner_milestone: 5,
+    note: 'M2 측정 후 재배정: Codex ingress는 설치 탐지를 **부르지 않는다**(오라클은 env와 payload만 본다). 즉 이 결합은 M2의 발화 경로에 없다. Codex 홈의 레지스트리 대응은 chain 동등성 축(M5)에서 값이 필요해질 때 정한다',
   },
   {
     name: 'settings-surface',
     rule: 'claude-home-path',
     covers: ['plugins/mccp/scripts/lib/settings-signal.js', 'plugins/mccp/scripts/lib/settings-writer.js'],
     axis: 'settings io',
-    disposition: 'additive',
-    owner_milestone: 2,
-    note: 'settings.json 위치·스키마가 Claude 전용이다. Codex는 config.toml이라 형식까지 다르다',
+    disposition: 'defer',
+    owner_milestone: 5,
+    note: 'M2 측정 후 재배정: 게이트 발화에 settings 읽기가 필요하지 않았다. `MCCP_HARNESS`·`MCCP_HARNESS_INGRESS`는 env로 전달되고 env-contract registry에 등재됐다. config.toml 대응은 M5 소유',
   },
   {
     name: 'cost-state-path',
@@ -79,11 +79,16 @@ const COUPLING_INVENTORY = [
       'plugins/mccp/scripts/hooks/mcp-health-check.js',
       'plugins/mccp/scripts/hooks/post-bash-command-log.js',
       'plugins/mccp/scripts/hooks/session-start-bootstrap.js',
+      // M2: 선재 결합이다. `resolveRoot()`가 `~/.claude/plugins/cache/…`를 훑는 것은
+      // 처음부터 있었는데, 경로를 `path.join(claude,'plugins',…)`로 조립해 스캐너의
+      // 리터럴 규칙에 걸리지 않았다. M2가 그 순서를 고치며 주석에 경로를 적었고 그제야
+      // 보이게 됐다 — 새 결합이 아니라 **가려져 있던 결합**이므로 열거로 처분한다.
+      'plugins/mccp/scripts/hooks/bootstrap.js',
     ],
     axis: 'hook runtime',
     disposition: 'additive',
     owner_milestone: 2,
-    note: 'hook 실행 중 Claude 홈을 읽는다. A5가 Codex의 대응 경로를 측정하기 전에는 분기 형태를 정할 수 없다',
+    note: 'M2에서 분기가 착지했다: `harness-ingress.js#shouldRunClaudeHook`이 **적극적으로 codex로 지목된** 실행에서 이 hook들을 통과시킨다(bootstrap.js + exit-2 가드 4종). 홈을 읽는 코드는 그대로 두고 그 코드에 **도달하지 않게** 하는 형태다 — UI16이 요구한 0→1이지 0→29가 아니다',
   },
   {
     name: 'home-path-tests',
@@ -101,14 +106,14 @@ const COUPLING_INVENTORY = [
     rule: 'claude-env-name',
     covers: ['CLAUDE_PLUGIN_ROOT'],
     axis: 'plugin root injection',
-    disposition: 'additive',
+    disposition: 'port',
     owner_milestone: 2,
-    note: 'A5(OQ4)가 Codex도 이 이름을 주입하는지를 묻는 바로 그 축이다. 측정 전에는 처분을 정하지 않는다',
+    note: 'M2에서 해소됐다. 측정: Codex는 이 이름을 주입하지 않는다(runs[id=env-projection-clean].result.CLAUDE_PLUGIN_ROOT_injected=false, injected_by_codex=[]). 그래서 `bootstrap.js#resolveRoot()`가 `env(+marker 검증) → __dirname 상대 → home 스캔` 순으로 바뀌어 **이 env 이름 없이도 플러그인 루트가 해소된다**. env 분기는 이제 marker를 검증하므로 무검증 리다이렉트도 닫혔다(security H1)',
   },
   {
     name: 'session-identity-env',
     rule: 'claude-env-name',
-    covers: ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID', 'CLAUDE_CODE_SESSION_START_'],
+    covers: ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID', 'CLAUDE_CODE_SESSION_START'],
     axis: 'session identity',
     disposition: 'additive',
     owner_milestone: 5,
@@ -130,7 +135,7 @@ const COUPLING_INVENTORY = [
     axis: 'hook dispatch context',
     disposition: 'additive',
     owner_milestone: 2,
-    note: 'A6의 payload shape 측정 결과에 직접 걸린다. 이름이 같아도 필드가 다르면 재배선이 아니라 재작성이다',
+    note: 'M2 측정 후: Codex는 이 세 이름을 env로 주입하지 않고 **payload 필드**로 같은 정보를 준다(A6 — payload shape는 Claude 프로토콜과 isomorphic). M2의 ingress는 payload에서 읽어 게이트 필드로 정규화하며, 유일한 실질 공백이던 `tool_use_id` 부재는 `turn_id`를 그 자리에 매핑해 닫았다(그 매핑이 없으면 G1 fail-open이 hook-trace에 기록되지 않는다). 나머지 소비처의 이전은 M5 소유',
   },
   {
     name: 'install-surface-env',
@@ -143,7 +148,14 @@ const COUPLING_INVENTORY = [
     axis: 'install / harness feature flags',
     disposition: 'defer',
     owner_milestone: 3,
-    note: '설치 UX와 명령 도달 축. UI8이 타 사용자 설치 UX를 이번 사이클의 판정 대상에서 제외했다',
+    // M3 처분 확정: **defer 유지.** M3가 이 축을 열지 않는 이유는 미루기 편해서가 아니라
+    // 이 항목의 두 반쪽이 서로 다른 곳에 속하기 때문이다. `CLAUDE_CONFIG_DIR`·
+    // `CLAUDE_RULES_DIR` 같은 설치 경로 이름은 타 사용자 설치 UX 축이고 UI8이 이번
+    // 사이클의 판정 대상에서 명시 제외했다. 반면 명령 **도달**은 M3가 실제로 닫았는데,
+    // 그 해소는 이 env 이름들을 이전해서가 아니라 `command-reach.js`가 설치원을 열거해
+    // 얻었다 — 즉 이 항목을 건드리지 않고 도달이 성립했다. 남은 것은 순수 설치 UX이고
+    // 그것이 UI8의 자리다.
+    note: '설치 UX 축. M3는 명령 도달을 command-reach.js의 설치원 열거로 해소했고 이 env 이름들을 이전하지 않았다 — 남은 절반은 UI8이 제외한 타 사용자 설치 UX다',
   },
 
   // ── claude-model-vocabulary ────────────────────────────────────────────────
@@ -187,8 +199,13 @@ const COUPLING_INVENTORY = [
     covers: ['plugins/mccp/agents/*.md'],
     axis: 'tool vocabulary',
     disposition: 'defer',
-    owner_milestone: 3,
-    note: 'Claude 하네스 도구명(Read/Grep/Glob/Bash…)을 선언한다. Codex의 도구 어휘 대응은 비공개 변환 규칙에 걸려 있고 그것이 OQ1이다',
+    // M3 처분 확정: **M4로 재배정.** M3가 이것을 닫지 않는 이유는 DD8이 그은 경계와 같다 —
+    // M3는 명령 본문의 **도달**을 주장하고 **실행**을 주장하지 않는다. 도달한 본문이
+    // `Task`·`Workflow` 같은 Claude 도구 어휘를 지시하는 것은 사실이고, 그 처분은 리뷰어
+    // 반전이 어차피 같은 agent 표면을 다시 여는 M4에서 하는 것이 싸다.
+    // `owner_milestone`만 옮기므로 항목 수는 불변이고 ceiling 상수는 건드리지 않는다.
+    owner_milestone: 4,
+    note: 'Claude 하네스 도구명(Read/Grep/Glob/Bash…)을 선언한다. M3는 도달만 주장하므로(DD8) 이 축을 열지 않고, 리뷰어 반전이 같은 agent 표면을 여는 M4로 재배정한다',
   },
 ];
 

@@ -1,0 +1,111 @@
+# Report — codex-harness-portability M3.5 (codex-ship hotfix)
+
+- **Plan**: [.claude/plans/codex-harness-portability-m3_5.plan.md](../../plans/codex-harness-portability-m3_5.plan.md)
+- **PRD**: [.claude/prds/codex-harness-portability.prd.md](../../prds/codex-harness-portability.prd.md)
+- **Branch**: `meta-codex-harness-portability` · **Date**: 2026-09-10
+- **plugin.json version**: **미선언** (PRD 결정 4 · CLAUDE.md §3.7 우산 결정 1)
+
+## 무엇을 했는가
+
+M1이 프로브에 배선한 비대화형 hook-trust 승인 경로를 제품 표면
+(`plugins/mccp/scripts/lib/codex-bootstrap.js`)으로 승격했다. 새 능력은 열지 않았다 —
+M1~M3가 이미 만든 것을 운영자 한 번의 명령으로 **닿게** 한다.
+
+| 파일 | 동작 |
+|---|---|
+| `plugins/mccp/scripts/lib/codex-bootstrap.js` | CREATE — 순수 오라클 5 + fs/spawn 계층 + CLI(`status`·`bootstrap`) |
+| `plugins/mccp/scripts/lib/codex-hooks-list.js` | MOVE — `scripts/codex-probe/hooks-list.js`에서 이전(단일 원본) |
+| `plugins/mccp/scripts/lib/tests/codex-bootstrap.test.js` | CREATE — 10 test |
+| `scripts/codex-probe/cli.js` | UPDATE — 이전된 경로로 재배선 |
+| `docs/codex-harness-portability/m3_5-codex-ship.md` | CREATE — 판정 + 런북 |
+| `.claude/prds/codex-harness-portability.prd.md` | UPDATE — M3.5 행 + 사유 블록 |
+
+`hooks-list.js`는 **사본이 아니라 이전**이다. 제품 부트스트랩이 같은 app-server 왕복을
+필요로 하는데 `scripts/codex-probe/`는 배포 트리 밖이라 설치된 환경에 존재하지 않는다.
+사본을 두면 갈라지므로 옮기고 프로브가 이쪽을 부른다.
+
+## 게이트가 실제로 잡았다 — 그리고 실측이 확증했다
+
+plan 게이트(`mode=hybrid`)에서 L2 패널 **4/4 `fail`**(HIGH 9) + L3 Codex **`divergent`**.
+네 리뷰어와 Codex가 **독립적으로 같은 결함 둘**을 지목했다.
+
+초안은 `bootstrap --apply`의 성공 조건을 `command-reach.js verify()`의 `resolved:true`
+하나에 걸었다. 구현 후 실측한 값이 그 지적을 확증한다 — mccp가 Codex에 **설치되지 않은**
+상태에서:
+
+```json
+"reach": {
+  "axis": "missing",
+  "detail": "resolved via R-d:claude-cache, not the Codex plugin cache — this does NOT prove Codex reach",
+  "root_source": "R-d:claude-cache"
+}
+```
+
+`verify()`는 codex 캐시가 비면 claude 캐시로 폴백한다. 즉 초안대로였다면 **Codex 설치 0건인
+이 상태에서 exit 0**이 나왔을 것이고, 그것은 PRD Problem이 지목한 "설치는 되는데 발화하지
+않는다"를 제품이 그대로 재현하는 것이다. 흡수 9건의 목록은 plan의 `## Review Absorption`이
+소유한다.
+
+## 라이브 산출물
+
+### status (부트스트랩 전, 2026-09-10)
+
+```
+cli    : ok       codex-cli 0.153.4
+config : missing  trust_blocks_total=0 trust_blocks_mccp=0 exists=true
+hooks  : missing  total=0 mccp=0 mccp_trusted=0
+reach  : missing  root_source=R-d:claude-cache
+exit 1
+```
+
+### dry-run 무변경 (음성 대조)
+
+```
+  ok  codex-cli — codex-cli 0.153.4
+  ok  plugin-add — DRY-RUN: codex plugin add mccp
+  ok  select-trustable — grant=0 skipped=0
+ FAIL select-trustable — no mccp-declared hook is eligible for trust
+exit 1
+config.toml sha256 전후 동일: YES · 생성된 백업: 0건
+```
+
+승인 대상 0건을 **성공으로 반올림하지 않는다**는 판정 규칙 2가 여기서 실증된다.
+
+### 단위 test
+
+`node --test plugins/mccp/scripts/lib/tests/codex-bootstrap.test.js` → **10/10 pass**.
+그중 하나는 구조적 결속이다 — `REACH_ENV_TO_CLEAR`가 `command-reach.js`의
+`ROOT_ENV_NAMES`를 전부 덮는지 대조하므로, 그쪽에 새 env가 추가되고 여기 반영되지 않으면
+test가 red가 된다(산문이 아니라 기계가 지킨다).
+
+## 미충족 — 반올림하지 않는다
+
+- **`bootstrap --apply`를 실행하지 않았다.** `marketplace.json`이 `ref: release`이므로 컷
+  **전에** 설치하면 M1~M3를 모르는 옛 본문이 설치된다. 순서는 `컷 → 설치 → trust → 검증`이고
+  컷은 PR 머지 뒤다(Task 6).
+- **축 (i) 발화 음성 대조 미실시.** hash를 틀리게 심어 `modified`를 유도하는 대조는 mccp hook이
+  실재해야 성립하는데 지금은 0건이다. 컷·설치 뒤에 수행한다.
+- **릴리스 컷 미수행.** `git ls-remote origin refs/heads/release` 산출물 없음.
+- **Codex 세션에서 `run-command`로 명령 본문을 연 stdout 없음.** 위 둘의 후행이다.
+
+즉 plan의 Acceptance 라이브 산출물 5종 중 **2종 충족 · 3종 미충족**이다. milestone은 아직
+닫히지 않는다.
+
+## 이탈 (Deviations)
+
+1. **`mccp-plan-codex` receipt 미발행.** 게이트는 정상 작동했고 발행을 거부했다 —
+   L3 `divergent`이고 §3.15 DD2대로 단일통과는 L2 반복만 없애지 cross-model 이견을 완화하지
+   않는다. HIGH 9건을 R1 안에서 흡수했으나 plan 본문이 바뀌어 `reviewed_plan_hash`
+   (`sha256:818b2c4d…`)는 **흡수 이전** 본문에 묶여 있다. 즉 흡수본 자체는 리뷰를 받지 않았다.
+   라운드 캡이 `1`로 봉인돼 R2는 거부된다. 운영자 승인 하에 §3.16이 명시 허용하는 audited
+   우회로 구현에 진입했다. 상세는 plan의 `## Gate Deviation`.
+2. **`/mccp:prp-implement`를 거치지 않고 직접 구현했다.** 변경 범위가 작고(파일 6개) plan이
+   상세하며, receipt가 없어 cross-gate dedupe가 열리지 않으므로 `/mccp:pr`의 PR-Codex가 반드시
+   발화한다 — 구현은 그 지점에서 cross-model 리뷰를 받는다.
+3. **Phase 2.5 fan-out을 공식 opt-out했다**(`MCCP_PLAN_FANOUT=off`). 토큰 예산 제약이고,
+   fan-out은 GROUND enhancement이자 fail-open이라 게이트가 아니다.
+4. **MEDIUM/LOW 4건을 backlog로 이연했다**(§3.14). `.claude/plans/codex-findings-backlog.md`.
+
+## 다음
+
+컷 → 설치 → trust → 검증. 그 뒤 M4(reviewer-inversion)는 Codex 하네스에서 이어간다.

@@ -3,6 +3,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const reviewer = require('../reviewer-invoke');
 const claude = require('../claude-review-invoke');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 function response(patch) {
   const events = [
@@ -53,4 +56,32 @@ test('exhausted budget never spawns or reports an approving result', () => {
   const out = claude.invokeAdversarialReview('x', { budget: { allowed: false }, spawn: () => { throw new Error('must not spawn'); } });
   assert.equal(out.classification, 'round-cap-reached');
   assert.equal(out.blocking, true);
+});
+
+test('real child process preserves argv/stdin and bounds errors, timeout and output', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-reviewer-test-'));
+  const bin = path.join(dir, 'reviewer');
+  try {
+    fs.writeFileSync(bin, '#!' + process.execPath + '\n' +
+      'const fs=require("fs"); fs.readFileSync(0,"utf8"); process.stdout.write(' + JSON.stringify(response().stdout) + ');', { mode: 0o700 });
+    const options = { bin, cwd: dir, budget: { allowed: true, canRecord: false } };
+    assert.equal(claude.invokeAdversarialReview('literal $(touch must-not-exist)', options).ok, true);
+    assert.equal(fs.existsSync(path.join(dir, 'must-not-exist')), false);
+    fs.writeFileSync(bin, '#!' + process.execPath + '\nprocess.stderr.write("secret-error"); process.exit(1);');
+    const failed = claude.invokeAdversarialReview('x', options);
+    assert.equal(failed.blocking, true);
+    assert.equal(JSON.stringify(failed).includes('secret-error'), false);
+    fs.writeFileSync(bin, '#!' + process.execPath + '\nsetInterval(()=>{},1000);');
+    assert.equal(claude.invokeAdversarialReview('x', { ...options, timeoutMs: 30 }).classification, 'timeout');
+    fs.writeFileSync(bin, '#!' + process.execPath + '\nprocess.stdout.write("x".repeat(2*1024*1024));');
+    assert.equal(claude.invokeAdversarialReview('x', options).blocking, true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('CLI rejects unknown flags and missing input before invoking a reviewer', () => {
+  assert.equal(reviewer.runCli([]), 2);
+  assert.equal(reviewer.runCli(['adversarial-review', '--surprise']), 2);
+  assert.equal(reviewer.runCli(['adversarial-review', '--focus']), 2);
+  assert.equal(reviewer.runCli(['adversarial-review', '--timeout-ms', '-1']), 2);
+  assert.equal(reviewer.runCli(['adversarial-review', '--intent-reference-file', '/missing-mccp-ref']), 2);
 });

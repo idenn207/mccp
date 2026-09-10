@@ -1644,3 +1644,4 @@ ode.exe` 같은 임의 바이너리도 인터프리터로 읽힌다(실측 확�
 | 2026-09-10 | MEDIUM | .claude/plans/codex-harness-portability-m3_5.plan.md | M2의 C2 통제 hook이 생성 단계에서 구문 오류를 갖는다는 L3 지적 — 통제 자체의 결함이라 C2 축 재측정 시 먼저 볼 것 (R1 L3/medium) |
 | 2026-09-10 | MEDIUM | .claude/plans/codex-harness-portability-m3_5.plan.md | `--apply` 백업본이 `~/.codex/`에 무기한 누적되고 Validation 4의 dry-run sha256 검사가 백업 축을 보지 않는다 — 수명 정책 미정 (R1 security/MEDIUM, 권한 축만 A8로 흡수) |
 | 2026-09-10 | MEDIUM | .claude/plans/codex-harness-portability-m3_5.plan.md | R1 test·invariant의 잔여 MEDIUM(검증 축 서술과 Risks 표의 결속 강도)은 A1~A3 흡수로 대부분 닫혔으나 문구 수준의 잔여가 남는다 — 구현 후 report에서 재확인 |
+| 2026-09-10 | MEDIUM | plugins/mccp/scripts/lib/codex-bootstrap.js | PR-Codex R1 F3 확증 — 생성된 C2 프로브 소스의 `\n`이 문자열 생성 단계에서 실제 줄바꿈으로 변환돼 큰따옴표 문자열 안에 들어가고, `runOne`이 그 소스를 컴파일하면 항상 SyntaxError다. 치환형·절대경로 대조형 양쪽이 발화 불가라 `${CLAUDE_PLUGIN_ROOT}` 축이 프로브 자체 결함 때문에 계속 unmeasured로 남는다. L3도 독립적으로 같은 것을 지적했다(위 행) |

@@ -34,6 +34,12 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   `trustStatus='trusted'`로 보고하고 (ii) `verify()`의 `rootSource`가 `R-d:codex-cache`일 때만
   나온다. 축 (ii)는 root env 4종을 **지운 자식 프로세스**에서 돈다.
 
+  **성공 조건의 세 번째 축은 ingress다** (PR-Codex R1 흡수). hook이 발화하고 본문이 해소돼도
+  `harness-ingress.js`의 `resolveIngress`가 `MCCP_HARNESS` 양성 신호를 못 받으면 `enabled:false`를
+  내고 호출자는 아무 일도 하지 않는다 — `bootstrap.ok=true`와 `ingress.enabled=false`가 동시에
+  성립하는 것이 실행에서 재현됐다. 다만 이 축은 *이 프로세스의 env*만 재며, Codex가 띄우는 hook
+  자식이 그 env를 상속하는지는 별개 미측정 축으로 남는다.
+
   **trust 승인은 mccp 소유 hook에 한정된다.** 프로브의 `grantHookTrust`는 `hooks/list` 반환
   전량을 승인하는데, 스크래치 home에서만 안전한 동작이고 실사용 `~/.codex/config.toml`에 같은
   짓을 하면 서드파티 hook 전부를 무차별 승인하는 권한 상승이다. 세 조건(선언원=`mccp@…` ·

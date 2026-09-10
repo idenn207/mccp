@@ -252,6 +252,23 @@ L2 패널 4/4 `fail`(HIGH 9) + L3 Codex `divergent`(high 3 · medium 1). 라운�
 | A8 | 백업 파일의 권한·생성 방식이 미지정 | security MEDIUM | Task 1이 `{flag:'wx', mode:0o600}` 관용구를 명시 |
 | A9 | Mirror 인용 행 번호가 실제 정의와 어긋남 | architect LOW | 다섯 인용 전부 실측값으로 정정 |
 
+### PR-Codex R1 (2026-09-10) — 구현 단계 흡수
+
+plan 게이트가 발행을 거부한 뒤 구현이 착지했고, `/mccp:pr`의 PR-Codex가 R1에서 **실재하는
+HIGH 2건**을 더 찾았다. dedupe가 열리지 않아(receipt 부재) 실제로 발화한 결과다.
+
+| # | 지목 | severity | 흡수 |
+|---|---|---|---|
+| P1 | TOML 병합이 기존 설정을 삭제하고 비활성 hook을 다시 켠다 — 주석 붙은 헤더 · 배열 테이블 · `enabled = false # comment` 셋 다 유효한 TOML에서 재현 | high | 파서를 경계 인식 기준으로 재작성(따옴표 존중 주석 제거 · `[[...]]` 경계 · 우리 블록 판정 분리). 회귀 6건 |
+| P2 | 게이트가 꺼져 있어도 부트스트랩이 성공한다 — `resolveIngress`는 `MCCP_HARNESS` 양성 신호가 없으면 `enabled:false`인데 검증이 그 축을 안 봤다 | high | 성공 조건에 **축 (iii) ingress** 추가. 회귀 2건 |
+| P3 | 생성된 C2 프로브에 항상 JS 구문 오류 | medium | backlog 이연(§3.14) — L3도 같은 것을 지적했다 |
+
+P1은 실측으로 확증했다 — 수정 전 세 케이스 전부 `false`, 수정 후 전부 `true`.
+P2도 마찬가지다(`verifyIngress({})` → `ok:false`).
+
+**이 라운드도 재리뷰하지 않았다.** 수정본은 PR-Codex R2를 받지 않았고, 그 사실은 report가
+기록한다.
+
 **이 흡수가 주장하지 않는 것**: plan을 고쳤을 뿐 재리뷰하지 않았으므로, 흡수본 자체는
 리뷰를 받지 않았다. `reviewed_plan_hash`는 흡수 **이전** 본문에 묶여 있고 그 사실은 receipt와
 이 절이 함께 기록한다.

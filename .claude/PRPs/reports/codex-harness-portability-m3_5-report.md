@@ -78,8 +78,34 @@ config.toml sha256 전후 동일: YES · 생성된 백업: 0건
 `ROOT_ENV_NAMES`를 전부 덮는지 대조하므로, 그쪽에 새 env가 추가되고 여기 반영되지 않으면
 test가 red가 된다(산문이 아니라 기계가 지킨다).
 
+## PR-Codex R1도 실재 결함을 잡았다
+
+receipt가 없어 cross-gate dedupe가 열리지 않았고(residual 122 파일), PR-Codex가 실제로
+발화해 `needs-attention`으로 HIGH 2건을 냈다. 둘 다 재현됐고 둘 다 흡수했다.
+
+- **P1 — TOML 병합이 기존 설정을 삭제하고 비활성 hook을 다시 켠다.** 초안의 헤더 정규식이
+  트레일링 주석과 배열 테이블을 헤더로 보지 않아, 직전 trust 블록의 범위가 그 섹션을 삼키고
+  교체가 **운영자의 설정을 지웠다**. `enabled = false # comment`도 인식하지 못해 명시적으로
+  끈 hook을 **다시 켰다**. 수정 전 세 케이스 전부 `false`, 수정 후 전부 `true`.
+- **P2 — 게이트가 꺼져 있어도 부트스트랩이 성공한다.** `resolveIngress`는 `MCCP_HARNESS`
+  양성 신호가 없으면 `enabled:false`이고 호출자는 아무 일도 하지 않는데, 검증이 그 축을
+  보지 않아 `bootstrap.ok=true`와 `ingress.enabled=false`가 동시에 성립했다. 성공 조건에
+  **축 (iii)** 을 추가했다. 실측: `verifyIngress({})` → `ok:false`.
+- **P3 (medium)** — 생성된 C2 프로브의 JS 구문 오류. §3.14대로 backlog 이연(L3도 같은 지적).
+
+수정 후 `status --json`이 5축을 보고하며 `ingress: missing`을 정확히 드러낸다 — R1이 지적한
+"꺼진 게이트를 성공으로 보고" 상태를 이제 잡는다. 단위 test 18/18.
+
+**수정본은 PR-Codex R2를 받지 않았다.** R1 원장이 소진돼 두 번째 `/mccp:pr`은 캡에 걸리고,
+§3.16이 라운드를 늘리지 않는 것을 요지로 한다. 흡수의 정당성은 재현 실측과 회귀 test 8건이
+뒷받침하되, cross-model 재검증은 없다 — 그 사실을 반올림하지 않고 여기 적는다.
+
 ## 미충족 — 반올림하지 않는다
 
+- **축 (iii) ingress가 현재 `missing`이다.** `MCCP_HARNESS=codex`가 이 셸에 없다. 그리고
+  Codex가 띄우는 hook 자식이 그 env를 상속하는지는 **별개 미측정 축**이다 — `hooks.json`에
+  `env` 필드가 없고 Codex hook 정의에 주입 경로가 측정된 바 없다(M3의 `${CLAUDE_PLUGIN_ROOT}`
+  축과 같은 경계). 즉 부트스트랩이 exit 0을 내려면 그 축이 먼저 닫혀야 한다.
 - **`bootstrap --apply`를 실행하지 않았다.** `marketplace.json`이 `ref: release`이므로 컷
   **전에** 설치하면 M1~M3를 모르는 옛 본문이 설치된다. 순서는 `컷 → 설치 → trust → 검증`이고
   컷은 PR 머지 뒤다(Task 6).

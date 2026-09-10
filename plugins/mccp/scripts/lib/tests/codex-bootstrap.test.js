@@ -112,3 +112,73 @@ test('REACH_ENV_TO_CLEAR covers every root env command-reach.js consults', funct
   assert.ok(b.REACH_ENV_TO_CLEAR.indexOf('MCCP_PLUGIN_ROOT_HINT') !== -1,
     'the R-b hint is read by the command-reach CLI shim and must be cleared too');
 });
+
+// ── PR-Codex R1 regressions ─────────────────────────────────────────────────
+// All three F1 cases were REPRODUCED on valid TOML before the fix. They are not
+// hypothetical: the initial header regex `^\s*\[([^\]]*)\]\s*$` did not match a
+// section carrying a trailing comment or an array-of-tables, so the preceding
+// trust block's range swallowed it and the replace DELETED an operator's config.
+
+test('F1a — a section header with a trailing comment is a boundary, not swallowed', function () {
+  const cfg = [
+    '[hooks.state."mccp@mccp:Stop:0"]', 'enabled = true', 'trusted_hash = "old"', '',
+    '[mcp_servers.production] # keep me', 'url = "https://x"', '',
+  ].join('\n');
+  const out = b.mergeTrustBlocks(cfg, [HOOK('mccp@mccp:Stop:0', 'new')]).toml;
+  assert.ok(out.includes('[mcp_servers.production] # keep me'), 'the commented section must survive');
+  assert.ok(out.includes('url = "https://x"'), 'and so must its body');
+});
+
+test('F1b — an array-of-tables is a boundary too', function () {
+  const cfg = [
+    '[hooks.state."mccp@mccp:Stop:0"]', 'enabled = true', '',
+    '[[hooks.Stop]]', 'command = "x"', '',
+  ].join('\n');
+  const out = b.mergeTrustBlocks(cfg, [HOOK('mccp@mccp:Stop:0', 'new')]).toml;
+  assert.ok(out.includes('[[hooks.Stop]]'), 'array table header must survive');
+  assert.ok(out.includes('command = "x"'), 'and its body');
+});
+
+test('F1b2 — an array-of-tables is never mistaken for OUR block', function () {
+  // `[[hooks.state."x"]]` is not the single table we own. Treating it as ours
+  // would let a replace rewrite a shape we never wrote.
+  const blocks = b.parseHookStateBlocks('[[hooks.state."mccp@mccp:Stop:0"]]\nenabled = true\n');
+  assert.strictEqual(blocks.length, 0);
+});
+
+test('F1c — enabled=false with a trailing comment still means disabled', function () {
+  const cfg = '[hooks.state."mccp@mccp:Stop:0"]\nenabled = false # operator turned this off\n';
+  const sel = b.selectTrustable([HOOK('mccp@mccp:Stop:0', 'a')], cfg);
+  assert.strictEqual(sel.grant.length, 0, 'an explicitly disabled hook must not be re-enabled');
+  assert.strictEqual(sel.skipped[0].reason, 'operator-disabled');
+});
+
+test('F1d — comment stripping respects quotes, so a # inside a key survives', function () {
+  const blocks = b.parseHookStateBlocks('[hooks.state."a#b:Stop:0"]\nenabled = true\n');
+  assert.strictEqual(blocks.length, 1);
+  assert.strictEqual(blocks[0].key, 'a#b:Stop:0');
+});
+
+test('F1e — the hardened parser is still idempotent on a config with comments', function () {
+  const cfg = '[tui] # ui\nfoo = 1\n\n[[hooks.Stop]]\ncommand = "x"\n';
+  const hooks = [HOOK('mccp@mccp:SessionStart:0', 'aaa')];
+  const once = b.mergeTrustBlocks(cfg, hooks).toml;
+  assert.strictEqual(b.mergeTrustBlocks(once, hooks).toml, once);
+});
+
+// F2 — a fired, resolvable hook still enforces nothing when the ingress oracle
+// is off. bootstrap.ok=true alongside ingress.enabled=false was reproduced.
+
+test('F2 — verifyIngress is false without a positive host signal', function () {
+  const r = b.verifyIngress({});
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.harness, 'unknown');
+  assert.ok(r.reason && r.reason.length > 0, 'the failure must name a reason');
+});
+
+test('F2 — verifyIngress is true under MCCP_HARNESS=codex', function () {
+  const r = b.verifyIngress({ MCCP_HARNESS: 'codex' });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.harness, 'codex');
+  assert.strictEqual(r.ingress, 'user_prompt_submit');
+});

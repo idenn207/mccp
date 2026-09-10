@@ -27,6 +27,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const ingress = require('./harness-ingress');
 
 const MCCP_PLUGIN_NAME = 'mccp';
 
@@ -80,21 +81,57 @@ function isMccpDeclared(key) {
 // `[hooks.state."<key>"]` 블록만 골라 파싱한다. 완전한 TOML 파서가 아니다 —
 // 알아야 하는 것은 (a) 어느 key가 이미 기록돼 있는가, (b) 그 블록의 `enabled`가
 // 무엇인가, (c) 그 블록이 원문의 어느 줄 범위를 차지하는가 셋뿐이다.
+//
+// **완전하지 않아도 되지만, 경계는 놓치면 안 된다** (PR-Codex R1 F1 흡수).
+// 초안의 헤더 정규식은 `^\s*\[([^\]]*)\]\s*$` 였고 그래서 셋을 전부 틀렸다:
+//   - `[mcp_servers.production] # comment` — 트레일링 주석 때문에 헤더로 인식되지
+//     않아 **직전 trust 블록의 범위가 그 섹션까지 삼켰고, 교체가 그것을 삭제했다.**
+//   - `[[hooks.Stop]]` — 배열 테이블도 같은 이유로 헤더가 아니었다. 같은 삭제.
+//   - `enabled = false # comment` — 값 정규식도 트레일링 주석을 몰라 `null`이 되고,
+//     운영자가 명시적으로 끈 hook이 **다시 켜졌다.**
+// 셋 다 유효한 TOML이고 셋 다 재현됐다. 파서를 완전하게 만드는 대신 **경계 인식만**
+// 정확하게 한다 — 우리가 건드리는 것은 우리 블록뿐이고, 나머지는 바이트 그대로
+// 보존되기만 하면 된다. 그래서 헤더는 관대하게(무엇이든 섹션이면 경계다) 잡고,
+// 우리 것인지는 그 다음에 판정한다.
+//
+// 주석 제거는 따옴표를 존중한다 — key 안에 `#`가 들어갈 수 있고
+// (`[hooks.state."a#b:Stop:0"]`), 그것을 주석으로 잘라내면 그 블록을 우리 것으로
+// 인식하지 못해 중복이 쌓인다.
+function stripTomlComment(line) {
+  let out = '';
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (esc) { out += c; esc = false; continue; }
+    if (c === '\\' && inStr) { out += c; esc = true; continue; }
+    if (c === '"') { inStr = !inStr; out += c; continue; }
+    if (c === '#' && !inStr) break;
+    out += c;
+  }
+  return out;
+}
+
 function parseHookStateBlocks(toml) {
   const lines = String(toml == null ? '' : toml).split(/\r?\n/);
   const blocks = [];
   let cur = null;
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const header = line.match(/^\s*\[([^\]]*)\]\s*$/);
+    const line = stripTomlComment(lines[i]);
+    // 배열 테이블 `[[x]]` 도 섹션 경계다. 초안은 이것을 헤더로 보지 않아 앞 블록의
+    // 범위가 그 위로 확장됐고, 교체가 남의 설정을 지웠다.
+    const header = line.match(/^\s*(\[\[?)([^\]]*)(\]\]?)\s*$/);
     if (header) {
       if (cur) { cur.end = i - 1; blocks.push(cur); cur = null; }
-      const inner = header[1].trim();
-      const m = inner.match(/^hooks\.state\.("(?:[^"\\]|\\.)*")$/);
-      if (m) {
-        let key;
-        try { key = JSON.parse(m[1]); } catch (_) { key = null; }
-        if (key !== null) cur = { key: key, start: i, end: lines.length - 1, enabled: null };
+      // 우리 블록은 단일 테이블 `[hooks.state."<key>"]` 하나뿐이다. 배열 테이블
+      // (`[[...]]`)은 경계로만 쓰고 절대 우리 것으로 취급하지 않는다.
+      if (header[1] === '[' && header[3] === ']') {
+        const m = header[2].trim().match(/^hooks\.state\.("(?:[^"\\]|\\.)*")$/);
+        if (m) {
+          let key;
+          try { key = JSON.parse(m[1]); } catch (_) { key = null; }
+          if (key !== null) cur = { key: key, start: i, end: lines.length - 1, enabled: null };
+        }
       }
       continue;
     }
@@ -268,6 +305,34 @@ function verifyReach(codexHome, name) {
   return { ok: true, reason: null, rootSource: out.rootSource, commandPath: out.commandPath, root: out.root };
 }
 
+// 축 (iii) — receipt ingress가 실제로 켜지는가 (PR-Codex R1 F2 흡수).
+//
+// 축 (i)과 (ii)가 모두 성립해도 게이트는 여전히 꺼져 있을 수 있다. hook이 발화하고
+// 명령 본문이 해소돼도, `harness-ingress.js`의 `resolveIngress`는 `MCCP_HARNESS`가
+// 양성 신호를 주지 않으면 `enabled:false`를 내고 호출자는 아무 일도 하지 않고 exit 0
+// 한다("Codex injects no environment of its own; absence proves nothing"). 그러면
+// `bootstrap.ok=true`와 `ingress.enabled=false`가 동시에 성립한다 — PRD Problem이
+// 지목한 "돌아가는 것처럼 보이지만 아무것도 강제하지 않는" 상태 그대로다.
+//
+// **이 축이 주장하는 것은 좁다.** 여기서 재는 것은 *이 프로세스가 보는 env에서*
+// ingress가 켜지는가이고, *Codex가 띄우는 hook 자식이 그 env를 상속하는가*는
+// 별개 축이며 이 milestone은 그것을 재지 않는다. 그 둘을 뭉치면 "설치는 되는데
+// 발화하지 않는다"를 다시 반올림하는 것이다. 그래서 실패 메시지는 무엇이 없는지만
+// 말하고 무엇이 성립한다고는 말하지 않는다.
+function verifyIngress(env) {
+  const r = ingress.resolveIngress({
+    env: env || process.env,
+    event: 'UserPromptSubmit',
+    payload: {},
+  });
+  return {
+    ok: r.enabled === true,
+    harness: r.harness,
+    ingress: r.ingress,
+    reason: r.enabled === true ? null : r.reason,
+  };
+}
+
 // 관측만 낸다. 잴 수 없었던 것은 `missing`이 아니라 `unmeasured`다 —
 // 통제 없는 미발화는 부재의 증거가 아니다(M1·M3의 판정 규칙).
 function status(opts) {
@@ -315,6 +380,11 @@ function status(opts) {
   out.reach = reach.ok
     ? { axis: 'ok', root_source: reach.rootSource }
     : { axis: 'missing', detail: reach.reason, root_source: reach.rootSource };
+
+  const ing = verifyIngress(o.env);
+  out.ingress = ing.ok
+    ? { axis: 'ok', harness: ing.harness, ingress: ing.ingress }
+    : { axis: 'missing', detail: ing.reason, harness: ing.harness };
   return out;
 }
 
@@ -400,6 +470,17 @@ function bootstrap(opts) {
   if (!reach.ok) return fail('verify-reach', reach.reason);
   steps.push({ step: 'verify-reach', ok: true, detail: 'rootSource=' + reach.rootSource });
 
+  // 축 (iii) — hook이 발화하고 본문이 해소돼도 ingress가 꺼져 있으면 게이트는
+  // 아무것도 강제하지 않는다. 그 상태를 성공으로 보고하지 않는다.
+  const ing = verifyIngress(o.env);
+  if (!ing.ok) {
+    return fail('verify-ingress',
+      ing.reason + ' — set MCCP_HARNESS=codex in the environment the Codex hooks inherit. '
+      + 'NOTE: this axis only measures THIS process; whether a Codex-spawned hook child '
+      + 'inherits it is a separate, unmeasured axis.');
+  }
+  steps.push({ step: 'verify-ingress', ok: true, detail: 'harness=' + ing.harness + ' ingress=' + ing.ingress });
+
   return { ok: true, apply: true, codex_home: codexHome, steps: steps };
 }
 
@@ -407,6 +488,7 @@ module.exports.resolveCodexHome = resolveCodexHome;
 module.exports.configPath = configPath;
 module.exports.listHooks = listHooks;
 module.exports.verifyReach = verifyReach;
+module.exports.verifyIngress = verifyIngress;
 module.exports.status = status;
 module.exports.bootstrap = bootstrap;
 
@@ -424,7 +506,7 @@ if (require.main === module) {
   if (sub === 'status') {
     const out = status({ env: process.env, name: flagVal('--name') });
     process.stdout.write(JSON.stringify(out, null, 2) + '\n');
-    const blocked = ['cli', 'hooks', 'reach'].filter(function (k) { return !out[k] || out[k].axis !== 'ok'; });
+    const blocked = ['cli', 'hooks', 'reach', 'ingress'].filter(function (k) { return !out[k] || out[k].axis !== 'ok'; });
     process.exit(blocked.length ? 1 : 0);
   } else if (sub === 'bootstrap') {
     const out = bootstrap({

@@ -1,0 +1,107 @@
+{
+  "run_nonce": "4e230e13-3319-4289-9c3e-f57398cdf94b",
+  "decision_id": "codex-harness-portability-m4",
+  "plan_path": ".claude/plans/codex-harness-portability-m4.plan.md",
+  "review_payload_digest": "sha256:aa4b42d01589a6839ea42c6470bb4dca27971068d27781daf7ea4708a161b70d",
+  "mislabel_mode": "enforce",
+  "arbiter_mode": "subagent",
+  "intent_items": [
+    {
+      "id": "UI1",
+      "text": "Codex 호스트일 때 리뷰어는 Claude 계열이다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI2",
+      "text": "리뷰어를 부를 수 없으면 게이트는 통과가 아니라 fail-closed다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI3",
+      "text": "plan implement pr 세 게이트의 cross-model 불변식을 보존한다.",
+      "kind": "direction"
+    },
+    {
+      "id": "UI4",
+      "text": ".claude-plugin 디렉터리를 옮기지 않고 추가만 한다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI5",
+      "text": "plugin을 fork하지 않고 중립인 코어 식별자를 유지한다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI6",
+      "text": "브랜치는 plugin.json version을 선언하지 않는다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI7",
+      "text": "Codex reviewer와 Codex host를 문서 코드 receipt에서 분리한다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI8",
+      "text": "command 본문 감량 C8은 이번 범위에 포함하지 않는다.",
+      "kind": "exclusion"
+    },
+    {
+      "id": "UI9",
+      "text": "채널 분리와 타 사용자 설치 UX는 이번 범위가 아니다.",
+      "kind": "exclusion"
+    },
+    {
+      "id": "UI10",
+      "text": "하네스 교차 이어달리기 실증은 후속 PRD가 소유한다.",
+      "kind": "exclusion"
+    },
+    {
+      "id": "UI11",
+      "text": "비용 모델 테이블 확장은 MVP 완주를 막지 않으면 이연한다.",
+      "kind": "exclusion"
+    },
+    {
+      "id": "UI12",
+      "text": "결합 지점과 각 처분을 대조 가능한 목록으로 남긴다.",
+      "kind": "constraint"
+    },
+    {
+      "id": "UI13",
+      "text": "이번 plan 작업은 Workflow 없이 진행한다.",
+      "kind": "exception"
+    },
+    {
+      "id": "UI14",
+      "text": "이번 계획 검토는 Codex 리뷰로 진행한다.",
+      "kind": "exception"
+    },
+    {
+      "id": "UI15",
+      "text": "divergent 결과가 나오면 backlog에 기록하고 receipt를 작성한다.",
+      "kind": "direction"
+    }
+  ],
+  "claims_digest": "sha256:450c67b4d27808cb71ebb4966d2b22eebae5baac80f96a730c61988af4f21635",
+  "reviewer_contract": "full",
+  "findings": [
+    {
+      "finding_index": 0,
+      "finding_digest": "sha256:4826f3f657b038fc3582941546d04cb95f433b80dc563131e70b76d825ebbd11",
+      "reviewer_claim": "UI3",
+      "reviewer_claim_status": "claimed",
+      "reviewer_claim_reason": null,
+      "finding": {
+        "severity": "high",
+        "title": "Existing subject hashes cannot bind uncommitted implementation content",
+        "body": "Task 3 explicitly reuses existing gate hashes, but receipt/hash.js subjectHash covers task/phase/gate, plan/design hashes, base/head SHAs and round—not working-tree content. The implement review invocation in commands/prp-implement.md does not require a committed snapshot. Consequently, an edit after review that leaves HEAD and the plan unchanged can retain the same subject hash; the proposed evidence checks cannot distinguish reviewed code from changed code. This undermines the claimed current-subject binding even when Claude genuinely returned approval.\nINTENT: UI3",
+        "file": ".claude/plans/codex-harness-portability-m4.plan.md",
+        "line_start": 132,
+        "line_end": 135,
+        "confidence": 0.94,
+        "recommendation": "Define a separate reviewed-content digest covering staged, unstaged and relevant untracked content, or require an immutable committed review target. Capture it before invocation and verify it before sealing and reuse. Preserve legacy subject hashes, and add a regression where implementation content changes without changing HEAD or the plan."
+      }
+    }
+  ],
+  "adjudication_path": "/home/madsc/work/mccp/.git/worktrees/codex-harness-portability/mccp/tmp/intent-adjudication-4e230e13-3319-4289-9c3e-f57398cdf94b.json"
+}

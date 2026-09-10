@@ -2,24 +2,26 @@
 state_version: 1
 task_fingerprint: unknown
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-10T04:30:55.600Z
-last_event: pr_created
-last_event_at: 2026-09-10T04:30:55.600Z
+updated_at: 2026-09-10T07:09:57.915Z
+last_event: stop_loop_pass
+last_event_at: 2026-09-10T07:09:57.915Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/190
-dep_check_at: 2026-09-10T04:09:39.709Z
+dep_check_at: 2026-09-10T04:34:32.709Z
+escalate_pending: true
+escalate_pending_decision_id: codex-harness-portability-m4
 ---
 ## Goal
-codex-harness-portability M3.5 codex-ship — **PR #190 머지 완료**(merge commit `cb2ee03`). 다음은 릴리스 컷 2.0.0.
+codex-harness-portability M4 reviewer inversion 구현 진행 중; 전체 acceptance 미완료.
 
 ## Plan
-- PRD `.claude/prds/codex-harness-portability.prd.md` — milestone 3.5 = codex-ship (in-progress)
-- plan `.claude/plans/codex-harness-portability-m3_5.plan.md` — `## Gate Deviation` + `## Review Absorption` 보유
-- report `.claude/PRPs/reports/codex-harness-portability-m3_5-report.md` · 문서 `docs/codex-harness-portability/m3_5-codex-ship.md`
-- receipt `mccp-pr-codex/codex-harness-portability-m3` (sha256:c9d52fec…, verdict=skipped + skip proof). `mccp-plan-codex`는 부재 — 게이트가 정당하게 거부
+- PRD `.claude/prds/codex-harness-portability.prd.md` — milestone 4 = reviewer-inversion (in-progress)
+- plan `.claude/plans/codex-harness-portability-m4.plan.md` — Review Absorption 및 Execution Status 참조; 전체 acceptance 미완료
+- 진행 문서 `docs/codex-harness-portability/m4-reviewer-inversion.md` — Remaining work 참조
+- receipt `.claude/receipts/mccp-plan-codex/codex-harness-portability-m4.json` 및 `.claude/receipts/mccp-implement-codex/codex-harness-portability-m4.json` — 기존 divergent 판정 보존; 최종 구현 승인 증거 아님
 - branch `meta-codex-harness-portability` · plugin.json version 미선언(우산 결정 1, guard exit 0)
 
 ## Done
@@ -31,13 +33,13 @@ codex-harness-portability M3.5 codex-ship — **PR #190 머지 완료**(merge co
 - CI 전 체크 green(test-suite · env-contract drift · version declaration · release manifest · axis-k)
 
 ## In Progress
-
+Task 1 Claude CLI 실측 완료; routing/adapter 및 evidence 기반 구현, plan runner 초기 연결. implement/PR runner-owned finalization과 세 게이트 실측은 미완료.
 
 ## Next Step
-릴리스 컷 2.0.0 — docs/release-channel.md §2(첫 컷). release 브랜치가 main보다 270커밋 뒤(1.33.6)라 컷 전에는 Codex가 설치해도 codex-bootstrap.js가 그 트리에 없다. 순서 고정: 컷 → codex plugin add → bootstrap --apply → status. 그 뒤 M4는 Codex 하네스에서.
+docs/codex-harness-portability/m4-reviewer-inversion.md의 Remaining work부터 계속한다. receipt 테스트는 MCCP_BRIEFING=off로 실행하고, 기존 divergent/intent incomplete 판정을 보존한다.
 
 ## Last Decision
-hotfix version bump을 하지 않았다 — §3.7이 브랜치의 version 선언을 금지하고 CI가 fail-closed로 강제하므로, bump하면 PR이 그 게이트에 막히고 고치는 커밋이 ship receipt를 stale로 만든다. 세 선택지를 운영자에게 제시해 규칙 준수를 택했고, 번호는 릴리스 컷이 부여한다.
+사용자 승인 MCCP_SKIP_INTENT_GATE 사유를 최소 길이에 맞춰 확장해 재봉인 후 구현에 진입했다. CLI 측정은 성공했지만 세 게이트 acceptance 및 F1 미커밋 내용 binding은 미완료다.
 
 ## Open Questions
 - 축 (iii) ingress는 여전히 missing — MCCP_HARNESS=codex가 셸에 없고, Codex hook 자식이 그 env를 상속하는지는 별개 미측정 축
@@ -46,4 +48,4 @@ hotfix version bump을 하지 않았다 — §3.7이 브랜치의 version 선언
 - 워크트리 .worktrees/codex-harness-portability는 머지 후에도 남아 있다 — §3.8대로 cleanup 필요
 
 ## Last Updated
-2026-09-10T04:30:55.600Z
+2026-09-10T07:09:57.915Z

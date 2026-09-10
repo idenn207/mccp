@@ -1,6 +1,6 @@
-# Plan Review Panel — orchestrator-step-wiring
+# Plan Review Panel — release-channel-separation
 
-**Plan**: `.claude/plans/orchestrator-step-wiring-m3.plan.md` · **Plan version**: `(none)`
+**Plan**: `.claude/plans/release-channel-separation-m4.plan.md` · **Plan version**: `(none)`
 **Verdict**: `unknown` via `multi-agent`
 **Quorum**: (no panel result recorded)
 **Layers**: L1 converged · L2 not run · L3 not fired
@@ -30,16 +30,15 @@ No reviewer result reached this record.
     "l3": "not fired"
   },
   "quorum": null,
-  "wall_clock_ms": 80684,
+  "wall_clock_ms": 64365,
   "halt_stage": "5.2c-emit",
   "backlog_appended": null,
   "backlog_skipped_nonblocking": null,
   "granted": 4,
   "reviewed_plan_hash": null,
-  "plan_path": ".claude/plans/orchestrator-step-wiring-m3.plan.md",
+  "plan_path": ".claude/plans/release-channel-separation-m4.plan.md",
   "receipt_hash": null,
-  "recorded_at": "2026-09-04T08:14:01.829Z",
-  "rounds": 3
+  "recorded_at": "2026-09-04T05:28:34.069Z"
 }
 ```
 

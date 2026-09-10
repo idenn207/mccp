@@ -99,6 +99,55 @@ function computeMetrics(model) {
   return metrics;
 }
 
+// santa R3 (reviewer B/HIGH) → santa R4 (reviewer B/HIGH, 범위 확장) —
+// `ok` 와 `degraded` 와 `invalid_count` 는 서로 다른 사실이고, 셋 중 뒤의 둘은
+// "센 값이 corpus 전체에서 나오지 않았다"를 뜻한다. source 는 fail-open per-source 라
+// shard 하나를 못 읽어도(`degraded`) 줄 하나가 파손돼도(`invalid_count`) 나머지로
+// 계속 세는데, 소비자가 그 상태를 버리면 부분 corpus 에서 나온 값이
+// `status:'computed'` + `integrity_ok:true` 로 발행된다. 잃은 이벤트가
+// `task_started` 였다면 분모가 조용히 깎여 완주율이 **위로** 편향되고, 그 수치는
+// 아무 자격 없이 신뢰된다.
+//
+// 판정은 `computeA3` 가 세운 선례를 따른다(그 분기 주석): 무결성 위반은 producer
+// 부재보다 강한 신호이므로 **먼저** 판정하고, 부재·판독불가·손상을 한 통에 넣지
+// 않는다. R3 은 이 선례를 A1 한 곳에만 적용했고, R4 리뷰가 A2·B2 가 같은 구멍을
+// 그대로 갖고 있음을 지적했다 — 같은 source 를 읽는 지표가 같은 손상에 다르게
+// 반응하면 어느 쪽이 계약인지 말할 수 없으므로 술어를 하나로 올린다.
+//
+// **대가를 숨기지 않는다**(reviewer A/R4 suggestion): 이 source 의 `degraded` 는
+// 최대 세 디렉토리에 걸친 `.jsonl` **하나**만 못 읽어도 서고, 그 범위는 단일
+// 아티팩트를 읽는 A3 보다 넓다. 즉 공유 corpus 의 shard 하나가 손상되면 세 지표가
+// 모든 위치에서 동시에 `invalid` 가 된다. 그것이 fail-closed 의 값이고, 대신
+// `invalid_reason` 이 무엇 때문인지 말한다.
+//
+// `error` 는 마스킹해서 싣는다: `invalid_reason` 은 `derive/mask.js` 가 지나가지
+// 않는 필드이고(현재 red 인 `mask.test.js` 가 `metrics.B3.invalid_reason` 을 정확히
+// 그 누출 부류로 지목한다), `err.message` 는 절대경로를 담는다.
+function degradedSessionActivityMetric(id, src) {
+  const invalidLines = Number.isFinite(src.invalid_count) ? src.invalid_count : 0;
+  if (!src.degraded && !src.error && invalidLines <= 0) return null;
+  let reason;
+  if (src.error) {
+    try {
+      reason = require('../../derive/mask').scrubAbsPaths(String(src.error), process.cwd());
+    } catch (_e) { reason = 'source error (unreportable)'; }
+  } else if (src.degraded) {
+    reason = id + ' source degraded (event shard unreadable)';
+  } else {
+    reason = id + ' source partially parsed (' + invalidLines + ' malformed event line(s))';
+  }
+  return {
+    id: id,
+    numerator: null,
+    denominator: null,
+    value: null,
+    integrity_ok: false,
+    invalid_reason: reason,
+    status: 'invalid',
+    coverage: src.producer_coverage || 'unknown',
+  };
+}
+
 function computeA1(model) {
   // A1 work completion: startup/completion events from session-activity source
   const sessionActivity = model.sources?.session_activity;
@@ -106,13 +155,43 @@ function computeA1(model) {
     return insufficientMetric(A1_WORK_COMPLETION_RATE, 'session_activity source unavailable');
   }
 
+  const a1Degraded = degradedSessionActivityMetric(A1_WORK_COMPLETION_RATE, sessionActivity);
+  if (a1Degraded) return a1Degraded;
+
   const startupCount = sessionActivity.task_startups_count || 0;
   const completedCount = sessionActivity.task_completions_count || 0;
 
   // Anti-gaming: unit count spike (直前週期比 비정상 증가)
   // Check: if startupCount >> prior recorded, flag분할 의심
-  const unitSpikeFlag = startupCount > 50 && !model._priorStartupCount
-    ? 'unit_count_spike_suspected' : null;
+  //
+  // orchestrator-step-wiring M3 (Task 1 · DD1) — 부호를 바로잡는다. 기준선 **부재**는
+  // 급증의 증거가 아니라 "비교할 것이 없다"이다. 원래 조건
+  // (`startupCount > 50 && !model._priorStartupCount`)은 M1이 집계 경계를 저장소
+  // 전체로 올려 분모가 단조 증가하게 된 뒤로 시한폭탄이었다 — 임계를 넘는 순간
+  // A1을 통째로 `invalid`로 죽인다. 지표가 통계적 의미를 갖기 시작하는 바로 그
+  // 지점에서.
+  //
+  // DD2 — 기준선 producer(`_priorStartupCount` writer)는 이 milestone에서 만들지
+  // 않는다. 따라서 이 가드는 실 corpus에서 **영구히 잠든다**. 그것은 대가이고,
+  // 숨기지 않는다: 아래 `spike_guard`가 그 사실을 결과에 싣고 `cli.js`의 a1 배너가
+  // 토큰으로 내보낸다. anti-gaming 축의 복원은 backlog (c) 소유다.
+  const priorStartupCount = model._priorStartupCount;
+  const spikeBaselinePresent = Number.isFinite(priorStartupCount) && priorStartupCount > 0;
+  const unitSpikeFlag =
+    (startupCount > 50 && spikeBaselinePresent && startupCount > priorStartupCount)
+      ? 'unit_count_spike_suspected' : null;
+
+  // present-only. 기준선이 있어 가드가 실제로 판정할 수 있으면 키 자체가 없다 —
+  // 아래 두 `forward-only` 분기(`startups_producer_present` ·
+  // `completions_producer_present`)가 producer 부재를 `computed 0`으로 위장하지 않는
+  // 것과 같은 계열이다. 모르는 것을 아는 것처럼 쓰지 않고, 모른다는 사실에 이름을
+  // 준다. (santa R3 — 이 자리의 `:140-152` 인용은 같은 커밋이 그 분기들을 아래로
+  // 밀어내 무효가 됐다. 행 번호는 편집마다 다시 어긋나므로 이름으로 가리킨다.)
+  const spikeGuardFields = spikeBaselinePresent ? {} : {
+    spike_guard: 'dormant',
+    spike_guard_reason:
+      'no _priorStartupCount baseline is recorded, so the anti-gaming spike guard cannot judge',
+  };
 
   // Anti-gaming: inverted timestamps (착수 시각 > 지시 시각)
   const inversionFlag = sessionActivity.inversion_detected ? 'timestamp_inversion_detected' : null;
@@ -129,6 +208,7 @@ function computeA1(model) {
       invalid_reason: invalidReason,
       status: 'invalid',
       coverage: sessionActivity.producer_coverage || 'unknown',
+      ...spikeGuardFields,
     };
   }
 
@@ -147,6 +227,7 @@ function computeA1(model) {
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
       sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+      ...spikeGuardFields,
     };
   }
 
@@ -166,6 +247,7 @@ function computeA1(model) {
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
       sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+      ...spikeGuardFields,
     };
   }
 
@@ -181,6 +263,7 @@ function computeA1(model) {
     // DD5 병기 축 — 봉인됐으나 완주 기록이 없는 작업 단위 수. 값 셀이 아니라
     // 대시보드의 `A1 커버리지:` 줄로 나간다(DD11: 값 셀은 한 지표만 담는다).
     sealed_without_completion: sessionActivity.sealed_without_completion || 0,
+    ...spikeGuardFields,
   };
 }
 
@@ -199,13 +282,19 @@ function computeA2(model) {
     return insufficientMetric(A2_CONTEXT_REMAINING, 'session_activity source unavailable');
   }
 
+  const a2Degraded = degradedSessionActivityMetric(A2_CONTEXT_REMAINING, sessionActivity);
+  if (a2Degraded) return a2Degraded;
+
   const sessions = sessionActivity.sessions || [];
 
   // orchestrator-step-wiring M1 (Task 5a) — 분모는 **로컬에서 관측된 세션**이다.
   //
   // A1 축 이벤트가 git common dir로 올라가면 `session-activity.js`의 세션 맵은
-  // kind 가드가 없어서(그 파일 `:154` 선례) 타 worktree의 A1 이벤트로도 엔트리를
-  // 만든다. 분자(`samples`)는 로컬 `session_end`의 `context_remaining_pct`에서만
+  // **A1 축 이벤트를 의도적으로 받아들이므로**(Task 5의 `sessionAxisAdmissible`는
+  // 공유 위치의 비-A1 kind만 거른다) 타 worktree의 A1 이벤트로도 엔트리를 만든다.
+  // (santa R3 — 이 자리는 "kind 가드가 없어서"라고 적혀 있었는데, 그 가드를 더한
+  // 바로 그 커밋에서 그대로 남아 거짓이 됐다. 결론은 그대로다: 분모는 여전히
+  // 로컬 관측 세션이어야 한다.) 분자(`samples`)는 로컬 `session_end`의 `context_remaining_pct`에서만
   // 오므로 두 축이 비대칭으로 움직이고, 그대로 두면 A2의 sample coverage가
   // **관측된 적 없는 세션 수만큼 희석**된다 — 이 PRD가 A1에서 없애는 위치
   // 의존성을 A2에서 새로 만드는 셈이다.
@@ -225,7 +314,12 @@ function computeA2(model) {
   // 평균은 내지 않는다(§A2 계약) — p50·p95만 보고한다. 표본 수는 값 셀이 아니라
   // `coReportDetails()`의 `A2 상세:` 줄로 나간다(DD11: percentile 분기는 이미
   // 두 사실로 차 있다).
-  const samples = sessions
+  // orchestrator-step-wiring M3 (Task 4) — 분자를 **분모와 같은 모집단**에서 뽑는다.
+  // 오늘 무해한 이유(`context_remaining_pct`가 로컬 `session_end`에서만 온다)는
+  // 강제되지 않은 우연이었다: `session_end`는 `A1_AXIS_KINDS` 밖이라 공유 위치에
+  // 도달하는 경로가 없을 뿐, `sessions`를 읽는 한 그 사실이 바뀌면 분자가 조용히
+  // 오염된다. 위 `localSessions`가 이미 분모다 — 분자도 같은 집합에서 읽는다.
+  const samples = localSessions
     .map((s) => (s && s.context_remaining_pct))
     .filter((v) => Number.isFinite(v))
     .sort((a, b) => a - b);
@@ -534,6 +628,9 @@ function computeB2(model) {
   if (!sessionActivity || !sessionActivity.ok) {
     return insufficientMetric(B2_CONCURRENT_CONFLICTS, 'session_activity source unavailable');
   }
+
+  const b2Degraded = degradedSessionActivityMetric(B2_CONCURRENT_CONFLICTS, sessionActivity);
+  if (b2Degraded) return b2Degraded;
 
   const concurrentPairs = sessionActivity.concurrent_pairs_count || 0;
   const producerPresent = !!sessionActivity.collision_producer_present;

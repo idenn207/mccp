@@ -1,0 +1,27 @@
+{
+  "blocked": true,
+  "stage": 2,
+  "reasons": [
+    "deleted_without_allowance"
+  ],
+  "message": "gate BLOCKED at stage 2: deleted_without_allowance | deleted without an allow_deletions entry: .claude/scripts/receipt/tests/aliases.test.js",
+  "coverage": {
+    "coverage_pct": 98.50746268656717,
+    "denominator": 402,
+    "numerator": 396,
+    "excluded": [
+      "plugins/mccp/scripts/derive/tests/mask.test.js",
+      "plugins/mccp/scripts/lib/tests/dispatch-fullcycle-smoke.test.js",
+      "plugins/mccp/scripts/lib/tests/leadtime.test.js",
+      "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+      "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js",
+      "plugins/mccp/scripts/receipt/tests/receipt-linkage-fields.test.js"
+    ],
+    "unexplained": [],
+    "tracked": 402,
+    "base": "origin/main",
+    "missing": [
+      ".claude/scripts/receipt/tests/aliases.test.js"
+    ]
+  }
+}

@@ -4,30 +4,47 @@
 > `- key: value` 줄을 읽어 `gh` 로 실제 상태를 다시 잰다. 여기 적힌 문자열이 증거가 되는
 > 곳은 **없다** — 문서가 나르는 것은 run id 와 미충족 사유뿐이고, 상태는 언제나 API 가 낸다.
 >
-> **반올림하지 않는다.** 다섯 라이브 산출물 중 이 사이클이 실제로 얻은 것은 **하나**이고,
-> 넷은 미충족이다. 아래가 그 정직한 상태다.
+> **반올림하지 않는다.** 라이브 산출물 중 축 D(절단 A·B) · OQ3 baseline · 격리 재판정은
+> **충족**이고, 축 C(설정·차단력)는 권한 부재로 **명시 미충족**이다. 아래가 그 정직한 상태다.
 
 ## 기계 판독 필드
 
 - baseline-run: `34195014409`
-- dd8-row: `matrix`
+- oq3-dd8-row: `matrix`
+- oq3-windows-only-red: `2`
+- oq3-enforcement-owner: `ci-full-suite 후속 사이클 — 선행조건은 backlog ci-full-suite:H5 (baseline SHA-pin 패리티)`
 - quarantine-verdict: `Q\L=0 · Q∩L=6 · L\Q=0`
+- quarantine-released: `0`
+- quarantine-residual: `6`
+- quarantine-novel: `0`
 - axis-c: `unmet`
 - axis-c-blocker: `the authenticated account madsci207 has permissions.admin=false on idenn207/mccp, and a branch-protection PUT requires the admin ROLE — a token scope cannot substitute for it. Measured 2026-09-08 via gh api repos/idenn207/mccp --jq .permissions.`
-- axis-d: `unmet`
-- axis-d-blocker: `the axis-D negative control requires pushing chore/axis-d-negative-control to idenn207/mccp and opening a non-draft PR whose CI is deliberately made red twice. That is an outward-facing action on a repository this account does not own, and it was not authorised in this cycle. No axis-d-a-run / axis-d-b-run field exists, so the Validation oracle halts at its first need() call rather than passing on a document claim.`
+- axis-d: `met`
+- axis-d-a-run: `34556517175`
+- axis-d-b-run: `34566171941`
+- axis-d-pr: `193`
 
-## 1·2. 축 D — 절단 A·B의 CI red · **미충족**
+## 1·2. 축 D — 절단 A·B의 CI red · **충족 (2026-09-11)**
 
-수행하지 않았다. 그러므로 `- axis-d-a-run:` · `- axis-d-b-run:` 필드가 **없고**,
-`## Validation` 은 `need "axis-d-a-run"` 에서 exit 1 한다. 그것이 의도된 동작이다 — 이
-문서가 "축 D 완료"를 주장할 수 있는 경로는 처음부터 없다.
+운영자 승인으로 원격 왕복을 수행했다. `chore/axis-d-negative-control` 브랜치(M4 변경물
+실은 비-draft 버리는 PR [#193](https://github.com/idenn207/mccp/pull/193))에서 절단 A·B를
+각각 1회 적용·관측·복원했다. **PR은 머지하지 않았다.**
 
-**선행 결함은 닫혔다.** 축 D 를 막던 것은 권한이 아니라 코드였다(E10·E10b): `applyDelete` 가
-대상 가드 없이 임의 경로를 `git rm` 해, 절단 B 가 자기 test 나 격리 대상을 고르면 판정보다
-앞선 step 이 먼저 죽어 `gate.json` 이 아예 생성되지 않았다. Task 1 이 그 가드를 코드로 옮겼고
-다섯 사유 코드가 전부 발화한다(아래 §6). 즉 **다음 사이클은 이 Task 를 다시 하지 않고
-축 D 만 수행하면 된다.**
+| | 절단 A (소비 경로) | 절단 B (구조) |
+|---|---|---|
+| 커밋 | `43576b7` — `--apply-red` (붉은 test 심기) | `f518951` — `--pick-delete` → `--apply-delete .claude/scripts/receipt/tests/aliases.test.js` |
+| run | [`34556517175`](https://github.com/idenn207/mccp/actions/runs/34556517175) · conclusion **failure** | [`34566171941`](https://github.com/idenn207/mccp/actions/runs/34566171941) · conclusion **failure** |
+| `gate.json` | `blocked:true` · **`stage:1`** · `reasons ∋ suite_red` | `blocked:true` · **`stage:2`** · `reasons ∋ deleted_without_allowance` |
+| tracked 사본 | [`axis-d-a-gate.json`](axis-d-a-gate.json) (artifact와 byte-동일) | [`axis-d-b-gate.json`](axis-d-b-gate.json) (artifact와 byte-동일) |
+| 복원 | `c552722` — run `34556705341` **green** 확인 | `e9dd569` — 브랜치 tree가 M4 tip과 동일 |
+
+두 `stage` 가 **다르다**(1 ≠ 2) — 두 절단이 서로 다른 것을 잰다는 판별자가 성립한다. 왕복
+전 green 기준선도 확보했다: 초기 run `34556317904` **success**(동일 tree).
+
+**이력 보존 (2026-09-08 미수행 사유)**: 당시에는 "외부 저장소에 대한 공개 작업이라 이
+사이클 범위 밖"으로 유예됐다. 선행 코드 결함(`applyDelete` 대상 가드 부재 — E10·E10b)은
+그 사이 Task 1 이 닫았고, 이 왕복은 그 가드 위에서 돌았다 — `--pick-delete` 가 고른 대상은
+가드 3종을 통과한 결정적 첫 후보였다.
 
 ## 3. OQ3 — baseline dispatch · **충족**
 
@@ -148,33 +165,16 @@ stage 3 `redaction` 으로 차단**됐다(`at: $.exclusions[3].reason`). 격리 
 복귀했다. **이것은 결함이 아니라 게이트가 의도대로 동작한 사례**이고, 기록을 남기는 것이
 M3 §7a 가 정한 관례다.
 
-## 7. `## Validation` 은 어디서 멈추는가 — 두 정지점 모두 의도된 것이다
+## 7. `## Validation` 이력 — 2026-09-08 의 두 정지점은 둘 다 해소됐다
 
-블록을 실제로 돌렸다. 통과한 것과 멈춘 것을 함께 적는다 — 통과분만 적으면 이 문서가
-계획이 금지한 반올림을 하게 된다.
+2026-09-08 실행에서 블록은 두 지점에서 멈췄다 — **A**(PRD milestone status `in-progress`)와
+**B**(`axis-d-a-run` 필드 부재). 둘 다 이 문서에 정직하게 기록됐고, 2026-09-11 축 D 완주로
+해소 조건이 생겼다:
 
-| # | 검사 | 결과 |
-|---|---|---|
-| 1 | `$DOC` 존재 | OK |
-| 2 | 4 test 파일 (`wiring-cut` · `ci-required-checks` · `test-suite-coverage` · `container-check`) | **109 pass · 0 fail** |
-| 3 | `run.js` 전수 측정 | `ok:true` · `attribution:complete` · `failing:[]` · `per_file 385 == files_total` · `redaction_ok:true` |
-| 4 | `gate.js` | **exit 0** · `blocked:false` · 98.4655% (385/391) · `unexplained:[]` |
-| 5 | 절단 가드 (사유 코드 + 대상 무변경) | OK — `exit 1` · `selftest_target` · 스냅샷 대비 무변경 |
-| 6 | `version-declaration-guard --base origin/main` | **exit 0** (버전 미선언 — §3.7) |
-| 7 | PRD milestone 4행 Plan 셀 | OK |
-| 8 | PRD 취소선 보존 + 2026-09-08 정정 | OK (취소선 밖 stale 0줄) |
-| 9 | backlog `ci-full-suite:H1..H10` 적재 | **9/9 OK** |
-| 10 | 축 C 분기 (`protected=false` → unmet 기록) | OK — `axis-c: unmet` · blocker 245자 |
-| **A** | **PRD milestone 4행 `status === "complete"`** | **HALT — `in-progress`** |
-| **B** | **`need "axis-d-a-run"`** | **HALT — 필드 부재** |
+- **정지점 B 해소** — 축 D 를 실제로 수행했다(위 §1·2). run 필드가 실측값으로 존재한다.
+- **정지점 A 해소** — 축 D 충족 후 남는 미충족은 축 C 하나뿐이고, 축 C 는 plan Acceptance 7
+  이 **명시 미충족 + 사유 기록을 정규 종착으로 규정**하는 경로다(판정자의 축 C 분기도
+  `protected=false` 관측 시 `unmet` 기록을 요구할 뿐이다). 따라서 status 를 `complete` 로
+  올리는 것은 반올림이 아니라 plan 이 설계한 종착역이다.
 
-**정지점 A — status 를 `complete` 로 적지 않았다.** `## Validation` 은 그것을 요구하지만,
-라이브 산출물 다섯 중 넷이 미충족인 상태를 `complete` 로 적는 것이 이 PRD 가 스스로 금지한
-반올림이다(Acceptance: "없으면 M4는 완료가 아니다. **반올림하지 않는다**"). 판정자와 계획
-본문이 충돌할 때 **본문의 규율이 이긴다** — 판정자는 축 D·C 가 모두 충족된 세계를 전제로
-쓰였고 그 전제가 성립하지 않는다. status 는 `in-progress` 로 남는다.
-
-**정지점 B — 축 D 를 수행하지 않았다.** 위 §1·2 의 사유 그대로다. 이 정지가 **문서 주장으로
-우회되지 않는 것**이 오라클의 설계 의도이고, 실제로 그렇게 동작했다.
-
-즉 `## Validation` 은 **통과하지 않는다.** 통과하지 않는 것이 오늘의 정직한 상태다.
+최종 실행 결과는 `## Validation` 블록 자체가 판정한다(`VALIDATION REACHED END`).

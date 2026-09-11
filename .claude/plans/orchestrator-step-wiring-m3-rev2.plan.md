@@ -632,3 +632,10 @@ invariant 리뷰어는 재키잉이 사실상 새 원장이고 §3.16의 감사 
 (3라운드) · `__orchestrator-step-wiring-m3`(1라운드) 원장은 그대로 남아 있고, 새 키의
 receipt가 `rounds_so_far=0`을 봉인하더라도 그 둘은 지워지지 않는다. ship 감사가 세 키를
 함께 읽지 않는다는 것이 등재하는 결함이며, 이 문단이 그 공백을 산문으로 메운다.
+
+## Milestone Closure Provenance
+- Milestone : 3-instrumentation-closeout
+- Verdict   : done
+- Closure   : .claude/milestone-closures/3-instrumentation-closeout.md
+- sha256    : sha256:6ac3331394a19629dcd0cc6fa7718d50e428208fdb90d796c606df148a73f90b
+- Stamped at: 2026-09-11T02:11:25.209Z

@@ -81,8 +81,10 @@ single-pass path — is **outside it** and belongs to the next cycle. `verify` c
 report `open: 0` while the live backlog is larger than the sealed one; that is
 the boundary, not a defect.
 
-Re-sealing is refused. A second seal would relabel the denominator under
-dispositions already bound to the first digest.
+`sealInventory` refuses a second seal, and that refusal stands: it would relabel
+the denominator under dispositions already bound to the first digest. What changed
+is that there is now a **succession** path beside it — see [Re-sealing](#re-sealing)
+below. Succession does not re-seal in place; it supersedes.
 
 ### Snapshot without refresh is a failing measurement
 
@@ -115,8 +117,136 @@ baseline snapshot in `.claude/_meta/data/` reports. The two disagree by design
 derived from one basis must never be attributed to the other. Every figure here
 moves on each ledger append; run the tool rather than citing this paragraph.
 
-`seal.age_days` shows how stale the snapshot is. Re-sealing is M2's scope. Until
-then, `closure report` is the single honest measurement.
+`seal.age_days` shows how stale the snapshot is, and `seal.ancestry_depth` shows
+how many generations it descends from. `closure report` names the succession path
+when the gap is non-zero; it remains an instrument and exits 0 regardless.
+
+## Re-sealing
+
+The denominator can move forward without breaking the judgments bound to the old
+one. The tool is `plugins/mccp/scripts/lib/msw-metrics/reseal.js`. **It plans by
+default and writes nothing**; `apply --apply` is the only path that changes
+anything, and the doubled flag is deliberate — a tool that walks around
+`sealInventory`'s refusal must not be reachable by accident.
+
+```bash
+node plugins/mccp/scripts/lib/msw-metrics/reseal.js            # plan, writes nothing
+node plugins/mccp/scripts/lib/msw-metrics/reseal.js apply --apply
+```
+
+### Succession is an append, not a rewrite
+
+Old lines are never edited. Each carried item gets a **new** line bound to the new
+digest, carrying `disposition`, `evidence`, `successor` and `duplicate_of`
+verbatim plus two provenance fields (`succeeded_from`, `originally_disposed_at`).
+
+The alternative — rewriting `inventory_sha256` in place across the old lines —
+would follow the precedent in `migrations/v1.22.4-cwd-rebind.js`, but that
+precedent does not transfer. There the binding *is* the filename, so breaking it
+leaves a dangling entry and re-keying is the only honest move. Here the binding is
+a field inside a line of an append-only log, and this ledger already fixed the rule
+for that shape: *"a re-judgment is recorded rather than overwritten — both readings
+stay auditable"*. Editing 1115 lines would not be re-keying an index; it would be
+rewriting a log.
+
+### What succession does NOT carry
+
+Three outcomes, all reported rather than absorbed:
+
+- **dropped** — the item is no longer live, so there is nothing in the new
+  denominator to attach a judgment to. **An item that stopped being live is not an
+  item that got done.** Most commonly a backlog row was edited (`rowId` is a hash
+  of the row's content) or a registry finding was closed. The row comes back as a
+  *new* item with no judgment, and that is correct: it has to be judged again.
+- **carry_blocked** — the item survived but its line points at another item that
+  did not. `duplicate_of` is recomputed by `linkDuplicates` on every seal, so a
+  twin can leave the denominator. These are left unjudged rather than re-pointed:
+  substituting a different twin would be a machine editing a person's decision.
+- **unjudged** — everything in the new denominator that never had a judgment.
+
+### Acceptance is a marker, not a substring
+
+A `deferred` disposition needs a successor document that **declares** it accepts
+the handoff:
+
+```
+<!-- accepts-inventory: sha256:<64 hex> -->
+```
+
+The earlier rule was "the body contains the digest somewhere", and it does not
+hold: every committed file carrying the sha becomes eligible. Measured in this
+repo — both `.claude/_meta/data/2026-09-08-closure-*.json` files embed the full
+digest, and so does *every line* of `debt-dispositions.jsonl`. An enumerated
+deny-list cannot fix that, because the set of such files grows on its own and a
+re-seal writes more of them. The marker closes the class instead.
+
+A marker inside a fenced block, a blockquote, or indented code does **not** accept —
+otherwise a document explaining the format would accept on its own behalf.
+
+### The ancestor chain
+
+A superseding seal records `meta.supersedes` and `meta.ancestry`, and archives its
+predecessor under `docs/multi-session-work-loop/seals/debt-inventory-<sha12>.json`.
+Lines bound to a **verified** ancestor are counted as `ancestor_bound_lines` and are
+excluded from `ok`; `binding_mismatch` keeps its original meaning and still turns
+the gate red.
+
+`meta` is outside the sealed digest (`inventoryHash` covers `items[]` only), so an
+ancestor is not believed as written. Three conditions must all hold: the shape is
+`sha256:<64hex>`, the archive **recomputes** to the sha it is filed under, and the
+archive is **in the git index**.
+
+**Be precise about what that buys.** Recomputation alone is self-fulfilling —
+`inventoryHash` is a public pure function, so anyone can hash a fabricated
+`items[]` and park it under the matching filename. The index condition raises that
+to *index membership*, which `git add` satisfies without leaving a commit. Neither
+authenticates provenance. What they close is **drift, mistakes and silent
+reclassification**; forgery stays exactly as open as CLAUDE.md §3.12 already states
+for every ledger here. Claiming more would be the same comfortable-false-number
+this subsystem exists to remove.
+
+Because acceptance is checked against the whole ancestor **set**, a successor
+marker written for generation 1 keeps accepting at generation 3. A **new** deferral
+gets no such credit: with no `succeeded_from`, it must name the current seal.
+
+### After a re-seal, `verify` goes red — that is the success signal
+
+`open` jumps from 0 to the unjudged remainder and `ok` becomes `false`. The green
+that preceded it was an artifact of measuring a frozen denominator, which is the
+defect this whole axis exists to remove. Do not widen succession to keep the number
+green.
+
+### Reproducibility notice
+
+M10's completion verdict was `m10-coverage-gate.js` exit 0. After a re-seal that
+gate exits 1 on the same tree. The verdict is not being revoked — the evidence it
+stood on is preserved in the seal archive, so which digest it held for stays
+checkable. Only the location of that evidence moved.
+
+### Rolling back
+
+**There is no undo.** The ledger is append-only, so carried lines cannot be
+removed, and the seal swap replaces a tracked file. **git is the only rollback
+path** — which is why a re-seal is kept to a single commit: reverting that one
+commit restores the seal, the archive, the manifest and the carried lines together.
+Revert anything less and the ledger and the denominator disagree.
+
+### Re-entry after a crash
+
+`.claude/state/reseal-manifest.json` is written **before** anything destructive and
+carries a `state`:
+
+- `in-progress` + `new_sha` matches the seal on disk → resume, appending only the
+  carried lines. The live pile is **not** re-derived.
+- `in-progress` + it does not match → the seal was never swapped; re-plan.
+- `complete` → that operation is finished. A further call plans a **new**
+  generation, and reports a noop if there is nothing to re-seal. (Without the
+  state, "new_sha matches the seal" is true forever after a success, and every
+  later generation would collapse into a replay of a finished append.)
+- absent, with the seal already superseded and nothing bound to it → **refuse**.
+  The target cannot be identified, and re-planning would re-derive the denominator
+  from live debt that has since moved, losing the judgments in a ledger that cannot
+  be un-appended.
 
 ## What the disposition mix actually shows
 

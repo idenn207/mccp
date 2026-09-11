@@ -116,9 +116,17 @@ We'll know we're right when **`closure report`가 오늘 `open: 0` 대신
 
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | closure-report | 봉인 분모와 라이브 부채의 격차 · 봉인 나이 · 두 종결 계기의 불일치 · 판정/해소/수정 3분할이 하나의 read-only CLI(`closure report [--json]`)로 산출된다. 재봉인 없음 · 상태 변경 없음 · 게이트 없음 · 신규 코드 파일 3건 + 문서 2건 편집 | in-progress | [.claude/plans/closure-accounting-m1.plan.md](../plans/closure-accounting-m1.plan.md) |
-| 2 | reseal-path | 재봉인이 기존 판정 1115건의 결속을 끊지 않고 수행되는 경로가 생긴다(승계 또는 재키잉). 격차가 실제로 0으로 떨어지는 것이 1회 실측된다 | pending | `closure-accounting-m2` (미생성) |
+| 1 | closure-report | 봉인 분모와 라이브 부채의 격차 · 봉인 나이 · 두 종결 계기의 불일치 · 판정/해소/수정 3분할이 하나의 read-only CLI(`closure report [--json]`)로 산출된다. 재봉인 없음 · 상태 변경 없음 · 게이트 없음 · 신규 코드 파일 3건 + 문서 2건 편집 | complete | [.claude/plans/closure-accounting-m1.plan.md](../plans/closure-accounting-m1.plan.md) |
+| 2 | reseal-path | 재봉인이 기존 판정 1115건의 결속을 끊지 않고 수행되는 경로가 생긴다(승계 또는 재키잉). 격차가 실제로 0으로 떨어지는 것이 1회 실측된다 | in-progress | [.claude/plans/closure-accounting-m2.plan.md](../plans/closure-accounting-m2.plan.md) |
 | 3 | registry-reachability | 기본 리뷰 모드(`multi-agent`)에서 지적이 `finding_adjudicated`/`finding_closed`를 남긴다. 또는 그 enum을 은퇴시킨다 — 0건이므로 은퇴가 과거 해석을 바꾸지 않는다 | pending | `closure-accounting-m3` (미생성) |
+
+**M2 신설**: `plugins/mccp/scripts/lib/msw-metrics/reseal.js` ·
+`plugins/mccp/scripts/lib/tests/msw-reseal.test.js` ·
+`docs/multi-session-work-loop/seals/` (봉인 아카이브) · `.claude/state/reseal-manifest.json` ·
+`.claude/_meta/data/2026-09-08-closure-reseal-live.json`. **M2 편집분**:
+`plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js` · `plugins/mccp/scripts/lib/closure/report.js` ·
+`docs/multi-session-work-loop/debt-deferred-{critical,high,minor}.md`(수락 마커) ·
+`docs/multi-session-work-loop/debt-inventory.md` · `CHANGELOG.md`.
 
 소유 파일: **M1 신설** `plugins/mccp/scripts/lib/closure/report.js` ·
 `plugins/mccp/scripts/lib/closure/cli.js` · `plugins/mccp/scripts/lib/closure/tests/report.test.js` ·

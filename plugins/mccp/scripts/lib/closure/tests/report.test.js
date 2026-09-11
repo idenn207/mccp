@@ -1192,10 +1192,19 @@ test('invariant (m1): disposed, resolved and fixed are three different numbers (
     assert.strictEqual(typeof result.seal.age_days, 'number', 'age_days must be present and numeric');
     assert.ok(result.seal.age_days >= 0, 'age_days must not be negative');
 
-    // The warning has to carry both anchors: the count tells the operator what a
-    // re-seal would unbind, the sha says which seal they are bound to.
+    // The warning has to carry both anchors: the count tells the operator how many
+    // judgments are at stake, and the path tells them where the succession lives.
+    //
+    // It used to quote the inventory sha instead of the path, because the only
+    // thing it could say was "re-sealing would unbind these". Now there is a tool
+    // that carries them forward, so the useful anchor is the tool — and quoting
+    // the digest here is what made every committed report JSON a candidate
+    // successor under the old substring rule.
     assert.match(result.reseal_warning, /\b6\b/, 'reseal_warning must quote the disposition count');
-    assert.ok(result.reseal_warning.indexOf(SHA) !== -1, 'reseal_warning must quote inventory_sha256');
+    assert.match(result.reseal_warning, /msw-metrics\/reseal\.js/,
+      'reseal_warning must name the succession path');
+    assert.doesNotMatch(result.reseal_warning, /\bM2\b/,
+      'the warning must not still call re-sealing a future milestone');
   } finally {
     Module.prototype.require = originalRequire;
     delete require.cache[require.resolve('../report.js')];
@@ -1327,4 +1336,51 @@ test('invariant (m4): a malformed disposition ledger nulls its row and suppresse
     Module.prototype.require = originalRequire;
     delete require.cache[require.resolve('../report.js')];
   }
+});
+
+test('invariant (m5): seal.ancestry_depth is present and null-on-unjudgeable, never 0-on-unknown', (t) => {
+  // A re-sealed denominator descends from something, and the report has to be able
+  // to say how deep that chain is. The rule is the same one the rest of this file
+  // follows: a chain that cannot be judged is `null`, not `0`. Reporting 0 for an
+  // unreadable ancestry would claim "this seal is original" about a seal nobody
+  // could check — the success-direction default this instrument exists to remove.
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+  const fixture = createMockRepoFixture();
+
+  const withAncestry = function (ancestryResult) {
+    Module.prototype.require = function (id) {
+      if (id === '../msw-metrics/debt-inventory') {
+        return {
+          readInventory: () => fixture.sealedDoc,
+          buildInventory: () => ({ items: fixture.liveItems, stats: { by_source: {} } }),
+          readDispositions: () => ({ ok: true, lines: fixture.dispositions }),
+          SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+          foldDispositions: (lines) => {
+            const m = new Map();
+            for (const l of lines) m.set(l.item_id, l);
+            return m;
+          },
+          sealAncestry: () => ancestryResult,
+        };
+      } else if (id === '../../state/findings-registry') {
+        return { readAll: () => ({ findings: fixture.findings }) };
+      }
+      return originalRequire.apply(this, arguments);
+    };
+    try {
+      delete require.cache[require.resolve('../report.js')];
+      return require('../report.js').buildClosureReport(process.cwd());
+    } finally {
+      Module.prototype.require = originalRequire;
+      delete require.cache[require.resolve('../report.js')];
+    }
+  };
+
+  assert.strictEqual(withAncestry({ verified: [], unverified: [] }).seal.ancestry_depth, 0,
+    'an original seal has depth 0');
+  assert.strictEqual(withAncestry({ verified: ['a', 'b'], unverified: [] }).seal.ancestry_depth, 2,
+    'depth counts VERIFIED ancestors only');
+  assert.strictEqual(withAncestry(null).seal.ancestry_depth, null,
+    'an unjudgeable chain is null, never 0');
 });

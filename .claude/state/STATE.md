@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: closure-accounting-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-08T05:38:13.613Z
+updated_at: 2026-09-11T02:21:12.231Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-08T05:38:13.613Z
+last_event_at: 2026-09-11T02:21:12.231Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,9 +12,11 @@ chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/174
 chain_progress: |
   {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
-dep_check_at: 2026-09-08T02:34:22.371Z
+dep_check_at: 2026-09-11T02:21:12.219Z
+install_skew_at: 2026-09-11T02:04:49.210Z
+install_skew_state: diverged:2026-09-11
 escalate_pending: true
-escalate_pending_decision_id: c11-closure-accounting
+escalate_pending_decision_id: closure-accounting-m2
 ---
 ## Goal
 closure-accounting M1 — closure-report. 구현·PR-Codex 2라운드 흡수 완료. push 직전에서 대기(누락 receipt로 ship-gate aggregate ok=false).
@@ -43,9 +45,7 @@ ship-gate aggregate ok=false의 유일 원인은 누락 receipt 2건이고 MCCP_
 라운드를 늘리지 않고 audited override로 ship하기로 했다(§3.16). R2 흡수 코드가 또 미리뷰이므로 R3를 열면 같은 논리가 무한히 반복된다 — §3.16이 실측으로 기록한 8시간·6라운드 병리가 그것이다. override는 verdict를 재작성하지 않으므로 dedupe는 계속 fail-closed다. 미흡수 MEDIUM 2건은 재현 절차째 backlog에 있고, 그중 하나는 거짓 100%로 가는 알려진 잔여 경로라고 명시했다.
 
 ## Open Questions
-- mccp:pr은 슬러그를 브랜치명에서, plan/implement는 plan 경로에서 파생한다 — PR 게이트가 찾는 슬러그로 상위 receipt가 쓰이는 경로가 없다. 이 저장소의 구조적 조건이며 이 사이클이 만든 것이 아니다
-- disposition 레코드 미검증(R2-F2)은 거짓 100%로 가는 알려진 잔여 경로다. upstream validateDisposition이 있으나 report는 0회 호출
-- findings-registry listWorkUnits의 열거 실패 삼킴(R1-F2)은 Validation 7이 편집을 금지한 파일이라 범위 밖
+- plan-implement file-expansion — see .claude/state/fix-task.md; implementation is green, the question is scope acceptance
 
 ## Last Updated
-2026-09-08T05:38:13.613Z
+2026-09-11T02:21:12.231Z

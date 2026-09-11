@@ -307,6 +307,16 @@ function buildClosureReport(repoRoot) {
     });
   }
 
+  // Ancestry depth is read through the same oracle the gate uses, so the report
+  // cannot disagree with `verify` about how deep the chain is.
+  let sealAncestryDepth = null;
+  try {
+    const anc = debtInv.sealAncestry(repoRoot, sealDoc);
+    sealAncestryDepth = anc === null ? null : anc.verified.length;
+  } catch (err) {
+    sealAncestryDepth = null;
+  }
+
   // Check for live inventory degradation (C5)
   if (liveInventory.stats && liveInventory.stats.findings_degraded) {
     liveInventoryDegraded = {
@@ -459,12 +469,25 @@ function buildClosureReport(repoRoot) {
   // Build reseal warning if gap > 0. Suppressed when the ledger is malformed:
   // the warning quotes a disposition count, and quoting a number the row above
   // just declared NOT COUNTED is the same contradiction in a second place.
+  // The old text said re-sealing was a future milestone's responsibility and that
+  // it would "unbind all N disposition records". Both halves stopped being true
+  // once the succession path landed: there is a tool, and it carries the judgments
+  // forward instead of unbinding them. What it CANNOT carry is the part worth
+  // naming here — an item that is no longer live gets no carried line, and an item
+  // whose cross-reference no longer resolves is left unjudged on purpose.
+  //
+  // This names the path and stops there. `closure report` is an instrument, not a
+  // gate: it still exits 0 no matter how large the gap is, and it does not tell
+  // anyone to run anything automatically.
   let resealWarning = null;
   if (gapCount > 0 && !disposalDegraded && !sealDigestMismatch) {
     resealWarning = (
-      'Re-sealing is M2 responsibility. Calling re-seal now will unbind all ' +
-      disposedCount + ' disposition records from the old inventory ' +
-      '(they are all bound to inventory_sha256=' + inventorySha + ').'
+      gapCount + ' live item(s) are outside the sealed denominator. ' +
+      'Succession is available: `node plugins/mccp/scripts/lib/msw-metrics/reseal.js` ' +
+      'plans it and writes nothing. It carries the ' + disposedCount + ' existing ' +
+      'disposition(s) forward rather than unbinding them, but items that are no ' +
+      'longer live, and items whose duplicate_of no longer resolves, are reported ' +
+      'as dropped or blocked instead of carried.'
     );
   }
 
@@ -506,6 +529,10 @@ function buildClosureReport(repoRoot) {
       items: sealItems,
       by_source: sealBySource,
       age_days: ageDays,
+      // How many generations this denominator descends from. `null` when the
+      // chain cannot be judged — the same "unreadable is not zero" rule the rest
+      // of this report follows.
+      ancestry_depth: sealAncestryDepth,
     },
     live: allDegraded.length > 0 && liveInventoryDegraded ? null : {
       items: liveItems,

@@ -1,0 +1,296 @@
+{
+  "measured_at": "2026-09-08T08:25:23.797Z",
+  "repo_head": "e5d274c4e621541f9a26e42bb85761387c5859b2",
+  "note": "closure-accounting M2 (UI6) — the one live succession. before/reseal/after were captured in a single process so no gate could append debt between them. after.verify going red (open > 0, ok false) is the SUCCESS signal, not a regression: the preceding open:0 was an artifact of measuring a frozen denominator.",
+  "before": {
+    "report": {
+      "seal": {
+        "sealed_at": "2026-09-01T01:21:41.049Z",
+        "sealed_at_commit": "9093b08f9f136849b42c5f70617d8c31368e2614",
+        "inventory_sha256": "sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba",
+        "items": 1115,
+        "by_source": {
+          "backlog": 936,
+          "findings": 178,
+          "fix-task": 1
+        },
+        "age_days": 7,
+        "ancestry_depth": 0
+      },
+      "live": {
+        "items": 2841,
+        "by_source": {
+          "backlog": 1584,
+          "findings": 1256,
+          "fix-task": 1
+        }
+      },
+      "denominator_gap": {
+        "count": 1740,
+        "pct": 61.25,
+        "net_change": 1726,
+        "sealed_not_live": 14
+      },
+      "dispositions": {
+        "total": 1115,
+        "by_disposition": {
+          "superseded": 111,
+          "duplicate": 19,
+          "deferred": 983,
+          "obsolete": 1,
+          "fixed": 1
+        },
+        "disposed": 1115,
+        "resolved": 132,
+        "fixed": 1,
+        "suppressing": [
+          "fixed",
+          "obsolete",
+          "superseded",
+          "duplicate"
+        ]
+      },
+      "ledgers": [
+        {
+          "name": "disposition-ledger",
+          "closed": 1115,
+          "total": 1115,
+          "pct": 100,
+          "denominator_note": "sealed inventory at 9093b08f9f136849b42c5f70617d8c31368e2614"
+        },
+        {
+          "name": "findings-registry",
+          "closed": 21,
+          "total": 1280,
+          "pct": 1.64,
+          "denominator_note": "live registry entries"
+        }
+      ],
+      "degraded": [],
+      "reseal_warning": "1740 live item(s) are outside the sealed denominator. Succession is available: `node plugins/mccp/scripts/lib/msw-metrics/reseal.js` plans it and writes nothing. It carries the 1115 existing disposition(s) forward rather than unbinding them, but items that are no longer live, and items whose duplicate_of no longer resolves, are reported as dropped or blocked instead of carried."
+    },
+    "verify": {
+      "ok": true,
+      "seal_intact": true,
+      "inventory_sha256": "sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba",
+      "total_items": 1115,
+      "disposed": 1115,
+      "open": 0,
+      "open_sample": [],
+      "unmatched_dispositions": 0,
+      "unmatched_sample": [],
+      "binding_mismatch": 0,
+      "ancestor_bound_lines": 0,
+      "ancestry_depth": 0,
+      "ancestry_unverified": [],
+      "invalid_dispositions": 0,
+      "invalid_sample": [],
+      "malformed_lines": 0,
+      "by_disposition": {
+        "deferred": 983,
+        "superseded": 111,
+        "duplicate": 19,
+        "fixed": 1,
+        "obsolete": 1
+      },
+      "adjudicable_fixed": 1,
+      "deferrals_by_successor": {
+        "docs/multi-session-work-loop/debt-deferred-critical.md": 31,
+        "docs/multi-session-work-loop/debt-deferred-minor.md": 636,
+        "docs/multi-session-work-loop/debt-deferred-high.md": 316
+      }
+    }
+  },
+  "reseal": {
+    "ok": true,
+    "mode": "reseal",
+    "old_sha": "sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba",
+    "new_sha": "sha256:78aead8cb1e04f4862d929bbe6ca742edac86d7c84693c259dbce187580ec608",
+    "appended": 1101,
+    "carried": 1101,
+    "carry_blocked": [],
+    "dropped": [
+      {
+        "item_id": "backlog:22f25019744f7705",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "findings:1352fe9c308c7f7b",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "findings:142baac96ef291e8",
+        "disposition": "deferred",
+        "severity": "HIGH"
+      },
+      {
+        "item_id": "findings:1a7710ce563360fb",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "findings:46454d7b7d8fe413",
+        "disposition": "obsolete",
+        "severity": "CRITICAL"
+      },
+      {
+        "item_id": "findings:48b7a2a48e49711f",
+        "disposition": "deferred",
+        "severity": "HIGH"
+      },
+      {
+        "item_id": "findings:9a28997bf6ddac83",
+        "disposition": "deferred",
+        "severity": "HIGH"
+      },
+      {
+        "item_id": "findings:a3fc63f22c667bb8",
+        "disposition": "deferred",
+        "severity": "HIGH"
+      },
+      {
+        "item_id": "findings:cc4754182dc86d25",
+        "disposition": "deferred",
+        "severity": "LOW"
+      },
+      {
+        "item_id": "findings:d0a80c9a903fc846",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "findings:dad13f385dfc6f32",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "findings:de8360937da74cd1",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "findings:fddf37266c8ccda4",
+        "disposition": "deferred",
+        "severity": "MEDIUM"
+      },
+      {
+        "item_id": "fix-task:diverse-agent-review-m8",
+        "disposition": "deferred",
+        "severity": "UNKNOWN"
+      }
+    ],
+    "unjudged_count": 1740,
+    "ancestry_depth": 1,
+    "archive": "docs/multi-session-work-loop/seals/debt-inventory-f171a42e2c34.json"
+  },
+  "after": {
+    "report": {
+      "seal": {
+        "sealed_at": "2026-09-08T08:25:23.521Z",
+        "sealed_at_commit": "9093b08f9f136849b42c5f70617d8c31368e2614",
+        "inventory_sha256": "sha256:78aead8cb1e04f4862d929bbe6ca742edac86d7c84693c259dbce187580ec608",
+        "items": 2841,
+        "by_source": {
+          "backlog": 1584,
+          "findings": 1256,
+          "fix-task": 1
+        },
+        "age_days": 0,
+        "ancestry_depth": 1
+      },
+      "live": {
+        "items": 2841,
+        "by_source": {
+          "backlog": 1584,
+          "findings": 1256,
+          "fix-task": 1
+        }
+      },
+      "denominator_gap": {
+        "count": 0,
+        "pct": 0,
+        "net_change": 0,
+        "sealed_not_live": 0
+      },
+      "dispositions": {
+        "total": 2841,
+        "by_disposition": {
+          "deferred": 970,
+          "superseded": 111,
+          "duplicate": 19,
+          "fixed": 1
+        },
+        "disposed": 1101,
+        "resolved": 131,
+        "fixed": 1,
+        "suppressing": [
+          "fixed",
+          "obsolete",
+          "superseded",
+          "duplicate"
+        ]
+      },
+      "ledgers": [
+        {
+          "name": "disposition-ledger",
+          "closed": 1101,
+          "total": 2841,
+          "pct": 38.75,
+          "denominator_note": "sealed inventory at 9093b08f9f136849b42c5f70617d8c31368e2614"
+        },
+        {
+          "name": "findings-registry",
+          "closed": 21,
+          "total": 1280,
+          "pct": 1.64,
+          "denominator_note": "live registry entries"
+        }
+      ],
+      "degraded": [],
+      "reseal_warning": null
+    },
+    "verify": {
+      "ok": false,
+      "seal_intact": true,
+      "inventory_sha256": "sha256:78aead8cb1e04f4862d929bbe6ca742edac86d7c84693c259dbce187580ec608",
+      "total_items": 2841,
+      "disposed": 1101,
+      "open": 1740,
+      "open_sample": [
+        "backlog:00b3d08bfb428cb6",
+        "backlog:00e2cec320dc3962",
+        "backlog:0108a02ad5b61021",
+        "backlog:020e2c4cfe2f603a",
+        "backlog:029afc6bc5dbdc25",
+        "backlog:02b721f76b512fdd",
+        "backlog:02e6e2e61a8de7e6",
+        "backlog:033126de3d716823",
+        "backlog:045773378602d30f",
+        "backlog:049a9acf9155bb66"
+      ],
+      "unmatched_dispositions": 0,
+      "unmatched_sample": [],
+      "binding_mismatch": 0,
+      "ancestor_bound_lines": 1115,
+      "ancestry_depth": 1,
+      "ancestry_unverified": [],
+      "invalid_dispositions": 0,
+      "invalid_sample": [],
+      "malformed_lines": 0,
+      "by_disposition": {
+        "deferred": 970,
+        "superseded": 111,
+        "duplicate": 19,
+        "fixed": 1
+      },
+      "adjudicable_fixed": 1,
+      "deferrals_by_successor": {
+        "docs/multi-session-work-loop/debt-deferred-minor.md": 627,
+        "docs/multi-session-work-loop/debt-deferred-high.md": 312,
+        "docs/multi-session-work-loop/debt-deferred-critical.md": 31
+      }
+    }
+  }
+}

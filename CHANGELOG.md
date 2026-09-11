@@ -19,6 +19,24 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- `plugins/mccp/scripts/lib/msw-metrics/reseal.js` — 봉인 분모의 **승계**. 옛 판정을
+  제자리에서 고쳐 쓰지 않고(원장은 append-only라 그것은 재키잉이 아니라 로그 개작이다)
+  항목마다 새 digest에 결속된 줄을 덧붙인다. 판정 내용은 그대로 복사되고 새로 만들어지지
+  않는다. 분모에서 탈락한 항목(`dropped`)과 교차 참조가 끊긴 항목(`carry_blocked`)은
+  흡수하지 않고 **보고한다** — 조용히 지우면 재봉인이 곧 세탁이 된다. dry-run이 기본이고
+  `apply --apply`만 쓴다. 모든 원장 write는 `appendDispositions`를 지나며 그 사실을
+  스캔 test가 고정한다.
+- `debt-inventory.js` — 조상 사슬(`sealAncestry`). `meta.ancestry`는 봉인 digest 밖이라
+  선언만으로 신뢰하지 않고 **아카이브 재계산 + git 인덱스 등재** 2조건으로 검증한다. 그
+  둘이 막는 것은 드리프트와 실수이지 위조가 아니며(§3.12) 그 한계를 문서가 명시한다.
+  조상 결속 줄은 `ancestor_bound_lines`로 분리돼 `ok`에서 빠지고, `binding_mismatch`는
+  원래 의미를 유지한다.
+- `checkSuccessor` — 인계 수락이 **부분 문자열에서 전용 마커로** 바뀌었다
+  (`<!-- accepts-inventory: sha256:… -->`). 옛 규칙은 digest를 본문에 담은 **모든** 커밋
+  파일에 successor 자격을 줬고, 실측 반례가 이 저장소 안에 셋 있었다(리포트 JSON 2건 ·
+  원장 자신의 모든 줄). 열거식 거부 목록은 파일이 늘 때마다 구멍이 늘어 성립하지 않으므로
+  **클래스를 닫는** 모양으로 교체했다. 인용·코드 펜스 안의 마커는 수락이 아니다.
+
 - `plugins/mccp/scripts/lib/leadtime-surface.js` — 한 줄 포매터. `formatLeadtimeLine`이
   CLI · `STATUS.md` · `status.html` · `distribution.json` **네 면이 공유하는 유일한 문장**을
   만든다. `assertCoverageAdjacency`가 "커버리지 없는 값 토큰은 존재할 수 없다"를 기계적으로

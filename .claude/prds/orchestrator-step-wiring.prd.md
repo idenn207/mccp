@@ -84,7 +84,7 @@ M1이 MVP인 이유는 **가설이 M1만으로 검증되기 때문**이다. M2(h
 |---|---|---|---|---|
 | 1 | metric-boundary-unification | 어느 위치에서 derive를 돌려도 같은 A1이 나온다. 분모가 단일 granularity를 갖는다. 그 값이 `/mccp:work` 진입에 표시되고, 표시 라벨이 계산 단위(작업 단위)와 일치한다 | complete | `.claude/plans/orchestrator-step-wiring-m1.plan.md` · 결과 `.claude/PRPs/reports/orchestrator-step-wiring-m1-report.md` |
 | 2 | halt-step-recording | `/mccp:work`가 멈춘 step이 기록되어, A1이 하락했을 때 어느 phase가 막았는지 답해진다. 기록 실패는 체인을 멈추지 않는다 | complete | `.claude/plans/orchestrator-step-wiring-m2.plan.md` · 결과 `.claude/PRPs/reports/orchestrator-step-wiring-m2-report.md` |
-| 3 | instrumentation-closeout | 계측이 스스로 도입한 결함이 닫힌다 — A1이 착수 50을 넘겨도 죽지 않고, 공유 corpus가 B2·A2의 모집단을 오염시키지 않으며, 배너로 나가는 모든 값이 같은 좁히기를 지난다. 이 PRD의 Open Questions 5건이 근거와 함께 확정된다 | in-progress | `.claude/plans/orchestrator-step-wiring-m3-rev2.plan.md` · 결과 `.claude/PRPs/reports/orchestrator-step-wiring-m3-report.md` |
+| 3 | instrumentation-closeout | 계측이 스스로 도입한 결함이 닫힌다 — A1이 착수 50을 넘겨도 죽지 않고, 공유 corpus가 B2·A2의 모집단을 오염시키지 않으며, 배너로 나가는 모든 값이 같은 좁히기를 지난다. 이 PRD의 Open Questions 5건이 근거와 함께 확정된다 | in-progress | [`.claude/plans/orchestrator-step-wiring-m3-rev2.plan.md`](.claude/plans/orchestrator-step-wiring-m3-rev2.plan.md) · 결과 [report](.claude/PRPs/reports/orchestrator-step-wiring-m3-report.md) |
 
 ## Open Questions
 

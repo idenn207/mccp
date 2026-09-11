@@ -245,3 +245,12 @@ test('seam: PATH is restored even when an assertion inside the stub scope fails'
     });
     assert.strictEqual(process.env.PATH, before, 'the stub directory leaked into PATH for later tests');
   });
+
+test('seam: a branch with reserved URL characters is encoded into the API path',
+  { skip: SEAM_SKIP }, (t) => {
+    withGhStub(t, '{"protected":true,"contexts":[]}\n', function (argv) {
+      readRequiredChecks('fe/ature?x');
+      assert.ok(/branches\/fe%2Fature%3Fx(\s|$)/.test(argv()),
+        'the branch segment must be URL-encoded so operator input cannot reshape the request path');
+    });
+  });

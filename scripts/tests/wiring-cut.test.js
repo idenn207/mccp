@@ -687,3 +687,17 @@ test('(B-pick) --pick-delete emits a deterministic target that passes all three 
   // 이 단언이 주장하지 않는 것: 삭제해도 나머지가 green 이라는 것. 그 명제는 전수
   // 스위트 실행이 필요하고 선택기에는 그 경로가 없다(Implement-Codex R1 F2).
 });
+
+test('(B-cli) a valueless --workflow is a usage error, not a silent fallback to the default', () => {
+  // 접으면 caller 의 지정이 아니라 저장소 기본 workflow 에 대한 판정이 나온다.
+  let status = 0;
+  let stderr = '';
+  try {
+    cutExec('node', [CUT, '--pick-delete', '--workflow'], { cwd: REPO, encoding: 'utf8' });
+  } catch (err) {
+    status = err.status;
+    stderr = String(err.stderr || '');
+  }
+  assert.strictEqual(status, 2, 'must exit 2 (usage), got ' + status);
+  assert.ok(/--workflow requires a path argument/.test(stderr), 'stderr must name the missing argument');
+});

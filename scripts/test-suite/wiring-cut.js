@@ -342,6 +342,12 @@ if (require.main === module) {
   // 있으나 다른 파일을 지목하는 합성 workflow 는 목록이 비지 않아 (a) 가 발동하지 않는다
   // (Implement-Codex R1 F1 → backlog). 그래서 파서를 export 해 직접 반증한다.
   const wfIdx = argv.indexOf('--workflow');
+  // 값 없는 --workflow 를 기본값으로 조용히 접으면, 진단은 caller 가 지정한 입력이 아니라
+  // 저장소 기본 workflow 에 대한 판정을 내놓는다. usage error(exit 2)로 닫는다.
+  if (wfIdx >= 0 && !argv[wfIdx + 1]) {
+    process.stderr.write('[wiring-cut] --workflow requires a path argument\n');
+    process.exit(2);
+  }
   const opts = wfIdx >= 0 ? { workflow: argv[wfIdx + 1] } : {};
   const positional = argv.filter(function (a, i) {
     return i > 0 && a !== '--workflow' && (wfIdx < 0 || i !== wfIdx + 1) && a.indexOf('--') !== 0;

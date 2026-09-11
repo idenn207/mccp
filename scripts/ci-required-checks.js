@@ -156,8 +156,9 @@ function readRequiredChecks(branch) {
   const repo = execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
+  // branch 는 운영자 입력이다 — `/`·`?` 등이 URL path 를 재구성하지 못하게 인코딩한다.
   const raw = execFileSync('gh', [
-    'api', 'repos/' + repo + '/branches/' + branch,
+    'api', 'repos/' + repo + '/branches/' + encodeURIComponent(branch),
     '--jq', '{protected: .protected, contexts: .protection.required_status_checks.contexts}',
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const parsed = JSON.parse(raw);

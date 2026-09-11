@@ -1,53 +1,48 @@
 ---
 state_version: 1
-task_fingerprint: unknown
+task_fingerprint: ci-full-suite-m4
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-04T06:59:30.305Z
+updated_at: 2026-09-08T08:13:53.209Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-04T06:59:30.305Z
+last_event_at: 2026-09-08T08:13:53.209Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-02T08:40:00.651Z
+dep_check_at: 2026-09-08T07:26:19.363Z
 escalate_pending: true
-escalate_pending_decision_id: ci-full-suite
+escalate_pending_decision_id: ci-full-suite-m4
 ---
 ## Goal
-ci-full-suite (우산 PRD harness-wiring-integrity 자식 C3) M3 — ci-enforcement. **구현 착지**, 라이브 완주 대기.
+ci-full-suite M4 — enforcement-live-closure. M3이 만든 게이트에 차단력을 붙이고 그것을 실증한다. 계획 착지, L2 패널 divergent.
 
 ## Plan
-- PRD: `.claude/prds/ci-full-suite.prd.md` — milestone 3 = ci-enforcement (in-progress · 구현 착지)
-- plan: `.claude/plans/ci-full-suite-m3w.plan.md` — 2.5.4 리뷰 섹션이 주입돼 `plan_hash`가 봉인값과 다르다(구조적)
-- receipt: `mccp-plan-codex/…`(converged, 구조적 stale) + `mccp-implement-codex/…`(`sha256:e9aa6a1a…`, skipped)
-- 산출 문서: `docs/ci-full-suite/m3-enforcement.md` · `docs/ci-full-suite/branch-protection-runbook.md` · report
-- branch `ci-full-suite-m3` · `plugin.json` version 미선언(우산 결정 1, guard exit 0)
+- PRD .claude/prds/ci-full-suite.prd.md — M4 행 추가(in-progress). M5는 만들지 않음(2중 리뷰 J1→C)
+- plan .claude/plans/ci-full-suite-m4.plan.md — L1 converged · L2 divergent 4/4 fail
+- 리뷰 기록 .claude/reviews/plan-review-ci-full-suite-m4.md (blocking 9 · 벽시계 379.6초)
+- receipt mccp-plan-codex/ci-full-suite-m4 — **미작성**(패널 미승인, converged 위장 없음)
 
 ## Done
-- 구현 전량 착지 — 신규 15 · 수정 3 · 문서 2. 강제 workflow · `gate.js` 5단계 · coverage/inputs/exclusions · 삭제 래칫 · wiring-cut 셋 · ci-required-checks · container-check
-- 단위 test **135건 green**(5면). 계획 Validation 13검사 전부 실행 — 2·4·4a·4b·7b 통과, 5·7은 설계상 note
-- 전수 로컬 실측: tracked 388 · 실행 382 · **실패 0** · `redaction_ok=true` · 벽시계 650초 · coverage 98.4536. **게이트 exit 0**
-- 축 D 3종 로컬 왕복 전부 통과 — 오라클 절단 시 red·바이트 동일 복원 · 절단 B는 `unexplained=0`인데 `deleted_without_allowance`로 차단
-- 보안 HIGH 1건 흡수 — fork PR 도달 가능 ReDoS가 유일한 머지 차단 체크를 60분 태울 수 있었다. `exclusions.js`에 복잡도 상한 셋 + 회귀 5분기
-- Task 1: Linux red 6건 **전부 격리**(수리 0). 여섯 다 Windows 로컬 green이라 재현 불가 — 사유·티켓 등재
-- receipt `mccp-implement-codex`(`sha256:e9aa6a1a…`, skipped) 작성·검증 · 문서 2면 · PRD 4곳 · backlog 10행 · CHANGELOG 3절 · report
+- 실측 20건(E1~E20): main protected:false(world-readable 채널) · 게이트 라이브 3회 발화 · PR #185 MERGED로 차단력 0 실증 · baseline dispatch 가용하나 이력 0건 · madsci207 admin:false
+- UI4대로 fable×codex 2중 리뷰로 사용자 판단 6건 대체 — J2·J4·J5 합치, J1·J3 갈림→합성
+- fable RISK 흡수: E1/E2가 권한 산물일 수 있다 → world-readable 채널로 근거 교체(결론 유지)
+- fan-out HIGH 5건 + L2 패널 HIGH 5건(3축) 흡수 · MEDIUM/LOW 6행 backlog 적재
+- 라운드 원장 이탈 1건 기록 — PRD 축 키잉으로 M4 첫 리뷰가 4라운드째로 거부되어 milestone 축 재봉인(원장 미삭제)
 
 ## In Progress
-
+없음 — 계획과 마일스톤 등재는 완료. 진행 여부는 운영자 판단.
 
 ## Next Step
-`/mccp:prp-commit` → `/mccp:pr`. 이 PR 자신이 Acceptance 1의 실증이다(paths 필터가 없으므로 체크가 발화한다). 머지 후: Task 0 dispatch → Task 6 OS 축 측정 → OQ3 판정 → 축 D run URL 둘 → branch protection → Task 9 병합.
+패널 divergent라 receipt가 없다. 구현하려면 §3.16의 문서화된 감사 우회를 사유와 함께 쓰고 /mccp:prp-implement .claude/plans/ci-full-suite-m4.plan.md
 
 ## Last Decision
-Linux red 여섯을 수리하지 않고 전부 격리했다 — 여섯 다 Windows 로컬에서 green이라 원인을 재현할 수 없고, 재현 없는 수리는 단언 약화와 구분되지 않는다(UI7 · Risks 행).
+HIGH 10건(fan-out 5 + 패널 5)을 그 자리에서 흡수하고 재리뷰는 돌리지 않았다(§3.16 1라운드 기본). verdict는 divergent 그대로 봉인해 cross-gate dedupe를 닫힌 채로 뒀다.
 
 ## Open Questions
-- **Acceptance 라이브 산출물 넷 전부 미충족** — 브랜치가 원격에 없어 CI가 0회. 반올림하지 않고 기록(report §미충족)
-- **OQ3 미종결** — Windows matrix 배선 다섯은 착지했으나 dispatch 미수행. DD8의 결정 규칙은 측정 전에 못박혀 있고 측정 후 바꾸지 않는다
-- Task 0 Linux 재측정 미수행 — 격리 여섯의 정당성이 거기 걸려 있다
-- 선행 `mccp-plan-codex` receipt 구조적 stale — 2.5.4 의무 주입이 `plan_hash`를 바꾸고 §3.12가 재봉인을 금지(backlog 등재)
-- Phase 2.5.6/2.5.7을 EXECUTE 뒤에 수행한 순서 이탈 — 사후 완료했고 report Deviations에 기록
+- 축 C는 권한에 걸려 있다 — madsci207은 idenn207/mccp에 admin:false라 branch protection을 설정할 수 없다. 권한이 없으면 M4는 축 C를 명시 미충족으로 두고 ship한다
+- OQ3 미종결 — baseline dispatch가 이제 가능하나(main·active·matrix 4원소) 실행 0회
+- 격리 6건의 정당성은 Task 0 Linux 재측정에 걸려 있고 그 producer가 곧 baseline dispatch다(--exclude-from 없음)
 
 ## Last Updated
-2026-09-04T06:59:30.305Z
+2026-09-08T08:13:53.209Z

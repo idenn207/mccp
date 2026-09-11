@@ -556,3 +556,134 @@ test('the oracle round trip is wired: --apply removes a token this file asserts 
   assert.strictEqual(ASSERTIONS.gateLineTokens(live.replace(ORACLE_TOKEN, '')), false,
     'cutting the token must make assertion 1 red; otherwise the round trip proves nothing');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 절단 B 대상 가드 — 5 사유 코드 (M4 Task 1 · security-reviewer S1·S2)
+//
+// **판정은 "비영점" 하나로 하지 않는다.** `git rm` 뒤의 크래시도 비영점이므로 exit code
+// 만 보는 단언은 "삭제 전 거부"와 "삭제 후 크래시"를 구분하지 못한다(S2). 그래서 거부
+// 경로 **각각에 대해** (i) 정확한 사유 코드와 (ii) 대상이 여전히 tracked 임을 **독립으로**
+// 잰다. 가드가 mutating call 앞에서 throw 하지 않으면 (ii)가 붉어진다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CUTMOD = require('../test-suite/wiring-cut.js');
+const { execFileSync: cutExec } = require('node:child_process');
+
+function isTracked(rel) {
+  const out = cutExec('git', ['ls-files', '--', rel], { cwd: REPO, encoding: 'utf8' });
+  return out.split(/\r?\n/).filter(Boolean).length > 0;
+}
+
+function refusalOf(target, opts) {
+  try {
+    CUTMOD.assertDeletable(target, opts);
+  } catch (err) {
+    return err;
+  }
+  return null;
+}
+
+test('(B-a) the self-test step targets are refused, and the tree is untouched', () => {
+  // 이 파일 자신과 형제가 대상이다 — workflow 의 `node --test` step 이 둘을 이름으로 부른다.
+  ['scripts/tests/wiring-cut.test.js', 'scripts/tests/test-suite-coverage.test.js'].forEach(function (t) {
+    const err = refusalOf(t);
+    assert.ok(err, t + ': the guard accepted a self-test target');
+    assert.strictEqual(err.reason, 'selftest_target');
+    assert.ok(isTracked(t), t + ': rejected but no longer tracked — the guard ran AFTER git rm');
+  });
+});
+
+test('(B-b) a quarantined target is refused, and the tree is untouched', () => {
+  const live = JSON.parse(fs.readFileSync(path.join(REPO, '.github', 'test-suite-exclusions.json'), 'utf8'));
+  const t = live[0].pattern;
+  const err = refusalOf(t);
+  assert.ok(err, t + ': the guard accepted a quarantined target');
+  assert.strictEqual(err.reason, 'quarantined_target');
+  assert.ok(isTracked(t), t + ': rejected but no longer tracked');
+});
+
+test('(B-c) a non-tracked / non-test path is refused', () => {
+  [['README.md', 'tracked but not a *.test.js'],
+   ['scripts/test-suite/gate.js', 'tracked source, not a test'],
+   ['scripts/tests/does-not-exist.test.js', 'named like a test but not tracked']].forEach(function (c) {
+    const err = refusalOf(c[0]);
+    assert.ok(err, c[0] + ' (' + c[1] + '): the guard accepted it');
+    assert.strictEqual(err.reason, 'not_tracked_test', c[0] + ': ' + c[1]);
+  });
+});
+
+test('(B-d) a workflow whose self-test list parses to ZERO refuses everything', () => {
+  // 극성이 반대면 (a)는 fail-open 이다: step 이 개명·주석화되면 목록이 조용히 비고,
+  // 그때 (c)가 tracked *.test.js 를 허용하므로 이 파일 자신이 다시 적격이 된다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiring-cut-wf-'));
+  const wf = path.join(dir, 'no-selftest.yml');
+  fs.writeFileSync(wf, ['jobs:', '  gate:', '    steps:',
+    '      - name: Enumerate sanity', '        run: node scripts/test-suite/run.js --list', ''].join('\n'));
+  try {
+    const err = refusalOf('scripts/tests/wiring-cut.test.js', { workflow: wf });
+    assert.ok(err, 'zero-parse must refuse');
+    assert.strictEqual(err.reason, 'selftest_list_unreadable');
+    const missing = refusalOf('scripts/tests/wiring-cut.test.js', { workflow: path.join(dir, 'absent.yml') });
+    assert.strictEqual(missing.reason, 'selftest_list_unreadable', 'an unreadable workflow is the same polarity');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(B-e) an unreadable quarantine list refuses everything (S1)', () => {
+  // "못 읽음 = 목록에 없음" 으로 접으면 rule (b)가 조용히 자기를 끄고 보호 대상이
+  // git rm 에 도달한다. exclusions.js:14-17 이 그 반대 방향 조용한 실패를 경고한다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiring-cut-ex-'));
+  try {
+    const broken = path.join(dir, 'broken.json');
+    fs.writeFileSync(broken, '{ this is not json');
+    const e1 = refusalOf('scripts/test-suite/gate.js', { exclusionsFile: broken });
+    assert.strictEqual(e1.reason, 'quarantine_list_unreadable', 'malformed JSON must refuse');
+
+    const e2 = refusalOf('scripts/test-suite/gate.js', { exclusionsFile: path.join(dir, 'absent.json') });
+    assert.strictEqual(e2.reason, 'quarantine_list_unreadable', 'a missing list must refuse');
+
+    // 사유가 not_tracked_test 로 떨어지면 (b)가 (c)보다 뒤에 있다는 뜻이고, 그러면
+    // 판독 불가가 "격리 아님"으로 접힌 것과 구별되지 않는다.
+    assert.notStrictEqual(e1.reason, 'not_tracked_test');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('(B-enum) every emitted reason is declared, and the enum is closed', () => {
+  assert.deepStrictEqual(CUTMOD.DELETE_REFUSAL_REASONS.slice().sort(),
+    ['not_tracked_test', 'quarantine_list_unreadable', 'quarantined_target',
+     'selftest_list_unreadable', 'selftest_target']);
+  assert.throws(function () { new CUTMOD.DeleteRefusal('made_up_reason', 'x'); },
+    /undeclared refusal reason/, 'an undeclared reason must fail closed at construction');
+});
+
+test('(B-parse) the self-test list comes from the command shape, not the step name', () => {
+  // step 을 개명해도 목록이 살아남아야 한다 — 산문 목록이 조용히 낡는 것을 파싱으로
+  // 옮기지 않기 위한 조건이다.
+  const live = fs.readFileSync(GATE_WF, 'utf8');
+  const parsed = CUTMOD.parseSelfTestTargets(live);
+  assert.deepStrictEqual(parsed.targets,
+    ['scripts/tests/test-suite-coverage.test.js', 'scripts/tests/wiring-cut.test.js']);
+
+  const renamed = live.replace('- name: Gate discriminating-power tests', '- name: renamed step');
+  assert.notStrictEqual(renamed, live, 'the fixture did not change the file');
+  assert.deepStrictEqual(CUTMOD.parseSelfTestTargets(renamed).targets, parsed.targets,
+    'renaming the step must not empty the protected list');
+
+  // 그러나 그 step 을 통째로 지우면 목록이 비고, 그때 극성은 (B-d) 가 고정한다.
+  const gutted = live.replace(/ +- name: Gate discriminating-power tests\n +run: node --test [^\n]*\n/, '');
+  assert.notStrictEqual(gutted, live, 'the fixture did not remove the step');
+  assert.deepStrictEqual(CUTMOD.parseSelfTestTargets(gutted).targets, []);
+});
+
+test('(B-pick) --pick-delete emits a deterministic target that passes all three guards', () => {
+  const picked = CUTMOD.pickDelete();
+  assert.strictEqual(typeof picked, 'string');
+  assert.ok(/\.test\.js$/.test(picked), 'the candidate must be a test file');
+  assert.strictEqual(CUTMOD.pickDelete(), picked, 'the selector must be deterministic');
+  assert.strictEqual(refusalOf(picked), null, 'the candidate must pass the guard it was selected under');
+  // 이 단언이 주장하지 않는 것: 삭제해도 나머지가 green 이라는 것. 그 명제는 전수
+  // 스위트 실행이 필요하고 선택기에는 그 경로가 없다(Implement-Codex R1 F2).
+});

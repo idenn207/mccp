@@ -28,8 +28,144 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { loadExclusions } = require('./exclusions');
+const { globToRegExp, toPosix } = require('./enumerate');
 
 const WORKFLOW = '.github/workflows/test-suite.yml';
+
+// 절단 B 가드의 두 입력. **둘 다 판독 실패에 사유 코드가 있다** — rule (a)에만 극성을
+// 주고 rule (b)를 try/catch로 삼키면 "못 읽음 = 목록에 없음"이 되어 rule (b)가 조용히
+// 자기를 끄고, 아래 `git rm`이 보호 대상에 도달한다(security-reviewer S1).
+// `exclusions.js:14-17`이 정확히 그 반대 방향 조용한 실패를 경고한다.
+const EXCLUSIONS_FILE = '.github/test-suite-exclusions.json';
+
+// 이 목록의 신뢰 도메인은 **체크아웃된 worktree**다(security-reviewer S3). self-test
+// step의 리터럴 목록을 깎은 브랜치를 체크아웃한 채 --apply-delete를 돌리면 allow-list가
+// 그 편집본을 반영한다. 이 CLI는 CI가 아니라 운영자가 도는 진단이라 폭발 반경이 좁고,
+// 근본 처방(pinned ref 판독)은 backlog다. **신뢰하는 브랜치에서만 돌려라.**
+
+// 사유 코드는 그것을 내는 모듈이 소유한다 — `gate.js:44-70`의 **형태만** 빌리고
+// 그 열거에 넣지 않는다. `test-suite-coverage.test.js:969-982`의 "죽은 선언 0" 스캔이
+// producer 소스를 gate/coverage/inputs 셋으로만 훑으므로, 여기 코드를 저쪽에 넣으면
+// hits<2로 확정 red가 되고 그 test는 머지 차단 workflow의 판정 선행 step이다(L2 흡수 B).
+const DELETE_REFUSAL_REASONS = [
+  'selftest_target',            // (a) 판정보다 앞선 자기 test step이 이름으로 부른다
+  'quarantined_target',         // (b) 격리 목록에 걸린다 → Enumerate sanity가 먼저 죽는다
+  'not_tracked_test',           // (c) tracked *.test.js가 아니다
+  'selftest_list_unreadable',   // (a)의 입력 판독 실패/0건 → 전면 거부
+  'quarantine_list_unreadable', // (b)의 입력 판독 실패 → 전면 거부
+];
+
+class DeleteRefusal extends Error {
+  constructor(reason, message) {
+    super(message);
+    // 미선언 사유 방출을 fail-closed로 막는다(`gate.js`의 reasons_undeclared와 같은 역할).
+    if (DELETE_REFUSAL_REASONS.indexOf(reason) < 0) {
+      throw new Error('wiring-cut: undeclared refusal reason "' + reason + '"');
+    }
+    this.name = 'DeleteRefusal';
+    this.reason = reason;
+  }
+}
+
+const errText = function (err) { return String((err && err.message) || err).split('\n')[0]; };
+
+// 보호 목록을 **산문에 적지 않고** workflow에서 파싱한다 — 산문 목록은 workflow가
+// 바뀌면 조용히 낡는다. step의 `name:`이 아니라 **명령 형태**(`node --test`)로 식별하므로
+// step을 개명해도 목록이 살아남는다. 이 함수는 순수하고 export된다: 파괴적 CLI를 거치지
+// 않고도 파서를 직접 반증할 수 있어야 하기 때문이다(Implement-Codex R1 F1 완화).
+function parseSelfTestTargets(workflowText) {
+  const lines = String(workflowText).split(/\r?\n/);
+  const steps = [];
+  let cur = null;
+  for (const line of lines) {
+    const m = line.match(/^(\s*)-\s+name:\s*(.+?)\s*$/);
+    if (m) {
+      if (cur) steps.push(cur);
+      cur = { name: m[2].replace(/^['"]|['"]$/g, ''), body: '' };
+      continue;
+    }
+    if (cur) cur.body += line + '\n';
+  }
+  if (cur) steps.push(cur);
+
+  const targets = new Set();
+  const named = [];
+  for (const st of steps) {
+    if (!/\bnode\s+--test\b/.test(st.body)) continue;
+    named.push(st.name);
+    for (const t of st.body.match(/[A-Za-z0-9_.\/-]+\.test\.js\b/g) || []) targets.add(toPosix(t));
+  }
+  return { steps: named, targets: Array.from(targets).sort() };
+}
+
+function trackedTests() {
+  return git(['ls-files', '-z', '--', '*.test.js'])
+    .split('\0').filter(Boolean).map(toPosix);
+}
+
+function readSelfTestTargets(workflow) {
+  let text;
+  try {
+    text = fs.readFileSync(workflow, 'utf8');
+  } catch (err) {
+    throw new DeleteRefusal('selftest_list_unreadable',
+      'cannot read ' + workflow + ' (' + errText(err) + ') — refusing every target');
+  }
+  const parsed = parseSelfTestTargets(text);
+  // **0건은 통과가 아니라 거부다.** step이 개명·이동·주석화되면 목록이 조용히 비고,
+  // 그때 (a)가 아무것도 거부하지 않으면 (c)가 tracked *.test.js를 허용하므로
+  // `scripts/tests/wiring-cut.test.js` 자신이 다시 적격이 된다 — 가드가 정확히 자기가
+  // 막으려던 것을 허용한다(E10b: 그 파일이 사라지면 판정보다 앞선 step이 먼저 죽어
+  // gate.json이 생성되지 않는다).
+  if (parsed.targets.length === 0) {
+    throw new DeleteRefusal('selftest_list_unreadable',
+      'no `node --test` step in ' + workflow + ' names a *.test.js literal — ' +
+      'the self-test step was renamed, moved or commented out. Restore it before cutting.');
+  }
+  return parsed;
+}
+
+function readQuarantinePatterns(exclusionsFile) {
+  try {
+    return loadExclusions(exclusionsFile).map(function (e) { return e.pattern; });
+  } catch (err) {
+    // 판독/파싱/스키마 실패를 "격리 없음"으로 접지 않는다(S1).
+    throw new DeleteRefusal('quarantine_list_unreadable',
+      'cannot load ' + exclusionsFile + ' (' + errText(err) + ') — refusing every target');
+  }
+}
+
+/** 거부는 **mutating call 앞에서** throw한다(S2). `git rm` 뒤의 크래시도 비영점이라,
+ *  exit code만 보는 판정자는 "삭제 전 거부"와 "삭제 후 크래시"를 구분하지 못한다. */
+function assertDeletable(target, opts) {
+  const o = opts || {};
+  const workflow = o.workflow || WORKFLOW;
+  const exclusionsFile = o.exclusionsFile || EXCLUSIONS_FILE;
+  const posix = toPosix(target);
+
+  const parsed = readSelfTestTargets(workflow);
+  if (parsed.targets.indexOf(posix) >= 0) {
+    throw new DeleteRefusal('selftest_target',
+      posix + ' is named by the judgment-preceding self-test step (' +
+      (parsed.steps.join(', ') || '?') + ') in ' + workflow +
+      ' — deleting it kills the producer of the axis-D evidence itself');
+  }
+
+  const patterns = readQuarantinePatterns(exclusionsFile);
+  const hit = patterns.filter(function (p) { return globToRegExp(p).test(posix); })[0];
+  if (hit) {
+    throw new DeleteRefusal('quarantined_target',
+      posix + ' matches quarantine pattern "' + hit + '" — deleting it drops excluded ' +
+      'from ' + patterns.length + ' to ' + (patterns.length - 1) + ', so the Enumerate sanity ' +
+      'equality assertion dies before judgment and no gate.json is produced');
+  }
+
+  if (!/\.test\.js$/.test(posix) || trackedTests().indexOf(posix) < 0) {
+    throw new DeleteRefusal('not_tracked_test',
+      posix + ' is not a tracked *.test.js file');
+  }
+}
 
 // 심는 붉은 test의 경로. 격리 패턴 어디에도 걸리지 않아야 한다((e5a)) — 걸리면
 // (i) 그 파일이 실행되지 않아 스위트 red가 애초에 발생하지 않고 (ii)
@@ -106,8 +242,10 @@ function revertRed() {
 }
 
 // ── 절단 B — tracked test 파일 1개를 삭제한다 ────────────────────────────────
-function applyDelete(target) {
+function applyDelete(target, opts) {
   if (!target) throw new Error('--apply-delete requires a repo-relative path');
+  // 가드가 먼저다. 아래 `git rm`은 이 줄을 통과한 뒤에만 실행된다(S2).
+  assertDeletable(target, opts);
   // `git rm`이지 worktree 삭제가 아니다. `git ls-files`가 index를 읽으므로 worktree만
   // 지우면 head 집합이 줄지 않아 삭제 래칫이 반응하지 않는다(L2 R8 invariant).
   git(['rm', '--quiet', '--', target]);
@@ -125,6 +263,29 @@ function revertDelete() {
   delete st.deleted;
   writeState(st);
   return target;
+}
+
+// 결정적 후보 선택 — 적격 집합을 정렬해 첫 원소를 낸다.
+//
+// **이 선택기는 "삭제해도 나머지가 green" 을 성립시키지 않는다**(Implement-Codex R1 F2 ·
+// L2 architect). 그 명제는 전수 스위트 실행 없이 순수 선택기가 판정할 수 없고, 여기에는
+// 스위트를 부르는 경로가 없다. 선택기가 보장하는 것은 세 가드를 통과한다는 것뿐이고,
+// green-remainder는 절단 B의 **실제 CI run** 이 실증한다 — 다른 test가 삭제 대상에
+// 의존하면 그 run 이 stage 1(`suite_red`)에서 멈추고 `## Validation` 의
+// `a.stage===b.stage` 단언이 붉어진다. 즉 반증은 선택기가 아니라 판정자가 한다.
+function pickDelete(opts) {
+  const o = opts || {};
+  const parsed = readSelfTestTargets(o.workflow || WORKFLOW);
+  const patterns = readQuarantinePatterns(o.exclusionsFile || EXCLUSIONS_FILE);
+  const res = patterns.map(globToRegExp);
+  const eligible = trackedTests()
+    .filter(function (f) { return parsed.targets.indexOf(f) < 0; })
+    .filter(function (f) { return !res.some(function (re) { return re.test(f); }); })
+    .sort();
+  if (!eligible.length) {
+    throw new Error('--pick-delete: no tracked *.test.js is eligible under the three guards');
+  }
+  return eligible[0];
 }
 
 // ── 오라클 왕복 — 판정 줄의 토큰 하나를 제거한다 ─────────────────────────────
@@ -167,18 +328,30 @@ function revertOracle() {
 }
 
 module.exports = {
-  WORKFLOW, RED_FILE, RED_BODY, ORACLE_TOKEN,
+  WORKFLOW, RED_FILE, RED_BODY, ORACLE_TOKEN, EXCLUSIONS_FILE,
+  DELETE_REFUSAL_REASONS, DeleteRefusal,
+  parseSelfTestTargets, assertDeletable, pickDelete,
   applyRed, revertRed, applyDelete, revertDelete, applyOracle, revertOracle,
 };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
   const mode = argv[0];
+  // `--workflow <path>` 는 rule (a) 의 입력을 caller 가 정하게 하는 test seam 이다.
+  // 기본값은 모듈 상수라 호출 형태는 무변경. **잔여 우회면이 있다**: 자기 test step 은
+  // 있으나 다른 파일을 지목하는 합성 workflow 는 목록이 비지 않아 (a) 가 발동하지 않는다
+  // (Implement-Codex R1 F1 → backlog). 그래서 파서를 export 해 직접 반증한다.
+  const wfIdx = argv.indexOf('--workflow');
+  const opts = wfIdx >= 0 ? { workflow: argv[wfIdx + 1] } : {};
+  const positional = argv.filter(function (a, i) {
+    return i > 0 && a !== '--workflow' && (wfIdx < 0 || i !== wfIdx + 1) && a.indexOf('--') !== 0;
+  });
   try {
     let out = '';
     if (mode === '--apply-red') out = applyRed();
     else if (mode === '--revert-red') out = revertRed();
-    else if (mode === '--apply-delete') out = applyDelete(argv[1]);
+    else if (mode === '--apply-delete') out = applyDelete(positional[0], opts);
+    else if (mode === '--pick-delete') out = pickDelete(opts);
     else if (mode === '--revert-delete') out = revertDelete();
     else if (mode === '--apply') out = applyOracle();
     else if (mode === '--revert') out = revertOracle();
@@ -186,13 +359,18 @@ if (require.main === module) {
       process.stderr.write(
         'usage: wiring-cut.js --apply|--revert            (oracle round trip: gate-line token)\n' +
         '                     --apply-red|--revert-red    (cut A: plant a red test file, tracked)\n' +
-        '                     --apply-delete <path>|--revert-delete   (cut B: delete a tracked test)\n');
+        '                     --apply-delete <path>|--revert-delete   (cut B: delete a tracked test)\n' +
+        '                     --pick-delete               (cut B: emit a deterministic eligible target)\n' +
+        '                     [--workflow <path>]         (override the rule-(a) input; test seam)\n');
       process.exitCode = 2;
       out = null;
     }
     if (out !== null) process.stdout.write(out + '\n');
   } catch (err) {
-    process.stderr.write('[wiring-cut] ' + String((err && err.message) || err) + '\n');
+    // 거부는 **사유 코드와 함께** 나간다. 비영점만 보면 오타·모듈 로드 실패도 통과하므로
+    // `## Validation` 이 코드를 grep 한다.
+    const reason = err && err.reason ? ' reason=' + err.reason : '';
+    process.stderr.write('[wiring-cut]' + reason + ' ' + String((err && err.message) || err) + '\n');
     process.exitCode = 1;
   }
 }

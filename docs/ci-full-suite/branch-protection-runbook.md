@@ -62,6 +62,24 @@ gh api -X PUT "repos/$REPO/branches/main/protection" \
 JSON
 ```
 
+> **수행 계정 (2026-09-08 실측)**: 이 PUT 은 admin **역할**을 요구하며 토큰 scope 로 대체되지
+> 않는다. `madsci207` 은 `idenn207/mccp` 에 `permissions.admin=false`(push=true)이므로 **이
+> 계정으로는 실행할 수 없다.** 수행 주체는 **`idenn207`** 이다.
+>
+> **`"enforce_admins": false` 는 값을 다시 골라야 한다.** 이 저장소의 유일 admin(`idenn207`)은
+> PR #185 의 머저이기도 하다. `false` 로 두면 그 계정이 체크에서 **면제**되므로
+> `mergeStateStatus` 가 `BLOCKED` 여도 `gh pr merge --admin` 한 번으로 M3 이 실측한 "차단력 0"
+> 이 그대로 재현된다 — 설정이 있다는 것과 머지가 막힌다는 것은 다른 명제다.
+> `true` 로 바꾸거나, 바꾸지 않는 이유를 여기 적어라. 어느 쪽이든 정책 설계가 아니라
+> **이미 있는 값의 정직화**다.
+>
+> **그리고 그 값을 기록까지 해야 한다.** 아래 §3 의 판독 채널이 world-readable 로 바뀐 뒤
+> `enforce_admins` 를 볼 채널은 admin 전용 `/protection` 응답뿐이다 — 즉 설정을 수행하는
+> 계정만 볼 수 있다. 수행자는 자신의 `gh api "repos/$REPO/branches/main/protection" --jq .enforce_admins`
+> 출력을 [`m4-live-closure.md`](m4-live-closure.md) 에 `- enforce-admins: <true|false>` 로 적고,
+> `false` 면 `- enforce-admins-rationale: <근거>` 까지 적는다. 값 없이 축 C 를 met 으로
+> 봉인하는 경로는 없다.
+
 `required_status_checks` 이외의 키를 `null`로 보내면 그 축의 보호가 **꺼진다.**
 이미 다른 보호가 걸린 저장소라면 먼저 현재 값을 읽어 병합하라:
 
@@ -78,11 +96,25 @@ echo "exit=$?"
 
 **exit 0이 설정 완료의 증거다.** 그 밖의 출력은 전부 미완이며 사유가 `reasons`에 있다:
 
+> **판독 채널 (2026-09-08 · M4 Task 2)**: 이 진단은 이제 world-readable
+> `GET /repos/{owner}/{repo}/branches/{branch}` 의 `.protection.required_status_checks.contexts`
+> 를 읽는다. 그 전에는 admin 전용 `/branches/{b}/protection/required_status_checks` 를 읽어
+> **non-admin 에게 보호 유무와 무관하게 404 → `protection_absent`** 를 냈고, 그래서
+> "exit 0 이 설정 완료의 증거" 라는 이 문서의 기준이 non-admin 계정에서는 **원리상 도달 불가**
+> 였다. 그 결함이 축 C 의 완료 판정 자체를 막고 있었다.
+
 | reason | 뜻 | 조치 |
 |---|---|---|
-| `protection_absent` | 보호 목록을 읽지 못했다 (미설정이거나 권한 부족) | 2번을 수행. 권한이면 `gh auth status` |
+| `protection_absent` | 브랜치가 **보호되지 않았다**(`protected:false`) | 2번을 수행 |
+| `protection_unreadable` | 보호는 켜졌는데 `contexts` 를 못 읽었다(권한/판독 실패), 또는 API 호출 자체가 실패했다 | `gh auth status`. **보호 부재와 다른 사실이다** — 접지 마라 |
+| `declared_unresolved` | workflow 의 job `name:` 이 전부 템플릿(`${{ }}`)이라 선언 이름이 **비었다** | job 이름을 안정 리터럴로 되돌려라. 이 상태에서 통과시키면 진단이 조용히 green 이 된다 |
 | `declared_not_required` | workflow가 선언한 job 이름이 필수 목록에 없다 | 그 이름을 필수 목록에 추가 |
-| `required_not_declared` | 필수 목록에 있는데 workflow가 그 이름을 내지 않는다 | 아래 4번 |
+| `renamed_gate` | 필수 목록에 이 게이트의 **옛 이름**이 남아 있다(`HISTORICAL_GATE_NAMES`) | 옛 이름을 필수 목록에서 제거 |
+
+**무관한 required check 는 더 이상 실패가 아니다.** 선언은 `test-suite.yml` 한 파일에서만
+읽으므로, 저장소의 다른 workflow(예: 모든 PR 에서 도는 `version-declaration-gate`)가 required
+로 걸려 있어도 정상이다 — 그것은 `unrelated` 로 **보고만** 되고 `ok` 를 떨어뜨리지 않는다.
+판정은 동등성이 아니라 **포함**이다.
 
 `--branch <name>`으로 다른 브랜치를 조사할 수 있다(기본 `main`).
 

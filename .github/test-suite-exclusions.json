@@ -1,32 +1,32 @@
 [
   {
     "pattern": "plugins/mccp/scripts/derive/tests/mask.test.js",
-    "reason": "Linux-only red on both node 20 and node 24; green on Windows local (measured 2026-09-04, 20/20 pass). Cause unidentified — quarantined rather than repaired because the failure is not reproducible on the authoring host (UI7).",
+    "reason": "Linux red CONFIRMED by CI baseline run 34195014409 (2026-09-08) on BOTH node 20 and node 24; that dispatch runs the tracked suite without --exclude-from, so this file was actually executed on Linux. Cause still unidentified. Retained rather than repaired: scripts/test-suite/ owns none of it and repair belongs to the owning axis. Evidence: https://github.com/idenn207/mccp/actions/runs/34195014409",
     "ticket": "backlog:ci-full-suite-linux-red-mask"
   },
   {
     "pattern": "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js",
-    "reason": "Linux-only red (DD3 symlink branch) on both node versions; green on Windows local. Cause unidentified without a Linux host — quarantined per UI7 pending the Task 0 measurement.",
+    "reason": "Linux red (DD3 symlink branch) CONFIRMED by CI baseline run 34195014409 (2026-09-08) on BOTH node 20 and node 24. The earlier host-availability basis is retired — a Linux runner measured it directly. Cause still unidentified; repair belongs to the owning axis. Evidence: https://github.com/idenn207/mccp/actions/runs/34195014409",
     "ticket": "backlog:ci-full-suite-linux-red-santa-loop-cap"
   },
   {
     "pattern": "plugins/mccp/scripts/lib/tests/dispatch-fullcycle-smoke.test.js",
-    "reason": "Linux red on node 20 only (node 24 green), so a flaky axis is suspected but 2 samples cannot decide it. Green on Windows local. Quarantined per UI7 until the same-commit repetition that M1 prescribes can run.",
+    "reason": "Linux red on node 20 ONLY, re-confirmed by CI baseline run 34195014409 (2026-09-08): red in the ubuntu-node20 leg, green in ubuntu-node24. Two independent samples now agree on the node-version split, so the flaky hypothesis is weakened but the cause is still unidentified. Repair belongs to the owning axis. Evidence: https://github.com/idenn207/mccp/actions/runs/34195014409",
     "ticket": "backlog:ci-full-suite-linux-red-dispatch-fullcycle-smoke"
   },
   {
     "pattern": "plugins/mccp/scripts/lib/tests/leadtime.test.js",
-    "reason": "Linux red owned by another axis (leadtime-observability M3, last touched in 8107d5a); not a change this milestone made. Green on Windows local. Quarantined so it does not block enforcement, and the attribution is recorded in docs/ci-full-suite/m3-enforcement.md.",
+    "reason": "Linux red CONFIRMED by CI baseline run 34195014409 (2026-09-08) on BOTH node 20 and node 24. Owned by another axis (leadtime-observability M3, last touched in 8107d5a) — not a change this milestone made. This file also carries a Windows drive-letter path fixture that trips the win-drive-abs residual rule, which is why the unfiltered baseline legs report redaction_ok:false. Evidence: https://github.com/idenn207/mccp/actions/runs/34195014409",
     "ticket": "backlog:ci-full-suite-linux-red-leadtime"
   },
   {
     "pattern": "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
-    "reason": "Linux red owned by another axis (orchestrator-step-wiring, last touched in 5e4732e); not a change this milestone made. Green on Windows local. Quarantined per UI7 with the attribution recorded.",
+    "reason": "Linux red CONFIRMED by CI baseline run 34195014409 (2026-09-08) on BOTH node 20 and node 24. Owned by another axis (orchestrator-step-wiring, last touched in 5e4732e) — not a change this milestone made. Repair belongs to that axis. Evidence: https://github.com/idenn207/mccp/actions/runs/34195014409",
     "ticket": "backlog:ci-full-suite-linux-red-msw-m8-producers"
   },
   {
     "pattern": "plugins/mccp/scripts/receipt/tests/receipt-linkage-fields.test.js",
-    "reason": "Linux red owned by another axis (review-record-linkage M3, last touched in 9bd78b5); not a change this milestone made. Green on Windows local. Quarantined per UI7 with the attribution recorded.",
+    "reason": "Linux red CONFIRMED by CI baseline run 34195014409 (2026-09-08) on BOTH node 20 and node 24. Owned by another axis (review-record-linkage M3, last touched in 9bd78b5) — not a change this milestone made. Repair belongs to that axis. Evidence: https://github.com/idenn207/mccp/actions/runs/34195014409",
     "ticket": "backlog:ci-full-suite-linux-red-receipt-linkage-fields"
   }
 ]

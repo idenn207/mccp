@@ -76,49 +76,98 @@ function parseJobNames(yamlText) {
   return { resolved: resolved, unresolved: unresolved };
 }
 
+// 과거 게이트 job 이름. **오늘 비어 있다** — `test-suite.yml` 의 job `name:` 은 이력
+// 전체에서 `full test suite gate` 하나였다(측정: 그 파일의 전 커밋을 훑어 확인). 그래서
+// `renamed_gate` 는 이 상수로부터는 아직 발화하지 않는다. 비워 둔 채 남기는 이유는,
+// job 을 개명하는 순간 **옛 이름을 여기 적는 것**이 그 개명의 짝 작업이기 때문이다.
+// 포함 검사만으로는 required 쪽에 옛 이름만 남은 설정(설정이 낡음)을 구분할 수 없다.
+//
+// **개명 자체는 이 목록이 없어도 잡힌다** — job 을 개명하면 `missing` 이 비지 않아
+// `declared_not_required` 가 그대로 발화한다(계획 R2 architect 정정). 이 상수가 더하는
+// 유일한 정보는 "required 에 남은 그 이름이 **우리 게이트의 옛 이름**"이라는 것뿐이다.
+const HISTORICAL_GATE_NAMES = [];
+
 /**
- * 순수 판정층. 선언된 이름과 저장소의 required check 목록을 대조한다.
+ * 순수 판정층. 선언된 이름이 저장소의 required check 에 **포함되는지** 본다.
  *
- * @param {{declared: string[], required: string[]|null}} opts
- * @returns {{ok: boolean, missing: string[], extra: string[], reasons: string[]}}
+ * 동등성이 아니라 포함인 이유: 선언은 `test-suite.yml` **한 파일**에서만 읽으므로,
+ * 이 저장소의 다른 workflow 중 하나라도 required 로 걸리면(가장 유력한 후보는 모든 PR 에서
+ * 도는 `version-declaration-gate`) 정상 설정이 drift 로 오보된다(PR-Codex R1 F2).
+ * 무관한 required check 는 `unrelated` 로 **보고하되 `ok` 를 떨어뜨리지 않는다**.
+ *
+ * 판별자 4행 — 사유를 늘리면서 판별 규칙을 적지 않으면 그 사유는 도달 불가이거나 임의다:
+ *   protected === false                  → protection_absent      (보호 없음)
+ *   protected === true  ∧ contexts 배열  → 정상 비교
+ *   protected === true  ∧ contexts 부재  → protection_unreadable  (권한/판독 문제)
+ *   protected === undefined              → protection_unreadable  (인자 미전달·API 실패, fail-closed)
+ *
+ * 마지막 행이 없으면 3분화가 `undefined` 를 `protection_absent` 로 되접어, 이 함수가
+ * 가르겠다고 한 혼동("보호가 없다" 대 "권한이 없어 안 보인다")으로 그대로 되돌아간다.
+ *
+ * @param {{declared: string[], required: string[]|null, protected: boolean|undefined, historical?: string[]}} opts
+ * @returns {{ok: boolean, missing: string[], unrelated: string[], renamed: string[], reasons: string[]}}
  */
 function diffChecks(opts) {
   const o = opts || {};
   const declared = Array.isArray(o.declared) ? o.declared.slice().sort() : [];
-  const reasons = [];
+  const historical = Array.isArray(o.historical) ? o.historical : HISTORICAL_GATE_NAMES;
+  const halt = function (reason) {
+    return { ok: false, missing: declared, unrelated: [], renamed: [], reasons: [reason] };
+  };
 
-  // 필수 체크 목록 자체가 없는 것(보호 미설정)은 "일치"가 아니다. 그것은 축 C가
-  // 절반이라는 뜻이고, 그 사실을 통과로 접으면 진단이 아무것도 말하지 않는다.
-  if (o.required == null) {
-    return { ok: false, missing: declared, extra: [], reasons: ['protection_absent'] };
-  }
+  if (o.protected === false) return halt('protection_absent');
+  if (o.protected !== true) return halt('protection_unreadable');
+  if (!Array.isArray(o.required)) return halt('protection_unreadable');
+
+  // 빈 `declared` 에서 포함 검사는 **공허하게 참**이라 ok:true → exit 0 이 된다. 그리고
+  // `declared` 는 `parseJobNames` 의 `resolved` 이므로, 누군가 job `name:` 을 matrix
+  // 템플릿으로 바꾸는 순간 그것이 `unresolved` 로 가고 이 진단이 **조용히 green** 이 된다.
+  // runbook 이 exit 0 을 "설정 완료의 증거" 로 삼으므로 이것은 loud red → silent green
+  // 회귀다(R2 architect·security 독립 2건). 비교를 하지 않고 fail-closed 한다.
+  if (declared.length === 0) return halt('declared_unresolved');
+
   const required = o.required.slice().sort();
-
   const requiredSet = new Set(required);
   const declaredSet = new Set(declared);
   const missing = declared.filter(function (n) { return !requiredSet.has(n); });
-  const extra = required.filter(function (n) { return !declaredSet.has(n); });
+  const unrelated = required.filter(function (n) { return !declaredSet.has(n); });
+  const renamed = unrelated.filter(function (n) { return historical.indexOf(n) >= 0; });
 
+  const reasons = [];
   if (missing.length) reasons.push('declared_not_required');
-  if (extra.length) reasons.push('required_not_declared');
+  if (renamed.length) reasons.push('renamed_gate');
 
-  return { ok: reasons.length === 0, missing: missing, extra: extra, reasons: reasons };
+  return { ok: reasons.length === 0, missing: missing, unrelated: unrelated, renamed: renamed, reasons: reasons };
 }
 
-/** `gh api`로 저장소의 required status check를 읽는다. 실패는 `null`이고, `null`은
- *  `diffChecks`에서 통과가 아니라 `protection_absent`가 된다. */
+/** 저장소의 보호 상태와 required status check 를 **world-readable** 채널에서 읽는다.
+ *
+ *  옛 경로 `/branches/{b}/protection/required_status_checks` 는 **admin 전용**이라
+ *  보호가 켜진 저장소에서도 non-admin 에게 404 를 돌려주고, 그것이 `protection_absent` 로
+ *  접히면 이 계정으로는 exit 0 이 **원리상 불가능**했다 — runbook 이 exit 0 을 완료의
+ *  증거로 삼으므로 축 C 의 완료 판정 자체가 도달 불가였다(fable RISK · E1x).
+ *
+ *  `--jq` 로 **JSON 을 받아 `JSON.parse`** 한다. 개행 분리는 체크 이름에 개행이 들어가면
+ *  조용히 오분할한다(security-reviewer S6).
+ *
+ *  @returns {{protected: boolean, contexts: string[]|null}}
+ */
 function readRequiredChecks(branch) {
   const repo = execFileSync('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   const raw = execFileSync('gh', [
-    'api', 'repos/' + repo + '/branches/' + branch + '/protection/required_status_checks',
-    '-q', '.contexts[]',
+    'api', 'repos/' + repo + '/branches/' + branch,
+    '--jq', '{protected: .protected, contexts: .protection.required_status_checks.contexts}',
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  return raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+  const parsed = JSON.parse(raw);
+  return {
+    protected: parsed.protected === true,
+    contexts: Array.isArray(parsed.contexts) ? parsed.contexts.map(String) : null,
+  };
 }
 
-module.exports = { parseJobNames, diffChecks, readRequiredChecks };
+module.exports = { parseJobNames, diffChecks, readRequiredChecks, HISTORICAL_GATE_NAMES };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
@@ -131,24 +180,35 @@ if (require.main === module) {
 
   try {
     const declaredParse = parseJobNames(fs.readFileSync(GATE_WORKFLOW, 'utf8'));
-    let required = null;
+    // `state` 는 `{protected, contexts}` 이거나 판독 실패 시 null 이다. 판독 실패를
+    // `protected:false` 로 접지 않는다 — 그것이 이 milestone 이 가르는 두 사실이다.
+    let state = null;
     let readError = null;
     try {
-      required = readRequiredChecks(branch);
+      state = readRequiredChecks(branch);
     } catch (err) {
       readError = String((err && err.message) || err).split('\n')[0];
     }
 
-    const verdict = diffChecks({ declared: declaredParse.resolved, required: required });
+    const verdict = diffChecks({
+      declared: declaredParse.resolved,
+      required: state ? state.contexts : null,
+      protected: state ? state.protected : undefined,
+    });
     const record = {
       workflow: GATE_WORKFLOW,
       branch: branch,
       declared: declaredParse.resolved,
       unresolved: declaredParse.unresolved,
-      required: required,
+      protected: state ? state.protected : null,
+      required: state ? state.contexts : null,
       ok: verdict.ok,
       missing: verdict.missing,
-      extra: verdict.extra,
+      // `extra`(= required \ declared, 그 자체로 drift) 에서 `unrelated`(무관한 required
+      // check, drift 아님) 로 **의미가 바뀌었다**. 키 이름을 함께 바꾸지 않으면 이 JSON 을
+      // 읽는 쪽이 옛 의미로 해석한다(L2 architect LOW — 계획이 이 소비처를 빠뜨렸다).
+      unrelated: verdict.unrelated,
+      renamed: verdict.renamed,
       reasons: verdict.reasons,
       read_error: readError,
     };
@@ -156,7 +216,20 @@ if (require.main === module) {
     if (wantJson) process.stdout.write(JSON.stringify(record, null, 2) + '\n');
     else {
       process.stdout.write('declared: ' + (record.declared.join(', ') || '(none)') + '\n');
-      process.stdout.write('required: ' + (required === null ? '(unreadable — branch protection may be unset)' : (required.join(', ') || '(none)')) + '\n');
+      // `required === null` 은 더는 "판독 불가" 센티널이 아니다 — `protected` 가 그 축을
+      // 소유하므로 세 상태를 각각 말한다.
+      const requiredLine = state === null
+        ? '(unreadable — ' + (readError || 'gh call failed') + ')'
+        : (state.protected === false
+          ? '(branch is not protected)'
+          : (state.contexts === null
+            ? '(protected, but contexts are not visible to this account)'
+            : (state.contexts.join(', ') || '(none)')));
+      process.stdout.write('protected: ' + (state === null ? '(unknown)' : String(state.protected)) + '\n');
+      process.stdout.write('required: ' + requiredLine + '\n');
+      if (record.unrelated.length) {
+        process.stdout.write('unrelated (required, but not this gate — not drift): ' + record.unrelated.join(', ') + '\n');
+      }
       if (record.unresolved.length) {
         process.stdout.write('unresolved (template job names, never check names): ' + record.unresolved.join(', ') + '\n');
       }

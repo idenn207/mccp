@@ -72,6 +72,13 @@ lint L12가 대조한다.
 |`MCCP_RECEIPT_DEBUG`|bool|on/off|off|receipt 디버그 출력.|[→](environment/gates.md#mccp_receipt_debug)|
 |`MCCP_RECEIPT_DEBUG_LEGACY_INLINE`|bool|on/off|on|구형 inline 디버그 유지.|[→](environment/gates.md#mccp_receipt_debug_legacy_inline)|
 |`MCCP_ALLOW_CODEX_UNAVAILABLE`|bypass-flag|1|off|Codex 미가용 시 advisory.|[→](environment/gates.md#mccp_allow_codex_unavailable)|
+|`MCCP_HARNESS`|enum|claude/codex|—|호스트 하네스 명시 지정 — 오라클의 유일한 양성 codex 경로.|[→](environment/gates.md#mccp_harness)|
+|`MCCP_HARNESS_INGRESS`|enum|on/off|on|Codex ingress kill switch — off만 끄고 그 밖의 값은 on으로 접힌다.|[→](environment/gates.md#mccp_harness_ingress)|
+|`MCCP_CODEX_BIN`|string|—|codex|bootstrap이 부르는 codex 실행 파일 — 절대경로 pin으로 PATH-hijack을 완화한다.|[→](environment/gates.md#mccp_codex_bin)|
+|`MCCP_CODEX_HOOKS_LIST_TIMEOUT_MS`|int|—|45000|bootstrap의 hooks/list 왕복 상한(ms).|[→](environment/gates.md#mccp_codex_hooks_list_timeout_ms)|
+|`MCCP_PROBE_CODEX_BIN`|string|—|codex|프로브가 부르는 codex 실행 파일.|[→](environment/gates.md#mccp_probe_codex_bin)|
+|`MCCP_PROBE_HOOKS_LIST_TIMEOUT_MS`|int|—|45000|프로브 hooks/list 왕복 상한(ms).|[→](environment/gates.md#mccp_probe_hooks_list_timeout_ms)|
+|`MCCP_PLUGIN_ROOT_HINT`|string|—|—|command-reach의 root 후보 힌트 — 캐시 후보보다 먼저 평가된다.|[→](environment/gates.md#mccp_plugin_root_hint)|
 |`MCCP_CODEX_DISABLED`|bypass-flag|1|off|Codex 호출 영구 skip.|[→](environment/gates.md#mccp_codex_disabled)|
 |`MCCP_CODEX_DESIGN_SCOPE_HONOR`|bool|on/off|on|Codex design-scope preamble.|[→](environment/gates.md#mccp_codex_design_scope_honor)|
 |`MCCP_STOP_LOOP`|enum|off/observe/enforce|observe|Stop-loop 게이트 모드.|[→](environment/gates.md#mccp_stop_loop)|
@@ -272,6 +279,7 @@ lint L12가 대조한다.
 |`MCCP_EXPLORE_CONTROL_PLACEMENT`|string|—|—|제거됨 — 주석만 잔존.|[→](environment/retired.md#mccp_explore_control_placement)|
 |`MCCP_PLAN_REVIEW_`|string|—|—|환경변수 아님 — 접두사 오탐.|[→](environment/retired.md#mccp_plan_review_)|
 |`MCCP_DISABLE_VALUES`|string|—|—|환경변수 아님 — JS 상수.|[→](environment/retired.md#mccp_disable_values)|
+|`MCCP_PLUGIN_NAME`|string|—|—|환경변수 아님 — JS 상수.|[→](environment/retired.md#mccp_plugin_name)|
 |`MCCP_IGNORE_BLOCK`|string|—|—|환경변수 아님 — JS 상수.|[→](environment/retired.md#mccp_ignore_block)|
 |`MCCP_IGNORE_ENTRIES`|string|—|—|환경변수 아님 — JS 상수.|[→](environment/retired.md#mccp_ignore_entries)|
 |`MCCP_JOURNAL_DEGRADED_UNRECORDED`|string|—|—|환경변수 아님 — 에러 코드.|[→](environment/retired.md#mccp_journal_degraded_unrecorded)|

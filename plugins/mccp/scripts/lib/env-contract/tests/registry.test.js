@@ -165,8 +165,14 @@ test('values가 의미를 갖는 kind는 전부 3형태 중 하나를 갖는다'
   //   `enforce|off`)를 더했다. 머지 해소에서 형제 santa 4종과 같은 ref 형태
   //   (`scope-delta.js#DELTA_SCOPE_VALUES`)를 붙였으므로 분포는 ref만 +1이고
   //   deriveForm===1은 그대로다.
+  // 40 → 42: codex-harness-portability M2가 MCCP_HARNESS(enum `claude|codex`)와
+  //   MCCP_HARNESS_INGRESS(enum `on|off`)를 더했다. 둘 다 ref 형태
+  //   (`harness-ingress.js#VALID_HARNESS` · `#INGRESS_SWITCH_VALUES`)라 분포는 ref만
+  //   +2이고 deriveForm===1은 그대로다. **M2가 이 인구조사를 갱신하지 않은 채
+  //   착지했고**, 그 브랜치가 main을 머지하며 CI가 처음 돌아 붉어진 것이 여기다 —
+  //   레지스트리 행만 넣고 분포를 안 보면 잡힌다는 이 test의 설계가 실제로 잡았다.
   const targets = registry.byKind('enum').concat(registry.byKind('list'));
-  assert.equal(targets.length, 40, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
+  assert.equal(targets.length, 42, '어휘 결속 대상 수가 바뀌었다면 분포도 다시 봐야 한다');
 
   let refForm = 0;
   let deriveForm = 0;

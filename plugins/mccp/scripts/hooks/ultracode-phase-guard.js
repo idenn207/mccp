@@ -36,6 +36,15 @@ const envValue = require('../lib/env-contract/value');
 const PLUGIN_ROOT = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..', '..');
 const LIB_DIR = path.join(PLUGIN_ROOT, 'scripts', 'lib');
 
+// ── 하네스 가드 (codex-harness-portability M2 Task 1 · L2-11 흡수) ────────────
+// 이 hook은 exit 2로 도구 호출을 막는 default-deny 가드다. `$schema` 제거가 Codex에서
+// hooks.json 전체를 살리면 이런 가드 다섯이 한꺼번에 켜지는데, 그 lock 상태 가정은
+// Codex에서 검증된 적이 없다 — stale lock 하나로 세션 전체가 deny될 수 있다.
+// 오라클을 못 읽으면 기존 동작을 유지한다(가드의 부재 < 게이트의 부재).
+const harnessIngress = (function () {
+  try { return require(path.join(LIB_DIR, 'harness-ingress.js')); } catch (_) { return null; }
+})();
+
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 // Deny matrix for Bash (per-segment after tokenize).
@@ -310,6 +319,11 @@ function classifySkillName(name) {
 }
 
 async function main() {
+  if (harnessIngress && !harnessIngress.shouldRunClaudeHook(process.env)) {
+    process.stderr.write('[mccp] ultracode-phase-guard: skipping Claude-only guard on harness=codex\n');
+    return 0;
+  }
+
   let raw = '';
   try { raw = await readStdin(); } catch (_) { /* fail open on stdin error */ }
   let event = null;

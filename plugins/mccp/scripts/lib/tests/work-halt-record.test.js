@@ -475,3 +475,370 @@ test('scrubControl removes ANSI sequences and residual control bytes but keeps t
   assert.strictEqual(orch.scrubControl('a\u001b[31mb\u0007c\td', deps), 'abc d',
     'tab becomes a space; ESC and BEL are REMOVED (not spaced), so b and c join');
 });
+
+
+// ── orchestrator-step-wiring M3 (Task 2) — worktree 구성요소도 같은 좁히기 ────
+//
+// `formatHaltLine`의 주석은 M1부터 "모든 필드가 같은 좁히기를 통과한다"를 선언했지만
+// `worktree`만 raw `path.basename`이었다. 단언 대상은 `worktree=`라는 **이름이 아니라**
+// 조립된 출력 전체에 C0/C1 제어문자가 없다는 것이다(DD4) — 이름을 겨냥하면 다음에
+// 추가되는 구성요소가 같은 통로를 다시 연다.
+//
+// 제어문자는 `String.fromCharCode`로 조립한다. 소스에 리터럴로 박으면 이 파일을 읽는
+// 사람과 도구가 그것을 볼 수 없다.
+
+test('(M3 Task 2) an ESC-bearing worktree name is narrowed on BOTH the text and JSON paths', () => {
+  const repo = mkRepo('m3wtesc');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+
+  // worktree **디렉토리 이름**에 터미널 제어 시퀀스를 심는다. 브랜치 이름에는 제어
+  // 문자를 넣을 수 없으므로(git refname 규칙) 경로 쪽에만 싣는다 — 배너가 재생하는
+  // 것이 정확히 그 basename이다.
+  const ESC = String.fromCharCode(27);
+  const BEL = String.fromCharCode(7);
+  const evilName = 'wt-' + ESC + ']0;PWNED' + BEL + ESC + '[1;31mFAKE' + ESC + '[0m-tail';
+  const wt = path.join(repo, evilName);
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'evil', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+  plantChainProgress(wt, [{
+    step: 'verify', status: 'halted', receipt_path: null,
+    ts: '2026-06-01T00:00:00.000Z', halt_site: '3.verify', reason: 'newer, elsewhere',
+  }]);
+
+  const text = run(repo, ['last-halt']);
+  assert.strictEqual(text.status, 0);
+  const line = text.stdout || '';
+  assert.match(line, /step=verify/, 'the fixture must actually select the foreign worktree halt');
+  assert.ok(!CONTROL_RE.test(line),
+    'a raw ESC reaching the terminal lets a worktree DIRECTORY NAME repaint the banner; '
+    + 'this line goes out unquoted');
+
+  const json = run(repo, ['last-halt', '--json']);
+  assert.strictEqual(json.status, 0);
+  const parsed = JSON.parse(json.stdout || '{}');
+  assert.ok(!CONTROL_RE.test(String(parsed.worktree || '')),
+    'JSON.stringify escapes for a PARSER, not for a terminal — a consumer that prints the '
+    + 'field replays the sequence, so the JSON path needs the same narrowing');
+});
+
+test('(M3 Task 2) a worktree name that narrows to nothing drops the component, not just its value', () => {
+  // `safeField`는 제어문자만으로 이루어진 basename을 **빈 문자열**로 접는다. 출력
+  // 조건이 값이 아니라 `!isSelfWorktree(...)`이므로, 값 가드가 없으면 라벨만 남은
+  // `· worktree=`가 배너에 나간다. 같은 함수의 `reason`이 이미 값 기반 가드를 쓴다.
+  const repo = mkRepo('m3wtempty');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+
+  const blankName = String.fromCharCode(1) + String.fromCharCode(2);
+  const wt = path.join(repo, blankName);
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'blank', wt]);
+
+  plantChainProgress(wt, [{
+    step: 'verify', status: 'halted', receipt_path: null,
+    ts: '2026-06-01T00:00:00.000Z', halt_site: '3.verify', reason: 'newer, elsewhere',
+  }]);
+
+  const out = (run(repo, ['last-halt']).stdout || '').trim();
+  assert.match(out, /step=verify/);
+  assert.ok(!/worktree=$/.test(out),
+    'a label with nothing after it is noise that claims a fact the reader cannot check: '
+    + 'got ' + JSON.stringify(out));
+  assert.ok(!CONTROL_RE.test(out));
+});
+
+// ── (14) santa R2 — 읽지 못한 worktree 는 "halt 없음" 이 아니다 ────────────
+//
+// 명제 3(보장할 수 없으면 그렇게 말한다)의 두 번째 축. 절삭은 이미 그렇게 하고
+// 있었지만 **개별 worktree 의 read 실패**는 같은 침묵을 상속하고 있었다: 전역
+// 최댓값 질의에서 못 읽은 worktree 하나는 곧 다른 worktree 의 더 오래된 halt 를
+// 최신인 양 내놓는다. 절삭과 달리 답을 버리지는 않는다 — 부분 커버리지이므로
+// 있는 답을 내되 그것이 전역 최신이라고 보장하지 못한다는 사실을 함께 낸다.
+
+test('(14) an unreadable STATE.md is reported as a coverage gap, not silently dropped', () => {
+  const repo = mkRepo('coverage');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-blocked');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'blocked', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+
+  // STATE.md 자리에 디렉토리를 둬 EISDIR 을 만든다. `chmod 000` 은 root 로 도는
+  // 환경에서 읽히므로 errno 를 결정적으로 만들지 못한다.
+  const blocked = path.join(wt, '.claude', 'state', 'STATE.md');
+  fs.mkdirSync(blocked, { recursive: true });
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0, 'a coverage gap is still fail-open');
+  assert.match((r.stdout || '').trim(), /step=implement/,
+    'the answer we do have is not thrown away — this is partial coverage, not truncation');
+  assert.match(r.stderr || '', /coverage incomplete: 1 worktree STATE\.md unreadable \(EISDIR\)/,
+    'the reported halt may not be the newest, and only this line says so. measured: '
+    + JSON.stringify((r.stderr || '').trim()));
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.strictEqual(j.status, 0);
+  assert.strictEqual(JSON.parse(j.stdout).coverage_incomplete, 1,
+    'the JSON consumer must receive the same fact as the text consumer');
+});
+
+test('(14) a worktree with no STATE.md at all is absence, not a coverage gap', () => {
+  const repo = mkRepo('coverage-enoent');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'empty',
+    path.join(repo, 'wt-empty')]);
+
+  plantChainProgress(repo, [{
+    step: 'commit', status: 'halted', receipt_path: null,
+    ts: '2026-02-01T00:00:00.000Z', halt_site: '2t.commit', reason: 'local',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  assert.match((r.stdout || '').trim(), /step=commit/);
+  assert.ok(!/coverage incomplete/.test(r.stderr || ''),
+    'ENOENT is the ordinary case — a worktree without STATE.md has no halt, and '
+    + 'reporting it as a gap would make the line fire on every healthy repository, '
+    + 'which is the same as not reporting it at all. measured: '
+    + JSON.stringify((r.stderr || '').trim()));
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.ok(!('coverage_incomplete' in JSON.parse(j.stdout)),
+    'present-only: no key at all, so absence is distinguishable from an observed zero');
+});
+
+// ── (15) santa R3 — 자격은 답과 같은 스트림을 타야 한다 ──────────────────────
+//
+// (14) 는 reader 가 사실을 **낸다**는 것까지 세웠고, 거기서 멈췄다. 양 lane 의
+// 리뷰어가 독립적으로 같은 구멍을 짚었다: 유일한 소비처인 work.md 배너는
+// `if (out) { …stdout… } else { …stderr… }` 라서 stdout 이 빌 때만 stderr 를 읽는데,
+// 커버리지 구멍이 해로운 경우는 정반대다 — 답이 **있고** 그 답이 전역 최신이
+// 아닐 수 있는 경우다. (14) 가 green 인 채로 그 구멍이 열려 있었던 이유는 그
+// test 가 CLI 를 직접 spawn 해 stderr 를 읽기 때문이다. 즉 검증이 문제의 표면을
+// 지나가고 있었다. 그래서 이 test 는 **stdout 만** 본다.
+
+test('(15) the coverage caveat rides stdout, where the answer it qualifies is', () => {
+  const repo = mkRepo('coverage-stdout');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-blocked');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'blocked15', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+  fs.mkdirSync(path.join(wt, '.claude', 'state', 'STATE.md'), { recursive: true });
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.match(out, /step=implement/, 'the partial answer is still given');
+  assert.match(out, /coverage=incomplete\(1\)/,
+    'a consumer that reads ONLY stdout must still learn the answer is unqualified. '
+    + 'this is the assertion (14) could not make. measured: ' + JSON.stringify(out));
+});
+
+test('(15) a fully-read repository carries no coverage token at all', () => {
+  const repo = mkRepo('coverage-clean');
+  plantChainProgress(repo, [{
+    step: 'commit', status: 'halted', receipt_path: null,
+    ts: '2026-02-01T00:00:00.000Z', halt_site: '2t.commit', reason: 'local',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.match(out, /step=commit/);
+  assert.ok(!/coverage=/.test(out),
+    'the token is a component, and components are omitted when empty — a token that '
+    + 'fired on every healthy repo would carry no information. measured: '
+    + JSON.stringify(out));
+});
+
+// ── (16) santa R3 — reader 재강제는 축 전체다, 필드 목록만이 아니다 ──────────
+//
+// `safeField` 는 control 축만 되걸고 경로 축을 빠뜨렸다. 경로 축은 `narrowReason`
+// 이 **쓰기 경로에서만** 걸고 있었으므로, 이미 디스크에 있는 레코드(구버전
+// recorder · 손 편집 · 다른 worktree) 의 절대경로는 배너와 `--json` 양쪽으로 그대로
+// 나갔다. reader 재강제의 존재 이유가 정확히 "쓰기 시점 좁히기는 이미 있는
+// 레코드를 되돌리지 못한다" 이므로, 축을 하나만 되걸면 그 이유가 절반만 선다.
+
+test('(16) an absolute path planted in a halt record is scrubbed on the text path', () => {
+  const repo = mkRepo('abs-text');
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-03-01T00:00:00.000Z', halt_site: '3.preflight',
+    reason: 'failed reading /home/someone/private/key.json',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.ok(!/\/home\/someone\/private\/key\.json/.test(out),
+    'a write-time scrub cannot reach a record already on disk; the reader must scrub '
+    + 'again or the banner leaks it. measured: ' + JSON.stringify(out));
+  assert.match(out, /outside-repo:key\.json/,
+    'the value is masked, not deleted — the operator still learns what was referenced');
+});
+
+test('(16) the same scrub applies on the --json path', () => {
+  const repo = mkRepo('abs-json');
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-03-02T00:00:00.000Z', halt_site: '3.preflight',
+    reason: 'failed reading /home/someone/private/key.json',
+    work_unit: '/home/someone/private/unit',
+  }]);
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.strictEqual(j.status, 0);
+  const parsed = JSON.parse(j.stdout);
+  assert.ok(!/\/home\/someone\/private/.test(String(parsed.reason)),
+    'JSON.stringify protects the file, not the replay. measured: '
+    + JSON.stringify(parsed.reason));
+  assert.ok(!/\/home\/someone\/private/.test(String(parsed.work_unit)),
+    'every field the reader narrows, not just reason. measured: '
+    + JSON.stringify(parsed.work_unit));
+});
+
+// ── (17) santa R4 — 좁히기 두 단계의 상대 순서가 계약이다 ────────────────────
+//
+// `ABS_PATH_TOKEN_RE`는 경로 앞에 문자열 시작이나 공백류 중 하나를 요구한다. ESC는
+// 그 집합에 없으므로 ANSI 시퀀스가 경로에 **붙어** 있으면 경로 스크럽이 그것을 지나치고,
+// 그 뒤 control 제거가 ANSI를 걷어내면 마스킹되지 않은 절대경로가 남는다. 두 단계가
+// 각자 제 일을 하는데 순서 때문에 정확히 그 사이로 빠져나가는 형태다.
+
+test('(17) an ANSI sequence fused to an absolute path does not smuggle it past the scrub', () => {
+  const repo = mkRepo('ansi-path');
+  const ESC = String.fromCharCode(27);
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-04-01T00:00:00.000Z', halt_site: '3.preflight',
+    reason: ESC + '[31m' + '/home/someone/private/key.json' + ESC + '[0m',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.ok(!/\/home\/someone\/private\/key\.json/.test(out),
+    'path scrub before control removal lets an ESC-adjacent path through, and the '
+    + 'control removal then exposes it. measured: ' + JSON.stringify(out));
+  assert.match(out, /outside-repo:key\.json/,
+    'the value is masked rather than dropped, same as a bare path');
+
+  const j = run(repo, ['last-halt', '--json']);
+  assert.ok(!/\/home\/someone\/private/.test(String(JSON.parse(j.stdout).reason)),
+    'the JSON consumer receives the same masking. measured: ' + j.stdout);
+});
+
+// ── (17b) PR-Codex R2 F2 — 그 재정렬이 만든 반대 방향의 구멍 ─────────────────
+//
+// (17)의 수정은 "control 제거는 경로 후보를 늘리기만 한다"는 근거 위에 섰고, 그
+// 근거는 `\t`처럼 **공백으로 접히는** 문자에만 성립한다. `\u000b`(VT)와 `\u000c`(FF)는
+// JS `\s`에 속해 `ABS_PATH_TOKEN_RE`의 경계가 되는데 `RESIDUAL_CONTROL_RE`가 그것을
+// **삭제**하므로, 재정렬 후에는 경계가 사라져 절대경로가 마스킹 없이 통과했다.
+// 실측(수정 전): `failed\u000b/home/...` → `failed/home/someone/private/key.json`.
+//
+// `chain_progress`는 git-tracked STATE.md에 실려 PR로 유입되므로 이 누출은 저장소
+// 밖으로 나간다. 아래 두 케이스가 (17)과 **동시에** 성립해야 순서 계약이 참이 된다.
+for (const [label, code] of [['vertical tab', 0x0b], ['form feed', 0x0c]]) {
+  test('(17b) a ' + label + ' boundary is preserved so the path still gets masked', () => {
+    const repo = mkRepo('ws-ctl-' + code.toString(16));
+    plantChainProgress(repo, [{
+      step: 'implement', status: 'halted', receipt_path: null,
+      ts: '2026-04-01T00:00:00.000Z', halt_site: '3.preflight',
+      reason: 'failed' + String.fromCharCode(code) + '/home/someone/private/key.json',
+    }]);
+
+    const r = run(repo, ['last-halt']);
+    assert.strictEqual(r.status, 0);
+    const out = (r.stdout || '').trim();
+    assert.ok(!/\/home\/someone\/private\/key\.json/.test(out),
+      'deleting a whitespace control byte removes the boundary the masker needs, and the '
+      + 'absolute path then ships verbatim. measured: ' + JSON.stringify(out));
+    assert.match(out, /outside-repo:key\.json/,
+      'the boundary must be folded to a space, not dropped');
+  });
+}
+
+// ── (18) santa R4 — 커버리지 회계는 read 축과 parse 축을 모두 덮는다 ─────────
+//
+// R2가 errno 축을 닫았지만 같은 실패 모드가 parse 채널로 그대로 도착했다: 최신 halt를
+// 가진 worktree의 chain_progress가 파손이면 그 worktree가 전역 최댓값 비교에서 조용히
+// 빠지고, 다른 worktree의 더 오래된 halt가 자격 없이 나간다.
+
+test('(18) a corrupt chain_progress in another worktree is a coverage gap, not absence', () => {
+  const repo = mkRepo('parse-gap');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-corrupt');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'corrupt18', wt]);
+
+  plantChainProgress(repo, [{
+    step: 'implement', status: 'halted', receipt_path: null,
+    ts: '2026-01-01T00:00:00.000Z', halt_site: '3.preflight', reason: 'older, here',
+  }]);
+  // 이웃 worktree: frontmatter는 파싱되고 chain_progress가 **존재하는데** JSON이 아니다.
+  stateWriter.update(wt, {});
+  const wp = path.join(wt, '.claude', 'state', 'STATE.md');
+  fs.writeFileSync(wp, fs.readFileSync(wp, 'utf8')
+    .replace(/^---\r?\n/, '---\nchain_progress: |\n  {"steps": [ TRUNCATED\n'));
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  const out = (r.stdout || '').trim();
+  assert.match(out, /step=implement/, 'the partial answer is still given');
+  assert.match(out, /coverage=incomplete\(1\)/,
+    'the older halt must not be presented as the global newest without qualification — '
+    + 'this is the R2 failure mode arriving through the parse channel. measured: '
+    + JSON.stringify(out));
+  assert.match(r.stderr || '', /unreadable \(PARSE\)/,
+    'the token distinguishes the parse axis from an errno. measured: '
+    + JSON.stringify((r.stderr || '').trim()));
+});
+
+test('(18) an alien STATE.md schema stays silent — a version difference is not damage', () => {
+  // 이 침묵은 test (12)가 세운 계약이고 R4는 그것을 바꾸지 않는다. `parseStateMd`는
+  // 다른 `state_version`에도 `frontmatter:null`을 돌려주므로, 그 경로를 커버리지 구멍으로
+  // 세면 오래 산 이웃 worktree 하나가 **모든** worktree의 배너를 오염시킨다. 손상으로
+  // 세는 것은 chain_progress가 존재하는데 JSON이 아닌 경우뿐이다.
+  const repo = mkRepo('alien-quiet');
+  fs.writeFileSync(path.join(repo, 'seed.txt'), 'seed\n');
+  execFileSync('git', ['-C', repo, 'add', '.']);
+  execFileSync('git', ['-C', repo, 'commit', '-qm', 'seed']);
+  const wt = path.join(repo, 'wt-alien');
+  execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'alien18', wt]);
+  const alien = path.join(wt, '.claude', 'state');
+  fs.mkdirSync(alien, { recursive: true });
+  fs.writeFileSync(path.join(alien, 'STATE.md'),
+    '---\nstate_version: 9\ntask_fingerprint: x\n---\n\n## Goal\nx\n');
+
+  plantChainProgress(repo, [{
+    step: 'commit', status: 'halted', receipt_path: null,
+    ts: '2026-02-01T00:00:00.000Z', halt_site: '2t.commit', reason: 'local',
+  }]);
+
+  const r = run(repo, ['last-halt']);
+  assert.strictEqual(r.status, 0);
+  assert.ok(!/coverage=/.test((r.stdout || '').trim()),
+    'a neighbour on another schema version is ordinary, not a gap. measured: '
+    + JSON.stringify((r.stdout || '').trim()));
+  assert.ok(!/coverage incomplete/.test(r.stderr || ''),
+    'and it must not reach stderr either — the banner reads stderr when stdout is empty');
+});

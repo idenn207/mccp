@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "id": "2026-09-08T06-57-41-305Z__8c93412a",
+  "created_at": "2026-09-08T06:57:41.305Z",
+  "session_id": "49c48820-26af-431c-9394-7103771c374b",
+  "scan_hash": "bdcee3062db85949112aa408bebfaf375c82091438901d20c405fbcdfbd2b807",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/release-channel-separation.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/release-channel-separation.prd.md",
+          "to": ".claude/prds/archived/release-channel-separation.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/release-channel-separation-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/release-channel-separation-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/release-channel-separation-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/release-channel-separation-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/release-channel-separation-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/release-channel-separation-m3.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/release-channel-separation-m4.plan.md",
+          "to": ".claude/PRPs/plans/archived/release-channel-separation-m4.plan.md"
+        }
+      ]
+    }
+  ]
+}

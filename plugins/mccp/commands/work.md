@@ -146,7 +146,9 @@ fi
 # ("조용히 사라지지는 않는다")가 그대로 적용된다.
 #
 # 출력 포맷은 `work-orchestrator.js last-halt` 가 소유한다 — 여기 다시 적지 않는다.
-# 이 줄은 primary action 이 아니라 **진단 보조**이고 한 줄에 최대 5개 필드가 실려
+# 이 줄은 primary action 이 아니라 **진단 보조**이고 한 줄에 최대 6개 필드가 실려
+# (santa R4 — step·site·ts·reason·worktree 다섯에 커버리지 구멍이 있을 때만 붙는
+#  `coverage=incomplete(N)` 이 더해진다. 그 토큰은 구멍이 없으면 아예 없다)
 # 앵커 1(정보 위계 3단계)을 문자 그대로 만족하지 않는다. 숨기지 않고 적어 둔다.
 # 완화 장치는 셋이다 — 필드 순서가 위계를 따르고(step·site = 무엇이 막았나 → 시각 =
 # 지금 것인가 → reason·worktree = 세부), reason 이 배너에서 80자로 잘리고, halt 는

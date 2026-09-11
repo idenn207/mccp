@@ -1,5 +1,8 @@
 'use strict';
 
+// footer 의 번호는 리터럴이 아니라 plugin.json 에서 파생한다(html.js 와 같은 원).
+const { footerVersionLabel } = require('./plugin-version');
+
 function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   const { formatRelativeTime, normalizeProse } = formatUtils;
   const norm = typeof normalizeProse === 'function' ? normalizeProse : (s) => s;
@@ -160,7 +163,11 @@ function renderMarkdown(model, sections, verdict, derivedAt, formatUtils) {
   out.push('---');
   out.push('');
 
-  out.push('_derived from .claude/ · v1.34.4_');
+  // `derive-only` · `LLM-free` 는 html footer 와의 정보 동등을 위해 더한다
+  // (PRODUCT.md Design Principle 4). 그 두 문구가 나르는 신뢰 신호 — "이 콘솔은
+  // 자동 derive 산출물이지 사람이 편집한 문서가 아니다" — 를 가장 필요로 하는
+  // 환경이 plain-text 표면이다.
+  out.push('_derived from .claude/ · ' + footerVersionLabel() + ' · derive-only · LLM-free_');
   out.push('');
 
   return out.join('\n');

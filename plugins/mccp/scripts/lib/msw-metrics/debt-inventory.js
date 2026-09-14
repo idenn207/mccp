@@ -35,6 +35,16 @@ const DISPOSITIONS_REL = 'docs/multi-session-work-loop/debt-dispositions.jsonl';
 
 const SOURCES = ['backlog', 'findings', 'fix-task'];
 
+// Where a superseded seal is archived so its digest can be recomputed later.
+const SEALS_DIR_REL = 'docs/multi-session-work-loop/seals';
+
+// ONE constant, named once. The re-seal plan wrote the archive filename as
+// `<sha12>` in its rules and as an 8-hex example in its file table; a write side
+// and a read side that truncate to different lengths never meet, so the ancestor
+// simply never verifies. That direction is safe (fail-closed) but it kills the
+// design silently, which is worse than loud. Both sides read this.
+const ARCHIVE_SHA_PREFIX_LEN = 12;
+
 // Severity tokens, longest-first so CRITICAL is not shadowed while scanning a
 // cell like "CRITICAL/HIGH".
 const SEVERITY_TOKENS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'FAIL'];
@@ -62,6 +72,14 @@ const DISPOSITIONS = ['fixed', 'obsolete', 'superseded', 'duplicate', 'rejected'
 const SUPPRESSING_DISPOSITIONS = ['fixed', 'obsolete', 'superseded', 'duplicate'];
 
 const SHA_RE = /^[0-9a-f]{40}$/;
+// The `sha256:<64hex>` form THIS module produces (`inventoryHash`). Anchored on
+// the whole string deliberately: a prefix or length test would let a crafted
+// value reach `path.join` and a git argv. It lives beside its producer rather
+// than being imported from the receipt layer, which describes receipt fields —
+// the debt ledger should not depend on that layer for a string it generates
+// itself, and the regex sitting next to `inventoryHash` is what keeps the two
+// from drifting.
+const INVENTORY_SHA_RE = /^sha256:[0-9a-f]{64}$/;
 const PR_RE = /^#\d+$/;
 const PATH_LINE_RE = /^(.+):(\d+)$/;
 // Uppercase only, and only these two words. The canonical marker the repo
@@ -388,6 +406,112 @@ function readInventory(repoRoot) {
   return JSON.parse(fs.readFileSync(abs, 'utf8'));
 }
 
+
+// ── ancestry ─────────────────────────────────────────────────────────────────
+//
+// A re-seal supersedes its predecessor rather than erasing it: the new document
+// carries `meta.ancestry`, the chain of digests it descends from. Lines still
+// bound to one of those digests are a HISTORICAL NORMAL STATE, not the drift
+// `binding_mismatch` exists to catch.
+//
+// `meta` is OUTSIDE the sealed digest (`inventoryHash` covers `items[]` only), so
+// this field is not signed. Trusting it as written would mean one appended line
+// buys every record bound to that sha an exemption from `binding_mismatch` while
+// `seal_intact` stays true — precisely the scenario the binding was built for
+// ("delete the seal, seal again over a changed tree, and the old lines would
+// silently certify a different denominator"). So an ancestor is not believed, it
+// is RECOMPUTED, under three conditions that must all hold:
+//
+//   1. shape      — `sha256:<64hex>`, no duplicates, never the document's own sha
+//   2. recompute  — the archived seal exists and `inventoryHash(archived.items)`
+//                   equals the claimed sha
+//   3. tracked    — the archive is in the git index
+//
+// Condition 2 alone is SELF-FULFILLING: `inventoryHash` is a public pure function,
+// so anyone can hash a fabricated `items[]` and park the result under the matching
+// filename. Condition 3 raises that to "and it is in the index" — which is INDEX
+// MEMBERSHIP, not commit history: `git add` satisfies it and leaves no commit.
+// Neither condition authenticates provenance. What they close is drift, mistakes
+// and silent reclassification; forgery stays open exactly as CLAUDE.md §3.12
+// already states for every ledger here. Claiming more than that would be the same
+// comfortable-false-number this subsystem exists to remove.
+//
+// A malformed SHAPE folds the whole array to null (judgment impossible → no
+// ancestor allowance at all). A single entry failing recompute/tracked is not
+// fatal to the rest: it is dropped into `unverified` so a caller can report it.
+function archiveRelFor(sha) {
+  if (typeof sha !== 'string' || !INVENTORY_SHA_RE.test(sha)) return null;
+  const hex = sha.slice('sha256:'.length, 'sha256:'.length + ARCHIVE_SHA_PREFIX_LEN);
+  return SEALS_DIR_REL + '/debt-inventory-' + hex + '.json';
+}
+
+// `execFileSync` with an argv ARRAY, never a composed string: a string would go
+// through /bin/sh and make the argument injectable. `--` ends option parsing so a
+// pathspec can never be read as a flag. The sha reached here only after
+// `INVENTORY_SHA_RE`, so the derived segment is lowercase hex and cannot contain
+// a separator — validation happens BEFORE derivation, not after.
+function isGitTracked(repoRoot, rel) {
+  try {
+    require('child_process').execFileSync(
+      'git', ['-C', repoRoot, 'ls-files', '--error-unmatch', '--', rel],
+      { stdio: ['ignore', 'ignore', 'ignore'] });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function sealAncestry(repoRoot, doc) {
+  const raw = (doc && doc.meta && doc.meta.ancestry);
+  if (raw === undefined || raw === null) return { verified: [], unverified: [] };
+  if (!Array.isArray(raw)) return null;
+
+  const own = doc && doc.inventory_sha256;
+  const seen = new Set();
+  for (const sha of raw) {
+    if (typeof sha !== 'string' || !INVENTORY_SHA_RE.test(sha)) return null;
+    if (sha === own) return null;
+    if (seen.has(sha)) return null;
+    seen.add(sha);
+  }
+
+  const verified = [];
+  const unverified = [];
+  for (const sha of raw) {
+    const rel = archiveRelFor(sha);
+    const abs = path.join(repoRoot, rel);
+    let archived;
+    try {
+      archived = JSON.parse(fs.readFileSync(abs, 'utf8'));
+    } catch (err) {
+      unverified.push({ sha: sha, reason: 'archive unreadable at ' + rel });
+      continue;
+    }
+    if (!archived || !Array.isArray(archived.items)) {
+      unverified.push({ sha: sha, reason: 'archive at ' + rel + ' has no items[]' });
+      continue;
+    }
+    if (inventoryHash(archived.items) !== sha) {
+      unverified.push({
+        sha: sha,
+        reason: 'archive at ' + rel + ' does not hash to the sha it is filed under',
+      });
+      continue;
+    }
+    if (!isGitTracked(repoRoot, rel)) {
+      unverified.push({
+        sha: sha,
+        reason: 'archive at ' + rel + ' is not in the git index — a file placed on ' +
+          'disk cannot be an ancestor, because recomputing its own hash proves ' +
+          'only internal consistency',
+      });
+      continue;
+    }
+    verified.push(sha);
+  }
+  return { verified: verified, unverified: unverified };
+}
+
 // Sealing is once-only. A re-seal would relabel the denominator under
 // dispositions already bound to the old one, so the refusal is the invariant,
 // not a convenience.
@@ -453,15 +577,120 @@ function readDispositions(repoRoot) {
   return { ok: true, lines, malformed, error: null };
 }
 
-// A successor must both exist AND name the seal it is taking items from.
+// ── successor acceptance ─────────────────────────────────────────────────────
 //
-// Existence alone is the trap this plan's own Patterns section flagged in the M9
-// gate: "커밋된 정적 파일이라 한 번 착지하면 영구히 참". Any file already in the
-// repo would satisfy it, so mass deferral would pass with no friction at all —
-// which the plan's Risks table rates as the likely path. Requiring the digest
-// means the successor had to be edited in THIS cycle to accept the handoff, and
-// one line covers a batch, so the friction is real without being busywork.
-function checkSuccessor(repoRoot, successor, inventorySha) {
+// A successor must exist AND declare that it accepts the handoff.
+//
+// Existence alone is the M9 trap this subsystem already named: "커밋된 정적 파일이라
+// 한 번 착지하면 영구히 참". Any committed file would satisfy it, so mass deferral
+// would pass with no friction at all.
+//
+// The first fix was `body.indexOf(inventorySha) !== -1`, and it does not hold:
+// EVERY committed file that happens to carry the sha becomes eligible. Measured in
+// this repo — `.claude/_meta/data/2026-09-08-closure-baseline.json` and
+// `…-closure-report-live.json` both embed the full sha, and every line of
+// `debt-dispositions.jsonl` does. An enumerated deny-list cannot fix that: the set
+// of files carrying the sha grows on its own, and a re-seal writes more of them.
+//
+// So the SHAPE of the test changes. Containing the sha is not acceptance; a
+// dedicated marker is:
+//
+//     <!-- accepts-inventory: sha256:<64hex> -->
+//
+// A report JSON or a ledger line is not that shape, so the class closes instead of
+// the list growing. Writing the marker is a person declaring the handoff accepted,
+// which is the friction the original rule wanted.
+const ACCEPT_MARKER_RE =
+  /<!--[ \t]*accepts-inventory:[ \t]*(sha256:[0-9a-f]{64})[ \t]*-->/g;
+
+// `[ \t]` and not `\s`: \s crosses newlines, which would let a "marker" span lines
+// and make the line-oriented stripping below meaningless. The pattern has no nested
+// quantifiers, so it cannot backtrack catastrophically.
+
+// CHARACTERS, not bytes — the scan cost tracks code units. Over the cap the answer
+// is REFUSAL, not a truncated scan: a partial read of an acceptance record would
+// decide a handoff on evidence nobody looked at.
+const MAX_SUCCESSOR_SCAN_CHARS = 256 * 1024;
+
+// Quoted structures are removed before scanning so a marker shown as an EXAMPLE —
+// inside a fence in a doc that explains the format — cannot accept a real handoff.
+//
+// This does NOT reuse `intent-claims.stripQuotedStructures`, and the reason is
+// worth stating so a later reader does not "unify" them: that stripper removes HTML
+// comments wherever they appear, and this marker IS an HTML comment. Running it here
+// deletes the genuine markers too, so every deferral would be refused. Measured: a
+// document with three markers comes back with zero occurrences of the token.
+//
+// Over-removal is the safe direction — a stripped real marker yields no match, which
+// refuses. So the rules stay deliberately blunt: fenced blocks, indented code, and
+// blockquotes.
+const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
+const BLOCKQUOTE_RE = /^[ ]{0,3}>/;
+
+// Indentation is measured in COLUMNS, not characters: a tab advances to the next
+// 4-column tab stop. Counting characters would let " \tmarker" read as 2 columns
+// when markdown sees a code block.
+function indentColumns(line) {
+  let col = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line.charAt(i);
+    if (ch === ' ') col += 1;
+    else if (ch === '\t') col += 4 - (col % 4);
+    else break;
+    if (col >= 4) return col;
+  }
+  return col;
+}
+
+function stripQuotedForMarker(text) {
+  const lines = String(text == null ? '' : text).split(/\r?\n/);
+  const out = [];
+  let fence = null;
+  for (const line of lines) {
+    if (fence) {
+      // A closing fence must be the same character and at least as long.
+      const close = line.match(FENCE_OPEN_RE);
+      if (close && close[1].charAt(0) === fence.charAt(0) && close[1].length >= fence.length) {
+        fence = null;
+      }
+      out.push('');
+      continue;
+    }
+    const open = line.match(FENCE_OPEN_RE);
+    if (open) { fence = open[1]; out.push(''); continue; }
+    if (BLOCKQUOTE_RE.test(line)) { out.push(''); continue; }
+    if (indentColumns(line) >= 4) { out.push(''); continue; }
+    out.push(line);
+  }
+  // An unterminated fence swallows the rest of the document, same rule the repo's
+  // other stripper uses — refusing is safe, accepting on a half-open fence is not.
+  return out.join('\n');
+}
+
+// Every well-formed marker in the document, as a Set.
+//
+// The scan is GLOBAL and the answer is set membership — deliberately NOT the
+// "exactly one anchor" rule `intent-claims` uses. There the answer is a scalar (which
+// UI id?), so two anchors mean ambiguity. Here a document legitimately accumulates
+// one marker per generation, and demanding exactly one would break the N-generation
+// chain the ancestor set exists to support. Each marker is still an explicit human
+// declaration, so accepting any of them is not a fail-open.
+function collectAcceptedShas(body) {
+  const out = new Set();
+  if (typeof body !== 'string' || body.length > MAX_SUCCESSOR_SCAN_CHARS) return out;
+  const text = stripQuotedForMarker(body);
+  ACCEPT_MARKER_RE.lastIndex = 0;
+  let m;
+  while ((m = ACCEPT_MARKER_RE.exec(text)) !== null) out.add(m[1]);
+  return out;
+}
+
+// `acceptable` is a single sha, a list of them, or null/'' for "do not check".
+// A list is how a carried-forward line is validated: its marker may name any
+// generation this inventory descends from, so the check is membership in
+// {current} ∪ {verified ancestors}. Widening the parameter rather than adding a
+// new one keeps every existing caller — all of which pass one string — unchanged.
+function checkSuccessor(repoRoot, successor, acceptable) {
   const cls = classifyEvidence(successor, repoRoot, { allowBarePath: true });
   if (!cls.ok) return { ok: false, reason: 'successor ' + cls.reason };
   const abs = path.join(repoRoot, cls.path);
@@ -474,18 +703,28 @@ function checkSuccessor(repoRoot, successor, inventorySha) {
   } catch (err) {
     return { ok: false, reason: 'successor unreadable: ' + err.message };
   }
-  if (inventorySha && body.indexOf(inventorySha) === -1) {
+  const wanted = (acceptable === null || acceptable === undefined || acceptable === '')
+    ? []
+    : (Array.isArray(acceptable) ? acceptable : [acceptable]).filter(Boolean);
+  if (!wanted.length) return { ok: true, path: cls.path };
+
+  const accepted = collectAcceptedShas(body);
+  const hit = wanted.filter(function (s) { return accepted.has(s); });
+  if (!hit.length) {
     return {
       ok: false,
-      reason: 'successor ' + cls.path + ' does not name the inventory it is ' +
-        'taking items from (' + inventorySha + ') — file existence alone would ' +
-        'let any committed file absorb an unlimited deferral',
+      reason: 'successor ' + cls.path + ' carries no <!-- accepts-inventory: ' +
+        '<sha> --> marker for ' + (wanted.length === 1 ? wanted[0] : wanted.length +
+        ' acceptable seal(s)') + ' — containing the digest somewhere in the body is ' +
+        'not acceptance, because report JSON and the ledger itself contain it too',
     };
   }
-  return { ok: true, path: cls.path };
+  return { ok: true, path: cls.path, accepted_sha: hit[0] };
 }
 
-function validateDisposition(repoRoot, rec, index, inventorySha) {
+// `ancestry` is the VERIFIED ancestor list (see `sealAncestry`). It defaults to
+// an empty array so every existing 4-argument caller behaves exactly as before.
+function validateDisposition(repoRoot, rec, index, inventorySha, ancestry) {
   if (!rec || typeof rec.item_id !== 'string' || !rec.item_id) {
     return { ok: false, reason: 'missing item_id' };
   }
@@ -508,7 +747,35 @@ function validateDisposition(repoRoot, rec, index, inventorySha) {
     if (typeof rec.successor !== 'string' || !rec.successor) {
       return { ok: false, reason: 'deferred requires --successor <path>' };
     }
-    return checkSuccessor(repoRoot, rec.successor, inventorySha);
+    // A NEW deferral must name the CURRENT seal — the friction is unchanged for
+    // anything written by hand today.
+    if (!rec.succeeded_from) {
+      return checkSuccessor(repoRoot, rec.successor, inventorySha);
+    }
+    // A CARRIED-FORWARD line is different: the successor already accepted this
+    // handoff, in an earlier generation, and that acceptance is still true. Charging
+    // the friction twice for the same decision is what would force a re-seal to
+    // rewrite successor documents on the machine's behalf — which would hollow out
+    // the marker entirely.
+    if (!Array.isArray(ancestry)) {
+      return {
+        ok: false,
+        reason: 'succeeded_from is set but this inventory has no readable ancestry ' +
+          '— an ancestor allowance cannot be granted on an unjudgeable chain',
+      };
+    }
+    if (ancestry.indexOf(rec.succeeded_from) === -1) {
+      return {
+        ok: false,
+        reason: 'succeeded_from names a seal this inventory does not descend from (' +
+          rec.succeeded_from + ')',
+      };
+    }
+    // Membership in the whole set, not a lookup keyed by succeeded_from. Keying on
+    // succeeded_from makes the design one-shot: at generation 3 that field holds
+    // generation 2's sha while the marker still names generation 1, so every carried
+    // line would be refused and the all-or-nothing batch would reject in full.
+    return checkSuccessor(repoRoot, rec.successor, ancestry.concat([inventorySha]));
   }
   // fixed · obsolete · superseded · rejected
   const cls = classifyEvidence(rec.evidence, repoRoot, { allowBarePath: false });
@@ -530,6 +797,13 @@ function appendDispositions(repoRoot, records) {
       'NOT_SEALED');
   }
   const index = itemIndex(doc);
+  // The ancestry has to reach the validator HERE as well as in `verifyDispositions`.
+  // A carried-forward line is bound to the CURRENT sha, so it never hits the
+  // ancestor short-circuit in verify — it lands in `validateDisposition`, and if
+  // ancestry arrives empty every carried `deferred` is refused, which the
+  // all-or-nothing rule then turns into a rejected batch.
+  const anc = sealAncestry(repoRoot, doc);
+  const ancestry = anc ? anc.verified : null;
   const now = new Date().toISOString();
   const accepted = [];
   const rejected = [];
@@ -544,7 +818,11 @@ function appendDispositions(repoRoot, records) {
       inventory_sha256: doc.inventory_sha256,
       disposed_at: now,
     };
-    const v = validateDisposition(repoRoot, rec, index, doc.inventory_sha256);
+    // Succession provenance. Present ONLY on carried lines, so an ordinary
+    // disposition's shape is byte-for-byte what it was before.
+    if (raw.succeeded_from) rec.succeeded_from = raw.succeeded_from;
+    if (raw.originally_disposed_at) rec.originally_disposed_at = raw.originally_disposed_at;
+    const v = validateDisposition(repoRoot, rec, index, doc.inventory_sha256, ancestry);
     if (!v.ok) { rejected.push({ item_id: rec.item_id, reason: v.reason }); continue; }
     accepted.push(rec);
   }
@@ -590,16 +868,27 @@ function verifyDispositions(repoRoot) {
   }
 
   const index = itemIndex(doc);
+  const anc = sealAncestry(repoRoot, doc);
+  const ancestry = anc ? anc.verified : null;
+  const ancestrySet = new Set(ancestry || []);
   const unmatched = [];
   const boundMismatch = [];
+  const ancestorBound = [];
   const invalid = [];
   for (const rec of led.lines) {
     if (rec.inventory_sha256 !== doc.inventory_sha256) {
-      boundMismatch.push(rec.item_id);
+      // A line bound to a VERIFIED ancestor is the normal state after a re-seal,
+      // not drift. Counting it as `binding_mismatch` would put a thousand-line
+      // false alarm on top of the one field that is supposed to mean something,
+      // and a number that always fires stops being read. Anything bound to a sha
+      // this inventory does NOT descend from still lands in `binding_mismatch`,
+      // so the field keeps catching what it was built to catch.
+      if (ancestrySet.has(rec.inventory_sha256)) ancestorBound.push(rec.item_id);
+      else boundMismatch.push(rec.item_id);
       continue;
     }
     if (!index.has(rec.item_id)) { unmatched.push(rec.item_id); continue; }
-    const v = validateDisposition(repoRoot, rec, index, doc.inventory_sha256);
+    const v = validateDisposition(repoRoot, rec, index, doc.inventory_sha256, ancestry);
     if (!v.ok) invalid.push({ item_id: rec.item_id, reason: v.reason });
   }
 
@@ -628,6 +917,8 @@ function verifyDispositions(repoRoot) {
     deferralsBySuccessor[rec.successor] = (deferralsBySuccessor[rec.successor] || 0) + 1;
   }
 
+  // `ancestor_bound_lines` is deliberately NOT in this expression — it is a
+  // historical normal state. `binding_mismatch` stays in it, unchanged.
   const ok = sealIntact && openItems.length === 0 && unmatched.length === 0 &&
     boundMismatch.length === 0 && invalid.length === 0 && led.malformed === 0 &&
     adjudicableFixed >= 1;
@@ -643,6 +934,9 @@ function verifyDispositions(repoRoot) {
     unmatched_dispositions: unmatched.length,
     unmatched_sample: unmatched.slice(0, 10),
     binding_mismatch: boundMismatch.length,
+    ancestor_bound_lines: ancestorBound.length,
+    ancestry_depth: ancestry === null ? null : ancestry.length,
+    ancestry_unverified: anc ? anc.unverified : null,
     invalid_dispositions: invalid.length,
     invalid_sample: invalid.slice(0, 10),
     malformed_lines: led.malformed,
@@ -900,6 +1194,14 @@ module.exports = {
   buildInventory,
   readInventory,
   sealInventory,
+  SEALS_DIR_REL,
+  ARCHIVE_SHA_PREFIX_LEN,
+  INVENTORY_SHA_RE,
+  archiveRelFor,
+  isGitTracked,
+  sealAncestry,
+  collectAcceptedShas,
+  stripQuotedForMarker,
   inventoryPath,
   dispositionsPath,
   readDispositions,

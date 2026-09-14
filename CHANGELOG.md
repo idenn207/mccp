@@ -49,6 +49,17 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- **closure-accounting M3 — registry-reachability.** `closure report`의 `findings-registry` 행이
+  자기 **producer 도달성**을 함께 싣는다(`ledgers[].producers[]` — 채널별
+  `reachable{adjudicated, closure_types}` + `observed{total, open, accepted, closed, by_closure_type}`).
+  낮은 종결률(실측 `21 / 1505 · 1.4%`)이 "부채가 안 갚혔다"로 인용되던 것을 닫는다 — 분모의 86%를
+  차지하는 패널 채널은 기본 리뷰 모드에서 **종결을 낼 수 없고**, 그 배선은 `diverse-agent-review`
+  #1.5가 소유한다. 함께: `accepted` finding이 부채 분모에서 조용히 빠지던 누수를 닫았고
+  (`debt-inventory.js#collectFindings` → `state !== 'closed'`; 라이브 격차가 그만큼 **커지는** 방향으로
+  드러난다 — 재봉인은 하지 않는다), 선언(`PRODUCER_CHANNELS`)과 emitter 소스를 대조하는
+  falsifier(`findings-producer-reachability.test.js` R1~R8)가 계약 "판정은 `CLOSURE_FROM_ADJUDICATION`을
+  경유한다"를 강제한다. 그 스캔이 증명하지 않는 것(호출이 끊긴 emitter)은 문서에 명시했다.
+
 - **codex-harness-portability M3.5 — codex-ship (hotfix).** Codex 하네스에서 mccp가 **설치되고
   발화하는 상태**를 운영자 한 번의 명령으로 만든다. `plugins/mccp/scripts/lib/codex-bootstrap.js`
   (`status` 진단 4축 · `bootstrap [--apply]` 부트스트랩)와, 프로브에서 배포 트리로 **이전**된

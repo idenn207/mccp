@@ -76,6 +76,64 @@ function scrubPathsFromMessage(message, repoRoot) {
   });
 }
 
+// closure-accounting M3 (DD5) — per-channel counts over FOLDED records. The
+// adjudication and closure events carry no `gate_id` of their own; the folded
+// record inherits it from the opened event, so counting events instead of
+// records would drop every one of them into `unattributed`.
+function emptyObserved() {
+  return { total: 0, open: 0, accepted: 0, closed: 0, by_closure_type: {} };
+}
+
+function countByChannel(registry, findings) {
+  const buckets = {};
+  for (const c of registry.PRODUCER_CHANNELS) buckets[c.channel] = emptyObserved();
+  buckets[registry.UNATTRIBUTED_CHANNEL] = emptyObserved();
+
+  for (const f of findings) {
+    if (!f) continue;
+    // A channel the oracle knows but this report does not is still counted —
+    // falling back to the unattributed bucket keeps the partition invariant
+    // (channel totals sum to the ledger total) true by construction.
+    const bucket = buckets[registry.channelOf(f)] || buckets[registry.UNATTRIBUTED_CHANNEL];
+    bucket.total += 1;
+    if (f.state === 'closed') {
+      bucket.closed += 1;
+      const type = f.closure_type || 'untyped';
+      bucket.by_closure_type[type] = (bucket.by_closure_type[type] || 0) + 1;
+    } else {
+      bucket.open += 1;
+      // `accepted` is a SUBSET of open, reported beside it rather than folded
+      // into it: an accepted finding is one the author agreed to fix, which is
+      // not the same event as having fixed it (UI2).
+      if (f.state === 'accepted') bucket.accepted += 1;
+    }
+  }
+  return buckets;
+}
+
+function buildProducers(registry, findings, findingsUnknown) {
+  const counts = findingsUnknown ? null : countByChannel(registry, findings);
+  const rows = registry.PRODUCER_CHANNELS.map(function (c) {
+    return {
+      channel: c.channel,
+      registers: c.registers,
+      pending_owner: c.pending_owner,
+      reachable: { adjudicated: c.adjudicated, closure_types: c.closure_types.slice() },
+      observed: counts ? counts[c.channel] : null,
+    };
+  });
+  rows.push({
+    channel: registry.UNATTRIBUTED_CHANNEL,
+    // Not a producer: nothing is declared about what it can reach, and saying
+    // `false` would claim knowledge this row exists precisely because we lack.
+    registers: null,
+    pending_owner: null,
+    reachable: null,
+    observed: counts ? counts[registry.UNATTRIBUTED_CHANNEL] : null,
+  });
+  return rows;
+}
+
 /**
  * buildClosureReport(repoRoot) — pure oracle, no side effects
  *
@@ -376,8 +434,14 @@ function buildClosureReport(repoRoot) {
   let findingsDegraded = [];
   let findingsIncomplete = false;
   let findingsInfo = { opened: 0, closed: 0 };
+  // closure-accounting M3 — the folded records and the module itself are needed
+  // again below, for the per-channel `producers` block. Hoisted rather than
+  // re-required so a single read failure produces a single diagnosis.
+  let registryModule = null;
+  let findingsList = [];
   try {
     const registry = require('../../state/findings-registry');
+    registryModule = registry;
     const allFindings = registry.readAll({ repoRoot });
 
     // `degraded` is a BOOLEAN and the reasons are strings in `degraded_reasons`
@@ -400,6 +464,7 @@ function buildClosureReport(repoRoot) {
     }
 
     if (allFindings && Array.isArray(allFindings.findings)) {
+      findingsList = allFindings.findings;
       // Count opened vs closed (non-closed is open per upstream countFindings)
       let opened = 0;
       let closed = 0;
@@ -455,6 +520,30 @@ function buildClosureReport(repoRoot) {
       : 'sealed inventory at ' + (sealedAtCommit || 'unknown'),
   });
 
+  // closure-accounting M3 (DD4/DD5) — the registry row carries its own producer
+  // reachability. Without it, `Closed 21 / 1280 · 1.64%` reads as a debt closure
+  // rate, while most of that denominator comes from the panel channel, which
+  // cannot close anything on the default review path. The footnote that fixes
+  // that misreading has to travel with the number, not sit in a doc.
+  //
+  // `reachable` is static declaration data and stays even when the registry is
+  // degraded; `observed` is measurement and goes null with everything else.
+  let producers = null;
+  let producersDegraded = null;
+  if (registryModule
+    && Array.isArray(registryModule.PRODUCER_CHANNELS)
+    && typeof registryModule.channelOf === 'function') {
+    producers = buildProducers(registryModule, findingsList, findingsUnknown);
+  } else {
+    // A silent null here would look exactly like "this registry has no channels".
+    producersDegraded = {
+      name: 'findings-producers',
+      reason: findingsError
+        ? 'findings registry unreadable — producer channels not resolved'
+        : 'findings registry module exports no PRODUCER_CHANNELS/channelOf',
+    };
+  }
+
   // Findings registry ledger
   ledgers.push({
     name: 'findings-registry',
@@ -464,6 +553,7 @@ function buildClosureReport(repoRoot) {
     denominator_note: findingsUnknown
       ? 'live registry entries — NOT COUNTED (unreadable or partially read; see degraded)'
       : 'live registry entries',
+    producers: producers,
   });
 
   // Build reseal warning if gap > 0. Suppressed when the ledger is malformed:
@@ -494,6 +584,7 @@ function buildClosureReport(repoRoot) {
   // Collect all degraded errors (print first for visibility per C6)
   const allDegraded = [];
   if (findingsError) allDegraded.push(findingsError);
+  if (producersDegraded) allDegraded.push(producersDegraded);
   for (const d of findingsDegraded) allDegraded.push(d);
   if (disposalDegraded) allDegraded.push(disposalDegraded);
   if (sealDigestMismatch) allDegraded.push(sealDigestMismatch);

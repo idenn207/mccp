@@ -214,8 +214,21 @@ function collectFindings(repoRoot) {
     return { ok: false, items: [], error: err.message };
   }
   const list = (all && Array.isArray(all.findings)) ? all.findings : [];
+  // closure-accounting M3 DD3 — 부채는 **종결되지 않은 것**이다. `state === 'open'`
+  // 은 `accepted`(= `ACCEPT_NOW` 판정을 받은 finding)를 분모에서 조용히 빼는데, 그
+  // 상태의 의미는 "저자가 고치기로 했다"이지 "고쳤다"가 아니다
+  // (findings-registry.js `foldEvents` · docs/multi-session-work-loop/feedback-loop-design.md
+  // §2 "열린 채"). 다른 소비처도 같은 규칙으로 읽는다 — closure/report.js 는
+  // non-closed 를 전부 open 으로 세고, findings-registry `isPromotable` 은
+  // non-closed 를 승격 대상으로 보며, plan-review/cli.js `emitPanelClosures` 는
+  // non-closed 를 종결 대상으로 본다(마지막 것은 M3 로컬 리뷰에서 함께 정렬했다).
+  //
+  // **item 의 형태는 바꾸지 않는다.** `coords.state` 를 더하면 모든 findings item 의
+  // 내용이 달라져 다음 봉인의 `inventory_sha256` 이 전 항목에서 움직인다. accepted 를
+  // 구분해 볼 자리는 closure report 의 registry 행(`producers[].observed.accepted`)이지
+  // debt item 이 아니다.
   const items = list
-    .filter(function (f) { return f && f.state === 'open'; })
+    .filter(function (f) { return f && f.state !== 'closed'; })
     .map(function (f) {
       return {
         item_id: 'findings:' + f.finding_id,

@@ -12,6 +12,27 @@
 
 const report = require('./report');
 
+// closure-accounting M3 — one line per producer channel, under the registry row
+// it qualifies. A reader who sees `Closed 21 / 1280 · 1.64%` alone reads a debt
+// closure rate; these lines say which channels could ever move that numerator.
+function producerLine(p) {
+  const counts = p.observed
+    ? 'open ' + p.observed.open + ' / total ' + p.observed.total + ' · accepted ' + p.observed.accepted
+    : 'not counted';
+  // A channel that registers nothing still shows its counts — without them the
+  // human output cannot be summed against the ledger row it annotates.
+  if (p.registers === false) return counts + ' · not registered in the findings registry';
+  // `unattributed` is a bucket, not a producer: it has counts but nothing is
+  // declared about what it can reach.
+  if (!p.reachable) return counts + ' · not a declared producer';
+  const types = p.reachable.closure_types.length ? p.reachable.closure_types.join(', ') : 'none';
+  const owner = p.pending_owner ? ' (owner: ' + p.pending_owner + ')' : '';
+  return counts
+    + ' · closures reachable: ' + types
+    + ' · adjudication: ' + (p.reachable.adjudicated ? 'reachable' : 'unreachable')
+    + owner;
+}
+
 function formatTable(obj) {
   // Simple human-readable table format
   const lines = [];
@@ -95,6 +116,12 @@ function formatTable(obj) {
       lines.push('    Closed:        ' + ledger.closed + ' / ' + ledger.total);
       lines.push('    Pct:           ' + ledger.pct + '%');
       lines.push('    Denominator:   ' + ledger.denominator_note);
+      if (Array.isArray(ledger.producers)) {
+        lines.push('    Producers:');
+        for (const p of ledger.producers) {
+          lines.push('      ' + p.channel + '  ' + producerLine(p));
+        }
+      }
     }
     lines.push('');
   }

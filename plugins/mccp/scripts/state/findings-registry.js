@@ -62,6 +62,75 @@ const CLOSURE_FROM_ADJUDICATION = {
   REJECTED_BY_DESIGN: 'invalidated',
 };
 
+// closure-accounting M3 DD4 — 종결 어휘의 소유자가 **그 어휘에 닿는 길의 목록**도
+// 소유한다. 이 표가 소비처(closure/report.js)에 살면 새 emitter 가 생겼을 때 붉어질
+// 단일 지점이 없다. 위 맵과 같은 자리에 있어야 하는 이유가 DD7 과 같다.
+//
+// `closure_types` 를 Plan-Codex 행에서 리터럴로 복제하지 않고 위 맵의 비-null 값에서
+// **파생**하는 것이 핵심이다 — 두 곳에 적으면 한 곳만 고쳐진다.
+//
+// 선언은 첫 커밋에만 참이다. `lib/tests/findings-producer-reachability.test.js` 가
+// emitter 소스를 읽어 이 표와 대조하므로, 선언이 낡으면 그 test 가 붉어진다.
+// **그 falsifier 가 증명하는 것은 "이 길이 코드에 존재한다"이지 "이 길이 지금
+// 발화한다"가 아니다** — 호출이 끊긴 emitter 는 스캔 신호가 불변이라 잡히지 않는다
+// (Implement-Codex R1 F1 · backlog 2026-09-14 MEDIUM).
+const PRODUCER_CHANNELS = Object.freeze([
+  Object.freeze({
+    channel: 'plan-codex-runner',
+    emitter: 'plugins/mccp/scripts/lib/plan-codex-runner.js',
+    registers: true,
+    adjudicated: true,
+    closure_types: Object.freeze(
+      Object.keys(CLOSURE_FROM_ADJUDICATION)
+        .map(function (k) { return CLOSURE_FROM_ADJUDICATION[k]; })
+        .filter(Boolean)),
+    pending_owner: null,
+  }),
+  Object.freeze({
+    channel: 'plan-review-panel',
+    emitter: 'plugins/mccp/scripts/lib/plan-review/cli.js',
+    registers: true,
+    adjudicated: false,
+    closure_types: Object.freeze(['deferred']),
+    pending_owner: 'diverse-agent-review #1.5',
+  }),
+  Object.freeze({
+    channel: 'santa-loop',
+    emitter: 'plugins/mccp/scripts/lib/santa/seal.js',
+    registers: true,
+    adjudicated: false,
+    closure_types: Object.freeze(['fixed']),
+    pending_owner: null,
+  }),
+  // DD7 — L3 는 registry 에 **아무것도 넣지 않는다**. 그 구멍을 표에서 빼면 "모드별
+  // 도달성을 표기한다"는 주장 자체가 거짓이 되므로, 배선하지 않은 채로 싣는다.
+  Object.freeze({
+    channel: 'plan-review-l3',
+    emitter: 'plugins/mccp/scripts/lib/plan-review/l3.js',
+    registers: false,
+    adjudicated: false,
+    closure_types: Object.freeze([]),
+    pending_owner: null,
+  }),
+]);
+
+const UNATTRIBUTED_CHANNEL = 'unattributed';
+
+// DD5 — 귀속은 **fold 된 레코드**로 판정한다. 판정·종결 이벤트는 `gate_id` 를 싣지
+// 않지만(plan-codex-runner.js:894-896) fold 된 레코드는 opened 이벤트에서 그것을
+// 물려받는다. 이벤트 단위로 세면 그 이벤트들이 전부 미귀속으로 떨어진다.
+//
+// 어디에도 맞지 않으면 버리지 않고 `unattributed` 로 **센다** — 버리면 채널 합계가
+// ledger 합계보다 작아지고 그 차이를 아무도 설명하지 못한다.
+function channelOf(finding) {
+  const gate = finding && finding.gate_id;
+  if (gate === 'mccp-santa-loop') return 'santa-loop';
+  if (gate === 'mccp-plan-codex') {
+    return (finding.perspective === 'codex') ? 'plan-codex-runner' : 'plan-review-panel';
+  }
+  return UNATTRIBUTED_CHANNEL;
+}
+
 // DD1 — 승격 경계는 상수다. env 토글을 만들지 않는다(UI7). CLAUDE.md §3.14가 이미
 // 저장소를 운영하고 있는 규칙(CRITICAL·HIGH만 흡수)의 세션 경계 확장이다.
 // §3.14는 해제 조건이 붙은 임시 규칙이므로, 그 절이 사라질 때 이 상수의 근거도
@@ -807,6 +876,9 @@ module.exports = {
   CLOSURE_TYPES: CLOSURE_TYPES,
   RESOLVING_CLOSURE_TYPES: RESOLVING_CLOSURE_TYPES,
   CLOSURE_FROM_ADJUDICATION: CLOSURE_FROM_ADJUDICATION,
+  PRODUCER_CHANNELS: PRODUCER_CHANNELS,
+  UNATTRIBUTED_CHANNEL: UNATTRIBUTED_CHANNEL,
+  channelOf: channelOf,
   ALLOWED_FIELDS: ALLOWED_FIELDS,
   SEVERITY_ORDER: SEVERITY_ORDER,
   PROMOTE_MIN_SEVERITY: PROMOTE_MIN_SEVERITY,

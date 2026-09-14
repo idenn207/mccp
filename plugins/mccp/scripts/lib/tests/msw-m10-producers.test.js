@@ -181,6 +181,38 @@ test('an absent fix-task slot is a state, not a failure', () => {
   assert.equal(built.stats.total, 1);
 });
 
+// ── accepted 는 부채다 (closure-accounting M3 DD3) ────────────────────────────
+
+test('an accepted finding is still debt; only a closed one leaves the denominator', () => {
+  const adj = function (id, seq, over) {
+    return Object.assign({
+      kind: 'finding_adjudicated', ts: '2026-09-01T00:00:01.000Z',
+      finding_id: id, work_unit: 'unit', seq: seq,
+      event_id: '00000000-0000-4000-8000-00000000000' + seq,
+      batch_expected: 1, gate_decision_id: 'unit',
+    }, over || {});
+  };
+  const root = makeRepo({
+    findingEvents: [
+      openEvent({ finding_id: '0123456789abcde1', seq: 1, event_id: '00000000-0000-4000-8000-000000000001' }),
+      openEvent({ finding_id: '0123456789abcde2', seq: 2, event_id: '00000000-0000-4000-8000-000000000002' }),
+      openEvent({ finding_id: '0123456789abcde3', seq: 3, event_id: '00000000-0000-4000-8000-000000000003' }),
+      // ACCEPT_NOW 는 "저자가 고치기로 했다"이지 "고쳤다"가 아니다 — 열린 채 남는다
+      // (findings-registry.js foldEvents · feedback-loop-design.md §2 "열린 채").
+      adj('0123456789abcde2', 4, { state: 'accepted' }),
+      adj('0123456789abcde3', 5, { kind: 'finding_closed', closure_type: 'deferred' }),
+    ],
+  });
+  const ids = di.buildInventory(root).items
+    .filter(function (i) { return i.source === 'findings'; })
+    .map(function (i) { return i.item_id; })
+    .sort();
+
+  // 부채 = 종결되지 않은 것. accepted 가 여기서 빠지면 그 3건은 어느 분모에도 잡히지
+  // 않은 채 봉인 이후로 계속 누락된다 (라이브에서 실측된 registry 1259 대 report 1256).
+  assert.deepEqual(ids, ['findings:0123456789abcde1', 'findings:0123456789abcde2']);
+});
+
 // ── invariant 5: linking, not folding ────────────────────────────────────────
 
 test('a cross-source duplicate is LINKED, and both rows stay in the denominator', () => {

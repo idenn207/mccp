@@ -129,11 +129,11 @@ function withFixtures(testFn) {
           },
         };
       } else if (id === '../../state/findings-registry') {
-        return {
+        return Object.assign({}, require('../../../state/findings-registry'), {
           readAll: () => ({
             findings: fixture.findings,
           }),
-        };
+        });
       }
       return originalRequire.apply(this, arguments);
     };
@@ -356,9 +356,9 @@ test('invariant (g): reseal_warning null when denominator_gap.count === 0', with
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => ({ findings: [] }),
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -435,9 +435,9 @@ test('invariant (c3): disposition count uses folded records, not line count (C3)
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => ({ findings: [] }),
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -485,7 +485,7 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => ({
           findings: [
             // Mix of states
@@ -495,7 +495,7 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
             { finding_id: 'f3', state: 'accepted', severity: 'MEDIUM', claim_digest: 'dig3' },
           ],
         }),
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -550,7 +550,7 @@ function sealDigestFixture(storedSha, hashFn) {
         inventoryHash: hashFn,
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(self, args);
   };
@@ -660,7 +660,7 @@ test('invariant (h): equal-sized inventories with DIFFERENT identities report th
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -712,7 +712,7 @@ test('invariant (c9): a shrinking pile reports a negative net_change (not clampe
         foldDispositions: (lines) => new Map(),
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -771,12 +771,12 @@ test('invariant (c7): throws in readers are caught and reported in degraded (C7)
         foldDispositions: (lines) => new Map(),
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => {
           const err = new Error('Registry file /root/.claude/state/findings-registry.json corrupted');
           throw err;
         },
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -838,7 +838,7 @@ test('invariant (c4): scrubPathsFromMessage handles diverse paths (C4)', (t) => 
           foldDispositions: (lines) => new Map(),
         };
       } else if (id === '../../state/findings-registry') {
-        return { readAll: () => ({ findings: [] }) };
+        return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
       }
       return originalRequire.apply(this, arguments);
     };
@@ -904,7 +904,7 @@ test('invariant (c3b): disposition lines whose item is not in the seal are exclu
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -1364,7 +1364,7 @@ test('invariant (m5): seal.ancestry_depth is present and null-on-unjudgeable, ne
           sealAncestry: () => ancestryResult,
         };
       } else if (id === '../../state/findings-registry') {
-        return { readAll: () => ({ findings: fixture.findings }) };
+        return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: fixture.findings }) });
       }
       return originalRequire.apply(this, arguments);
     };
@@ -1383,4 +1383,142 @@ test('invariant (m5): seal.ancestry_depth is present and null-on-unjudgeable, ne
     'depth counts VERIFIED ancestors only');
   assert.strictEqual(withAncestry(null).seal.ancestry_depth, null,
     'an unjudgeable chain is null, never 0');
+});
+
+// ── producers[] — closure-accounting M3 (DD4/DD5) ────────────────────────────
+//
+// What these pin is that the registry row carries its own reachability and that
+// the per-channel counts are a PARTITION of it. A channel table that does not
+// add up to the ledger it annotates is worse than no table: it invites the
+// reader to subtract and find a residue nobody can explain.
+
+const M3_FINDINGS = [
+  { finding_id: 'a1', gate_id: 'mccp-plan-codex', perspective: 'architect', state: 'open' },
+  { finding_id: 'a2', gate_id: 'mccp-plan-codex', perspective: 'test', state: 'closed', closure_type: 'deferred' },
+  { finding_id: 'a3', gate_id: 'mccp-plan-codex', perspective: 'codex', state: 'accepted' },
+  { finding_id: 'a4', gate_id: 'mccp-plan-codex', perspective: 'codex', state: 'closed', closure_type: 'rejected' },
+  { finding_id: 'a5', gate_id: 'mccp-santa-loop', perspective: 'santa-A', state: 'open' },
+  { finding_id: 'a6', gate_id: null, perspective: null, state: 'open' },
+];
+
+// `readAllResult` may be a function (e.g. one that throws); `registryOverrides`
+// replaces other exports of the real module.
+function withRegistry(readAllResult, fn, registryOverrides) {
+  const fixture = createMockRepoFixture();
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+  Module.prototype.require = function(id) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return {
+        readInventory: () => fixture.sealedDoc,
+        buildInventory: () => ({
+          items: fixture.liveItems,
+          stats: { by_source: { backlog: 1510, findings: 976, 'fix-task': 1 } },
+        }),
+        readDispositions: () => ({ ok: true, lines: fixture.dispositions }),
+        SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+        foldDispositions: (lines) => {
+          const m = new Map();
+          for (const l of lines) m.set(l.item_id, l);
+          return m;
+        },
+      };
+    } else if (id === '../../state/findings-registry') {
+      return Object.assign({}, require('../../../state/findings-registry'), {
+        readAll: typeof readAllResult === 'function' ? readAllResult : () => readAllResult,
+      }, registryOverrides || {});
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const testReport = require('../report.js');
+    const result = testReport.buildClosureReport(process.cwd());
+    return fn(result, result.ledgers.find((l) => l.name === 'findings-registry'));
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}
+
+const healthyRegistry = (findings) => ({
+  findings, degraded: false, degraded_reasons: [], malformed: 0,
+});
+
+test('invariant (p1): producers lists the declared channels in order, then unattributed', () => {
+  const declared = require('../../../state/findings-registry').PRODUCER_CHANNELS
+    .map((c) => c.channel);
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    assert.deepStrictEqual(row.producers.map((p) => p.channel), declared.concat(['unattributed']));
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.strictEqual(panel.reachable.adjudicated, false,
+      'the default review path cannot adjudicate — that is the whole point of the row');
+    assert.deepStrictEqual(panel.reachable.closure_types, ['deferred']);
+    assert.ok(panel.pending_owner, 'a channel that cannot close must name who owns wiring it');
+  });
+});
+
+test('invariant (p2): channel counts partition the ledger they annotate', () => {
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    const sum = (k) => row.producers.reduce((a, p) => a + p.observed[k], 0);
+    assert.strictEqual(sum('total'), row.total, 'channel totals must sum to the ledger total');
+    assert.strictEqual(sum('closed'), row.closed, 'channel closures must sum to the ledger closures');
+    // The fixture exercises all four classifications, so the sums above are not
+    // vacuously satisfied by a single bucket holding everything.
+    for (const ch of ['plan-codex-runner', 'plan-review-panel', 'santa-loop', 'unattributed']) {
+      assert.ok(row.producers.find((p) => p.channel === ch).observed.total > 0,
+        ch + ' must be exercised or this partition proves nothing');
+    }
+  });
+});
+
+test('invariant (p3): a degraded registry nulls every observed count and keeps reachability', () => {
+  withRegistry({
+    findings: M3_FINDINGS, degraded: true,
+    degraded_reasons: ['unit: truncated line'], malformed: 1,
+  }, (result, row) => {
+    assert.strictEqual(row.total, null, 'precondition: the row itself is NOT COUNTED');
+    for (const p of row.producers) {
+      assert.strictEqual(p.observed, null, p.channel + ': a partial read is not a count');
+    }
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.deepStrictEqual(panel.reachable.closure_types, ['deferred'],
+      'reachability is declaration data — an unreadable ledger does not unmake it');
+  });
+});
+
+test('invariant (p4): accepted is counted as open AND named, and closed is neither', () => {
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    const codex = row.producers.find((p) => p.channel === 'plan-codex-runner');
+    // a3 accepted + a4 closed(rejected)
+    assert.strictEqual(codex.observed.total, 2);
+    assert.strictEqual(codex.observed.open, 1, 'accepted is still open — the debt did not go away');
+    assert.strictEqual(codex.observed.accepted, 1, 'and it is named, not folded into open (UI2)');
+    assert.strictEqual(codex.observed.closed, 1);
+    assert.deepStrictEqual(codex.observed.by_closure_type, { rejected: 1 });
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.strictEqual(panel.observed.accepted, 0, 'the panel channel cannot produce an accepted state');
+    assert.deepStrictEqual(panel.observed.by_closure_type, { deferred: 1 });
+  });
+});
+
+test('invariant (p5): a registry that throws on read keeps reachability and nulls observed', () => {
+  withRegistry(() => { throw new Error('unit: registry unreadable'); }, (result, row) => {
+    assert.strictEqual(row.total, null, 'precondition: the row itself is NOT COUNTED');
+    assert.ok(Array.isArray(row.producers), 'a read failure must not erase the declaration');
+    for (const p of row.producers) {
+      assert.strictEqual(p.observed, null, p.channel + ': nothing was read, so nothing is counted');
+    }
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.deepStrictEqual(panel.reachable.closure_types, ['deferred']);
+  });
+});
+
+test('invariant (p6): a registry without channel exports degrades loudly instead of reading as empty', () => {
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    assert.strictEqual(row.producers, null);
+    const hit = (result.degraded || []).find((d) => d.name === 'findings-producers');
+    assert.ok(hit, 'a missing channel table must surface in degraded, not as a silent null');
+    assert.match(hit.reason, /exports no PRODUCER_CHANNELS/);
+  }, { PRODUCER_CHANNELS: undefined });
 });

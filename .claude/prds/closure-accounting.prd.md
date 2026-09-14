@@ -118,7 +118,8 @@ We'll know we're right when **`closure report`가 오늘 `open: 0` 대신
 |---|---|---|---|---|
 | 1 | closure-report | 봉인 분모와 라이브 부채의 격차 · 봉인 나이 · 두 종결 계기의 불일치 · 판정/해소/수정 3분할이 하나의 read-only CLI(`closure report [--json]`)로 산출된다. 재봉인 없음 · 상태 변경 없음 · 게이트 없음 · 신규 코드 파일 3건 + 문서 2건 편집 | complete | [.claude/plans/closure-accounting-m1.plan.md](../plans/closure-accounting-m1.plan.md) |
 | 2 | reseal-path | 재봉인이 기존 판정 1115건의 결속을 끊지 않고 수행되는 경로가 생긴다(승계 또는 재키잉). 격차가 실제로 0으로 떨어지는 것이 1회 실측된다 | in-progress | [.claude/plans/closure-accounting-m2.plan.md](../plans/closure-accounting-m2.plan.md) |
-| 3 | registry-reachability | 기본 리뷰 모드(`multi-agent`)에서 지적이 `finding_adjudicated`/`finding_closed`를 남긴다. 또는 그 enum을 은퇴시킨다 — 0건이므로 은퇴가 과거 해석을 바꾸지 않는다 | pending | `closure-accounting-m3` (미생성) |
+| 3 | registry-reachability | **이관 + 정직화로 착지했다.** 양자택일 둘 다 기각 — 은퇴의 전제("0건")는 이미 거짓이고(`finding_adjudicated` 3건, `mode=codex` 경로), 패널 판정 producer는 `diverse-agent-review` #1.5 소관이다. 대신 셋을 했다: `accepted`가 부채 분모에서 조용히 빠지던 누수를 닫고(`state !== 'closed'`), `closure report`의 registry 행이 채널별 **producer 도달성**을 함께 싣게 하고(`ledgers[].producers[]` — 1.4%가 "부채 종결률"로 인용되지 못하게), `CLOSURE_FROM_ADJUDICATION` 경유를 소스 대조 test로 강제되는 계약으로 남겼다 | complete | [.claude/plans/closure-accounting-m3.plan.md](../plans/closure-accounting-m3.plan.md) |
+| 4 | instrument-repair | M1·M2 산출물이 스스로 틀린 값을 내는 경로를 닫는다. 재봉인은 전임 봉인의 commit·digest를 복사하지 않고, 검증에 실패한 판정은 종결로 세지 않으며, 재봉인 뒤 m10 게이트는 조상 결속을 불일치로 보고하지 않는다. `closure report`는 CI에서 주기적으로 호출된다. 부채 상환 없음 · 새 임계 없음 · 게이트 없음 | in-progress | [.claude/plans/closure-accounting-m4.plan.md](../plans/closure-accounting-m4.plan.md) |
 
 **M2 신설**: `plugins/mccp/scripts/lib/msw-metrics/reseal.js` ·
 `plugins/mccp/scripts/lib/tests/msw-reseal.test.js` ·
@@ -127,6 +128,13 @@ We'll know we're right when **`closure report`가 오늘 `open: 0` 대신
 `plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js` · `plugins/mccp/scripts/lib/closure/report.js` ·
 `docs/multi-session-work-loop/debt-deferred-{critical,high,minor}.md`(수락 마커) ·
 `docs/multi-session-work-loop/debt-inventory.md` · `CHANGELOG.md`.
+
+**M4 편집분**: `plugins/mccp/scripts/lib/msw-metrics/{reseal,debt-inventory,m10-coverage-gate}.js` ·
+`plugins/mccp/scripts/lib/closure/{report,cli}.js` · `plugins/mccp/scripts/state/findings-registry.js` ·
+test 4건 · `docs/multi-session-work-loop/debt-inventory.{json,md}`(json은 `meta` 두 필드만 — items·digest 불변) ·
+`CHANGELOG.md`. **M4 신설**: `.github/workflows/closure-report.yml` · `scripts/tests/closure-report-workflow.test.js`.
+M4는 M3와 `report.js`·`cli.js`·`debt-inventory.js`·`findings-registry.js`·`msw-m10-producers.test.js`를
+공유하므로 **같은 브랜치에서 M3 다음에** 착수한다. fix-task와 M3 plan 게이트 이연분은 M3 소관이다.
 
 소유 파일: **M1 신설** `plugins/mccp/scripts/lib/closure/report.js` ·
 `plugins/mccp/scripts/lib/closure/cli.js` · `plugins/mccp/scripts/lib/closure/tests/report.test.js` ·
@@ -153,9 +161,14 @@ We'll know we're right when **`closure report`가 오늘 `open: 0` 대신
 - [ ] **`deferred` 983건을 어떻게 볼 것인가.** 판정됐으나 해소되지 않았고, 88.2%가 이 상태다.
   이연이 정당한 판정인지 판정 회피의 완곡어인지는 이 PRD가 답할 수 없다 —
   표본을 읽어야 하고 그것은 조사(`/mccp:meta-research`) 범위다.
-- [ ] **두 계기를 통합할 것인가.** `findings-registry` 이벤트 로그와 disposition ledger는
-  같은 findings를 서로 다른 단위로 센다(976 대 1196). M1은 병기만 하고 통합하지 않는다.
-  통합이 옳은지는 M3의 enum 은퇴 결정과 묶여 있다.
+- [x] **두 계기를 통합할 것인가.** — **통합하지 않는다 (M3, 2026-09-14).** 두 계기는 같은
+  findings를 서로 다른 단위로 세지만(M3 실측: registry 1505 대 sealed 2841), 그 차이는 버그가
+  아니라 **무엇을 세는가의 차이**다. 통합하면 봉인 결속(`inventory_sha256`)이 registry 이벤트
+  축으로 끌려와 UI1을 깬다. 대신 registry 행이 **자기 도달성을 싣는다** —
+  `ledgers[].producers[]`가 채널별로 `reachable{adjudicated, closure_types}`와
+  `observed{total, open, accepted, closed, by_closure_type}`을 병기하므로, 낮은 종결률이
+  "부채가 안 갚혔다"가 아니라 "이 채널은 애초에 종결을 낼 수 없다"로 읽힌다. enum 은퇴는
+  기각했다(아래 M3 행).
 - [ ] **리포트를 어디에 표시하는가.** `STATUS.md`는 `.claude/cache/`라 gitignored이고
   산출한 worktree에만 있다. M1은 CLI 단독이며 대시보드 배선은 하지 않는다.
 

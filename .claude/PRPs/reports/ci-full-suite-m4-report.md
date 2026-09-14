@@ -95,6 +95,36 @@ Design Grounding: **N/A** — design trigger 미발화(`design_signal=0`, render
    부재 하나뿐(missing-only)이고 `MCCP_RECEIPT_GATE_MODE=soft` 가 그것을 허용한다. plan 의
    `### 게이트 이탈 2`. (plan receipt 는 2026-09-11 divergent 로 작성됐다.)
 
+### 2026-09-14 — implement gate 재실행 (receipt stale 복구)
+
+`/mccp:pr` Phase 1.6 preflight 가 `mccp-implement-codex/ci-full-suite-m4`(2026-09-08) 를 **stale** 로
+보고했다 — receipt plan hash `4572fc…` ≠ 현재 `31e8cb…`. plan 은 09-11 재개정·재게이트됐고
+(plan receipt 가 현재 hash 와 일치) implement receipt 만 옛 plan 을 가리켰다. 이대로 PR-Codex 를
+돌리면 ship receipt 봉인 뒤 2.5.8/2.5.9 에서 HALT 되므로 운영자 선택으로 `/mccp:prp-implement` 를
+재실행했다. origin/main 은 이미 병합돼 있어(behind 0, 삭제 0) 충돌 해소는 필요 없었다.
+
+- **Implement-Codex**: `classification=round-cap-reached` (원장 1/1, spawn 0) → `codex_verdict=divergent`.
+  미해소 finding(F1·F2·S3)은 전부 09-08 backlog 행에 이미 있다. 재실행 NOTE 1행만 추가.
+- **plan 본문 무편집 (2.5.4 이탈)** — `## Codex Implementation Review` 를 plan 에 갱신하면
+  plan hash 에 섹션 carve-out 이 없어(`plugins/mccp/scripts/receipt/hash.js:203-210`) 09-11
+  plan receipt 가 대신 stale 이 된다. 기존 섹션(09-08 R1)이 2.5.6 Step A 를 만족하므로 그대로 두고
+  기록은 이 절에 남긴다.
+- **security-reviewer 미재호출 (2.5.5 이탈)** — 이 decision 의 implement gate 에서 이미 1회
+  수행됐고(S1·S2 흡수), 09-08 이후 코드 변화는 LOW 흡수 커밋 `fca5f1c`(branch 인코딩 ·
+  `--workflow` 인자 가드) 뿐이다. §3.16 에 따라 라운드를 늘리지 않고, PR diff 전체는 `/mccp:pr`
+  2.5.5 가 다시 본다.
+- **impeccable**: `skill_available=true · design_signal=false` → silent-skip(`no-signal`). routing ·
+  critique · grounding 전부 미발화.
+- **plan-conflict detector `conflict:true` (file-expansion, 7건) — escalation 미수행.** 7건 중
+  6건이 게이트 산출물(plan · review · report · STATE · findings shard · fix-task-applied)이고 이것은
+  backlog 에 이미 있는 오발화 축이다(`codex-findings-backlog.md:644` · `:933`). 게이트 산출물을 뺀
+  15파일로 재측정하면 `conflict:false` 이고, 남는 계획 밖 구현 파일은 위 4번의 de-flake test
+  1건(임계 ≥2 미만)이다. `chain_aborted` 는 세우지 않았다.
+- **Validation**: plan `## Validation` 블록을 추출해 그대로 실행, exit 0 — test 111/111 ·
+  `gate PASSED` 98.51% · `ORACLE OK` · 축 C unmet 기록 · version guard 통과 · `VALIDATION REACHED END`.
+- **동시 세션 관측** — 재실행 중 이 worktree 에 다른 세션의 미커밋 편집이 생겼다(PRD M5 행 +1,
+  untracked `ci-full-suite-m5.plan.md`, 11:26~11:27 KST). 이 사이클은 그 파일들을 커밋하지 않는다.
+
 ## Issues Encountered
 
 **게이트가 이 사이클 안에서 한 번 발화했다.** Task 5 에서 `leadtime` 격리 사유에 드라이브

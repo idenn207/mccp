@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: closure-accounting-m1
+task_fingerprint: orchestrator-step-wiring-m3-rev2
 gate_id: stop-review-loop
-decision_id: c11-closure-accounting
-created_at: 2026-09-08T05:20:34.145Z
-expires_at: 2026-09-15T05:20:34.145Z
+decision_id: orchestrator-step-wiring-m4
+created_at: 2026-09-14T05:09:27.430Z
+expires_at: 2026-09-21T05:09:27.430Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-pr-codex/c11-closure-accounting.json
+  - .claude/receipts/mccp-implement-codex/orchestrator-step-wiring-m4.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-pr-codex/c11-closure-accounting.json
+- .claude/receipts/mccp-implement-codex/orchestrator-step-wiring-m4.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-pr-codex/c11-closure-accounting>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/orchestrator-step-wiring-m4>'

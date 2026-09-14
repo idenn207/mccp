@@ -295,6 +295,11 @@ function writeJson(target, doc) {
 // 계약은 하나다: **어떤 실패에도 exit 0 + 빈 stdout.** 호출자는 stdout이 비면
 // 배너 줄을 생략할 뿐이다.
 function cmdA1(argv) {
+  // code-review (M4 후속) — 좁히기의 기준 root는 **스캔 대상**이다. `resolved`를 try
+  // 안에만 두면 catch에서 보이지 않아 cwd로 접히는데, cwd가 스캔 대상의 조상이면
+  // `maskPath`가 "root 안"이라 판정해 상대화만 하므로 경로 구조가 그대로 나간다.
+  // 형제 reader(`work-orchestrator`의 `narrowReason`)와 같은 축을 쓴다.
+  let scanRoot = process.cwd();
   try {
     let repoRoot = process.cwd();
     for (let i = 0; i < argv.length; i++) {
@@ -304,6 +309,7 @@ function cmdA1(argv) {
       }
     }
     const resolved = path.resolve(repoRoot);
+    scanRoot = resolved;
 
     // security review S5 — argv를 무검증으로 경로 조립에 넘기지 않는다.
     // `discoverRepoRoot`가 기본 경로에 요구하는 것과 같은 종류의 마커를 요구한다.
@@ -342,11 +348,26 @@ function cmdA1(argv) {
     const spikeGuard = a1.spike_guard === 'dormant' ? ' · spike-guard=dormant' : '';
     process.stdout.write('A1 작업 단위 완주율 ' + pct + ' (' + num + '/' + den
       + ' · status=' + a1.status + spikeGuard + ')\n');
+    // orchestrator-step-wiring M4 (Task 3 · DD8) — 이 위치에만 있는 A1 이벤트가 있으면 같은
+    // 코드라도 위치마다 값이 갈린다. 첫 줄의 한 줄 예산은 지키고, 조치가 필요한 예외일
+    // 때만 무엇이 틀어졌는지와 무엇을 돌리면 수렴하는지를 둘째 줄로 함께 말한다.
+    if (Number.isInteger(a1.local_only_events) && a1.local_only_events > 0) {
+      // 경로는 **저장소 루트 기준 전체 경로**다. 접두를 줄이면 운영자가 그대로
+      // 복사한 명령이 ENOENT로 끝나, 이 줄은 조치를 말한다고 주장하면서 실행 가능한
+      // 이름을 주지 않은 것이 된다(code-review MEDIUM).
+      process.stdout.write('A1 값이 위치마다 다를 수 있음: 이 위치에만 ' + a1.local_only_events
+        + '건 · 수렴: node plugins/mccp/scripts/migrations/msw-events-common-dir.js\n');
+    }
     return 0;
   } catch (err) {
-    // F9 — 절대경로를 흘리지 않는다. 무엇이 실패했는지만 말한다.
-    process.stderr.write('[mccp:a1] failed (fail-open, banner omitted): '
-      + ((err && err.message) || String(err)) + '\n');
+    // F9 — 절대경로를 흘리지 않는다. 무엇이 실패했는지는 말하되 경로 토큰은 좁힌다.
+    // 좁히는 수단마저 실패하면 원문 대신 `unreportable`이다(record-halt와 같은 형태).
+    let why;
+    try {
+      why = require('../../derive/mask')
+        .scrubAbsPaths((err && err.message) || String(err), scanRoot);
+    } catch (_e) { why = 'unreportable'; }
+    process.stderr.write('[mccp:a1] failed (fail-open, banner omitted): ' + why + '\n');
     return 0;
   }
 }

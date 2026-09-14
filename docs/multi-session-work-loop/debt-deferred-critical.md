@@ -2,7 +2,14 @@
 
 **Inventory**: `sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba`
 **Sealed at**: commit `9093b08` (2026-09-01)
-**Owner**: the next cycle that opens this axis. This file is a successor record,
+
+
+<!-- accepts-inventory: sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba -->
+<!-- The marker, not the digest, is what accepts a handoff. A file that merely
+     contains the sha (a report JSON, the ledger itself) is not a successor —
+     writing this line is a person declaring the deferral accepted. It survives
+     re-sealing: succession checks the whole ancestor chain, so this one line
+     keeps accepting for every generation that descends from this seal. -->**Owner**: the next cycle that opens this axis. This file is a successor record,
 not a plan — it says what was not judged and why, so the deferral is legible
 instead of silent.
 

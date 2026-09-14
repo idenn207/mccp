@@ -316,10 +316,28 @@ test('a successor must exist AND name the seal, closing the static-file trap', (
   fs.writeFileSync(path.join(root, 'docs', 'bystander.md'), 'unrelated\n', 'utf8');
   const bystander = attempt('docs/bystander.md');
   assert.equal(bystander.ok, false);
-  assert.match(bystander.reason, /does not name the inventory/);
+  assert.match(bystander.reason, /accepts-inventory/);
+
+  // Carrying the digest in the body is NOT acceptance. This assertion is the
+  // whole point of the marker: the substring rule that used to live here made
+  // every committed file carrying the sha eligible, and in this repo that set
+  // includes the closure report JSON and every line of the ledger itself.
+  fs.writeFileSync(path.join(root, 'docs', 'mentions.md'),
+    'This takes items from ' + doc.inventory_sha256 + '\n', 'utf8');
+  const mentions = attempt('docs/mentions.md');
+  assert.equal(mentions.ok, false,
+    'containing the digest must not be acceptance — report JSON contains it too');
+  assert.match(mentions.reason, /accepts-inventory/);
+
+  // A marker shown as an EXAMPLE inside a fence is not acceptance either.
+  fs.writeFileSync(path.join(root, 'docs', 'documents.md'),
+    'Write it like this:\n\n```\n<!-- accepts-inventory: ' + doc.inventory_sha256 +
+    ' -->\n```\n', 'utf8');
+  assert.equal(attempt('docs/documents.md').ok, false,
+    'a quoted example must not accept a handoff');
 
   fs.writeFileSync(path.join(root, 'docs', 'successor.md'),
-    'This takes items from ' + doc.inventory_sha256 + '\n', 'utf8');
+    'Successor.\n\n<!-- accepts-inventory: ' + doc.inventory_sha256 + ' -->\n', 'utf8');
   assert.equal(attempt('docs/successor.md').ok, true);
 });
 
@@ -373,7 +391,8 @@ test('deferral concentration is surfaced rather than capped', () => {
     ],
   });
   fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'docs', 'next.md'), doc.inventory_sha256 + '\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'docs', 'next.md'),
+    '<!-- accepts-inventory: ' + doc.inventory_sha256 + ' -->\n', 'utf8');
   for (const it of doc.items) {
     di.appendDispositions(root, [{
       item_id: it.item_id, disposition: 'deferred', successor: 'docs/next.md',
@@ -414,7 +433,8 @@ test('one ledger line moves a backlog row from open to closed, and resolved trac
   // A deferral is disposed but NOT resolved. Reading closed_count as "dealt
   // with" is the misreading the second field exists to prevent.
   fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'docs', 'next.md'), doc.inventory_sha256 + '\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'docs', 'next.md'),
+    '<!-- accepts-inventory: ' + doc.inventory_sha256 + ' -->\n', 'utf8');
   di.appendDispositions(root, [{
     item_id: doc.items[1].item_id, disposition: 'deferred', successor: 'docs/next.md',
   }]);

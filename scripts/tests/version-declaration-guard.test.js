@@ -31,12 +31,19 @@ function write(root, rel, body) {
   fs.writeFileSync(p, body);
 }
 
+// M4: 두 footer 는 **파생 형태** 로 심는다. 그전까지 seed 는 모든 fixture 에
+// 리터럴 footer 를 심었고, 그래서 이 파일 전체가 바꾸려는 동작을 **정답으로
+// 고정** 하고 있었다 — 극성을 뒤집으면 리터럴을 심은 fixture 가 전부
+// version-face-literal-reintroduced 로 붉어진다. 회수하지 않으면 Task 7 은 red
+// test 위에 착지한다. `version` 인자는 이제 manifest 와 CHANGELOG 노트에만 쓰인다.
 function seed(root, version) {
   write(root, MANIFEST, JSON.stringify({ name: 'mccp', version: version }, null, 2) + '\n');
   write(root, HTML,
-    "parts.push('<footer role=\"contentinfo\" class=\"page-foot mono\">v" + version +
-    " · derive-only</footer>');\n");
-  write(root, MD, "out.push('_derived from .claude/ · v" + version + "_');\n");
+    "parts.push('<footer role=\"contentinfo\" class=\"page-foot mono\">' + " +
+    "footerVersionLabel() + ' · derive-only · LLM-free</footer>');\n");
+  write(root, MD,
+    "out.push('_derived from .claude/ · ' + footerVersionLabel() + " +
+    "' · derive-only · LLM-free_');\n");
   write(root, CHANGELOG,
     '# Changelog\n\n> manifest — currently `' + version + '`\n\n## [Unreleased]\n\n- seeded\n');
 }
@@ -83,9 +90,13 @@ test('manifest bump is caught (the exact failure that shipped in PR #176)', () =
   assert.ok(rules.includes('manifest-version-declared'), 'expected manifest-version-declared, got ' + rules);
 });
 
-test('half declaration is caught: footer moves while manifest stays', () => {
+// M4 회수: 이 케이스는 MD footer 를 1.34.5 로 올려 drift 를 재고 있었다. 두 footer
+// 가 파생이 된 뒤로 리터럴 대조가 남는 면은 CHANGELOG 노트 하나뿐이므로, 같은
+// 축(반쪽 선언)을 그 면에서 잰다. 축이 사라진 것이 아니라 얼굴이 줄었다.
+test('half declaration is caught: the CHANGELOG note moves while manifest stays', () => {
   const { root } = makeRepo('1.34.4');
-  write(root, MD, "out.push('_derived from .claude/ · v1.34.5_');\n");
+  write(root, CHANGELOG,
+    '# Changelog\n\n> manifest — currently `1.34.5`\n\n## [Unreleased]\n\n- seeded\n');
   const r = run(root);
   assert.strictEqual(r.status, 1);
   const rules = r.json.violations.map((v) => v.rule);
@@ -103,13 +114,56 @@ test('number squatting via CHANGELOG alone is caught', () => {
   assert.deepStrictEqual(r.json.new_changelog_headings, ['1.34.5']);
 });
 
-test('a face whose literal shape moved is reported, not silently skipped', () => {
+// ── M4 렌더러 두 면: 역방향 단언의 판별력 (Task 8 a/b/c) ────────────────────
+//
+// (a) 없으면 "파생을 인정하는가"가 검증되지 않고, (b) 없으면 역방향 단언이 "항상
+// 통과하는 검사"이며, (c) 없으면 Task 7 이 닫기로 한 fail-open 이 test 에 남지
+// 않는다. 셋이 함께여야 이 축이 무언가를 잰다.
+
+test('(a) the derived form reads as derived, not as unknown', () => {
   const { root } = makeRepo('1.34.4');
-  write(root, MD, "out.push('derived, but the literal shape changed');\n");
+  const r = run(root);
+  assert.strictEqual(r.status, 0, JSON.stringify(r.json && r.json.violations));
+  assert.strictEqual(r.json.faces.html_footer, 'derived');
+  assert.strictEqual(r.json.faces.markdown_footer, 'derived');
+});
+
+test('(b) a version literal put back on a footer anchor line is caught', () => {
+  const { root } = makeRepo('1.34.4');
+  write(root, HTML,
+    "parts.push('<footer role=\"contentinfo\" class=\"page-foot mono\">v1.34.4 · derive-only</footer>');\n");
   const r = run(root);
   assert.strictEqual(r.status, 1);
   const rules = r.json.violations.map((v) => v.rule);
-  assert.ok(rules.includes('version-face-unreadable'), 'expected version-face-unreadable, got ' + rules);
+  assert.ok(rules.includes('version-face-literal-reintroduced'),
+    'expected version-face-literal-reintroduced, got ' + rules);
+  assert.strictEqual(r.json.faces.html_footer, 'literal:1.34.4');
+});
+
+// M4 회수 + 강화: 이 케이스는 예전에 'literal shape moved -> version-face-unreadable'
+// 을 단언했다. 극성이 뒤집힌 뒤 그 이름의 규칙은 CHANGELOG 노트 전용이 됐고, 두
+// footer 의 같은 축은 version-face-missing 이 받는다. 이름만 바뀐 것이 아니라
+// **부재가 여전히 위반이라는 성질** 이 유지되는지가 이 test 의 요점이다 — 역방향
+// 단언만 두면 footer 삭제가 '파생'(통과)으로 읽힌다.
+test('(c) a face whose anchor disappeared is a violation, not a silent pass', () => {
+  const { root } = makeRepo('1.34.4');
+  write(root, MD, "out.push('the footer was deleted outright');\n");
+  const r = run(root);
+  assert.strictEqual(r.status, 1);
+  const rules = r.json.violations.map((v) => v.rule);
+  assert.ok(rules.includes('version-face-missing'), 'expected version-face-missing, got ' + rules);
+  assert.strictEqual(r.json.faces.markdown_footer, 'missing:0');
+});
+
+test('footerFaceState: unreadable file and duplicated anchors are both uncertifiable', () => {
+  const A = guard.FOOTER_ANCHORS.markdown_footer;
+  assert.strictEqual(guard.footerFaceState(null, A), 'missing:-1');
+  assert.strictEqual(guard.footerFaceState("out.push('_derived from .claude/ · x_');\n", A), 'derived');
+  assert.strictEqual(
+    guard.footerFaceState("a('derived from .claude/ 1');\nb('derived from .claude/ 2');\n", A),
+    'missing:2', 'two anchors certify nothing — which one is the footer?');
+  assert.strictEqual(
+    guard.footerFaceState("out.push('_derived from .claude/ · v9.9.9_');\n", A), 'literal:9.9.9');
 });
 
 test('release cut is the one legal path, and only with a substantive reason', () => {

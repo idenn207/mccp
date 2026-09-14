@@ -83,9 +83,59 @@ function canonicalizeMarkdown(content) {
   return c;
 }
 
+// ── 신뢰 불가 경로에 대한 유일한 read 초크포인트 (codex-harness-portability M3 · S3/S4) ──
+//
+// `--plan <path>`는 프롬프트에서 와서 여기까지 정규화 없이 도달한다. 진입점은 넷이고
+// (`receipt-prompt.js` · `receipt-skill.js` · `receipt-prompt-submit.js` · `receipt/cli.js`)
+// 그중 셋은 어떤 검사도 하지 않는다. 그래서 방어를 ingress마다 두지 않고 **읽는 자리 하나**에
+// 둔다 — ingress에 두면 새 ingress가 생길 때마다 다시 빠뜨릴 수 있다.
+//
+// **`isFile()`이 실효 가드이고 크기 상한은 심층 방어다.** `/dev/zero`는 `size`를 `0`으로
+// 보고하므로 크기만 재면 통과하고, 그 다음 `readFileSync`가 메모리를 소진한다(security S4).
+//
+// **`open` 다음에 `fstat`이다** — `statSync(path)`로 먼저 재고 나중에 여는 형태는 그 사이
+// 경로가 바뀌는 check-then-open 경합을 남긴다. 여기서는 검사와 읽기가 **같은 fd**를 쓴다.
+const MAX_MARKDOWN_BYTES = 4 * 1024 * 1024;
+
+// **`O_NONBLOCK`이 없으면 검사에 도달하지 못한다.** FIFO를 여는 `open(2)`은 writer가 생길
+// 때까지 **블록한다** — 즉 `isFile()`을 open 뒤에 두는 것만으로는 FIFO를 막지 못하고,
+// 무한 대기가 메모리 소진을 대신할 뿐이다. 이 결함은 아래 회귀 test (b)가 실제로 멈추면서
+// 드러났다(리뷰어가 지적한 것이 아니다). 정규 파일은 `O_NONBLOCK`을 무시한다.
+const O_NONBLOCK = typeof fs.constants.O_NONBLOCK === 'number' ? fs.constants.O_NONBLOCK : 0;
+
+function readTextBounded(abs) {
+  let fd;
+  try {
+    fd = fs.openSync(abs, fs.constants.O_RDONLY | O_NONBLOCK);
+  } catch (err) {
+    // 부재·권한은 호출자가 이미 다루는 오류 형태 그대로 올린다.
+    throw err;
+  }
+  try {
+    const st = fs.fstatSync(fd);
+    if (!st.isFile()) {
+      throw new Error('refusing to hash a non-regular file: ' + path.basename(abs));
+    }
+    if (st.size > MAX_MARKDOWN_BYTES) {
+      throw new Error('refusing to hash a file above the ' + MAX_MARKDOWN_BYTES
+        + '-byte cap (' + st.size + '): ' + path.basename(abs));
+    }
+    const buf = Buffer.allocUnsafe(st.size);
+    let read = 0;
+    while (read < st.size) {
+      const n = fs.readSync(fd, buf, read, st.size - read, read);
+      if (n <= 0) break;
+      read += n;
+    }
+    return buf.slice(0, read).toString('utf8');
+  } finally {
+    try { fs.closeSync(fd); } catch (_) { /* best-effort */ }
+  }
+}
+
 function markdownHash(filePath) {
   const abs = path.resolve(filePath);
-  const raw = fs.readFileSync(abs, 'utf8');
+  const raw = readTextBounded(abs);
   const canon = canonicalizeMarkdown(raw);
   return sha256(canon);
 }
@@ -161,7 +211,7 @@ function canonicalizeMarkdownStructural(content) {
 
 function markdownHashStructural(filePath) {
   const abs = path.resolve(filePath);
-  const raw = fs.readFileSync(abs, 'utf8');
+  const raw = readTextBounded(abs);
   const canon = canonicalizeMarkdownStructural(raw);
   return sha256(canon);
 }
@@ -280,6 +330,8 @@ function gitRepoRoot(cwd) {
 
 module.exports = {
   sha256: sha256,
+  readTextBounded: readTextBounded,
+  MAX_MARKDOWN_BYTES: MAX_MARKDOWN_BYTES,
   canonicalizeMarkdown: canonicalizeMarkdown,
   markdownHash: markdownHash,
   canonicalizeMarkdownStructural: canonicalizeMarkdownStructural,

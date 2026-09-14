@@ -1,0 +1,9 @@
+{
+  "blocked": true,
+  "stage": 1,
+  "reasons": [
+    "suite_red"
+  ],
+  "message": "suite is RED (exit_code=1), 1 failing file(s): scripts/tests/wiring-cut-negative-control.test.js | NOTE: any redaction verdict below may be DOWNSTREAM of this red - a failing assertion diff can carry path-shaped fixtures.",
+  "coverage": null
+}

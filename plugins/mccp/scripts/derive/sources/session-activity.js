@@ -122,12 +122,36 @@ function scanSessionActivity(repoRoot) {
     // 전건 수용이다. 마이그레이션이 여러 worktree의 이벤트를 공유 디렉토리 하나로
     // 모으므로, 그것을 `di=0`에 두면 `event_id` 없는 레거시 이벤트가 복합키 dedupe를
     // 통과해 중복 계상된다. 그래서 **뒤쪽**이다.
+    //
+    // santa R4 (reviewer B/HIGH) — 이 실패는 공유 corpus **전체**가 후보에서 빠진다는
+    // 뜻이고, 그 corpus에 미완료 작업 단위가 있으면 A1 분모가 통째로 깎여 완주율이
+    // 위로 편향된다 — 그런데 결과는 `ok:true` · `degraded:false`라 소비자가 그것을
+    // 온전한 집계로 읽는다. 공유 위치가 **없는** 저장소(정상)와 공유 위치를 **못 읽은**
+    // 저장소(손상)가 같은 값을 내던 것이다.
+    //
+    // orchestrator-step-wiring M3 (PR-Codex R1 F1) — 그 판정을 `catch`로 하던 것이
+    // 틀렸다. `commonDirOf`는 fs 오류를 내부에서 삼키고 `null`을 돌려주므로 **throw가
+    // 오지 않는다**. 즉 그때 얹은 가드는 목표한 실패를 한 번도 보지 못했고, 동반
+    // 테스트는 `commonDirOf`를 throw하는 스텁으로 바꿔 그 사실을 지나쳤다. 이제
+    // 해소기가 `error`를 따로 돌려주므로 여기서 그것을 읽는다.
+    //
+    // `degraded`는 shard 하나를 못 읽었을 때 서는 표식이고 이쪽은 그보다 큰 손실이므로
+    // 같은 표식으로 충분하다(더 강한 표식을 새로 만들면 소비자 셋이 각자 해석해야
+    // 한다). 후보 미추가라는 동작 자체는 그대로다.
     let sharedDir = null;
     try {
-      const common = mswEvents.commonDirOf(repoRoot);
-      if (common) sharedDir = path.join(common, mswEvents.SHARED_SUBPATH);
+      const info = mswEvents.commonDirInfoOf(repoRoot);
+      if (info && info.error) {
+        // 해소 **실패**. 부재(`dir:null, error:null`)와 구별되는 유일한 지점이다.
+        result.degraded = true;
+      } else if (info && info.dir) {
+        sharedDir = path.join(info.dir, mswEvents.SHARED_SUBPATH);
+      }
     } catch (_e) {
-      sharedDir = null;   // 해소 실패는 후보 미추가로 접힌다 (throw 금지)
+      // 해소기가 계약을 깨고 throw하는 경우까지 남겨 둔다 — 체인은 멈추지 않되
+      // 강등은 조용하지 않다.
+      sharedDir = null;
+      result.degraded = true;
     }
 
     // `shared` 표식은 Task 5a가 쓴다 — 세션이 **로컬에서 관측됐는지**를 판정해야
@@ -140,15 +164,40 @@ function scanSessionActivity(repoRoot) {
 
     const scanDirs = [];
     const seenDirs = new Set();
+    // orchestrator-step-wiring M3 (PR-Codex R2 F1) — **probe도 실패를 삼키면 안 된다.**
+    //
+    // 해소기(`commonDirInfoOf`)를 고쳐도 여기서 `fs.existsSync`를 쓰면 같은 구멍이 한
+    // 층 아래에 남는다: `existsSync`는 부재와 **접근 거부**를 똑같이 `false`로 접으므로,
+    // 해소는 성공했는데 공유 디렉토리의 조상이 traversal을 막으면 corpus 전체가 조용히
+    // 후보에서 빠진다. 그 상태에서 로컬 착수·완주 이벤트만 남으면 A1이 100%까지
+    // 올라가면서 `ok:true` · `degraded:false` · `integrity_ok:true`로 보고된다 —
+    // 이 milestone이 없애려는 실패 그대로다(PR-Codex R2 F1: EACCES 조상으로 실증).
+    //
+    // 판정 축은 해소기와 **같은 술어**를 쓴다(`isAbsentFsError`). 두 벌로 두면 한쪽만
+    // 넓어져 축이 조용히 어긋난다.
     for (const c of candidates) {
-      if (!fs.existsSync(c.dir)) continue;
+      try {
+        fs.statSync(c.dir);
+      } catch (err) {
+        // 후보가 실재하지 않는 것은 정상이다 — 셋 중 있는 것만 스캔한다.
+        if (!mswEvents.isAbsentFsError(err)) result.degraded = true;
+        continue;
+      }
       const key = canonical(c.dir);
       if (seenDirs.has(key)) continue;
       seenDirs.add(key);
       scanDirs.push(c);
     }
 
-    const sessions = {};
+    // santa R2 (reviewer A · B 공통 지적) — **null-prototype이라야 한다.**
+    // `sessionId`는 아래 `file.replace(/\.jsonl$/, '')`로 파일명에서 그대로 오고,
+    // writer의 `SESSION_ID_RE`(`state/msw-events.js:45`)는 `__proto__`를 허용한다.
+    // 리터럴 `{}`이면 `sessions['__proto__']`가 `Object.prototype`(truthy)을 돌려줘
+    // 생성 분기를 건너뛰고, 아래 `:observed_local = true`가 **프로세스의 모든 객체**에
+    // 그 필드를 심는다. 그러면 `sessions_local` 필터가 외래 세션까지 로컬로 읽어
+    // Task 4·5가 세운 모집단 분리가 통째로 무효가 된다(양 리뷰어가 각자 재현).
+    // `Object.keys`·`Object.values` 소비처는 null-prototype에서 그대로 동작한다.
+    const sessions = Object.create(null);
     // M8 (DD3 · DD5) — A1의 세 축은 전부 **distinct work_unit** 집합이다.
     // 세션 축(`sessions`)과 나란히 두되 서로 섞지 않는다: 아래 B2 동시성은
     // 세션을, A1은 작업 단위를 센다.
@@ -193,32 +242,71 @@ function scanSessionActivity(repoRoot) {
               } else if (evt) {
                 seenLegacyKeys.add(legacyKeyOf(evt));
               }
-              if (!sessions[sessionId]) {
-                sessions[sessionId] = {
-                  session_id: sessionId,
-                  events: [],
-                  context_remaining_pct: null,
-                  task_completed: false,
-                  created_at: evt.created_at,
-                  ended_at: evt.ended_at,
-                  // Task 5a — 이 세션을 worktree-local 후보에서 본 적이 있는가.
-                  // 이 맵은 kind 가드가 없어(`:154` 선례) 공유 위치의 외래 A1
-                  // 이벤트도 엔트리를 만든다. 그래서 "봤다"와 "여기서 봤다"를
-                  // 구분하는 표식이 필요하다.
-                  observed_local: false,
-                };
-              }
-              if (!dirIsShared) sessions[sessionId].observed_local = true;
-              sessions[sessionId].events.push(evt);
-
-              // Collect context_remaining_pct and task_completed from session_end events
-              if (evt.kind === 'session_end') {
-                sessions[sessionId].ended_at = evt.ended_at;
-                if (evt.context_remaining_pct !== undefined && evt.context_remaining_pct !== null) {
-                  sessions[sessionId].context_remaining_pct = evt.context_remaining_pct;
+              // orchestrator-step-wiring M3 (Task 5) — DD8 격리의 **reader 측 두 번째 축**.
+              //
+              // 이것은 실재하는 오염의 수정이 아니다. 오늘 B2 분모 오염은 0이다 —
+              // `msw-events.js:419`가 비-A1 kind를 공유 위치로 보내지 않고
+              // `migrations/msw-events-common-dir.js:453`도 skip하므로 공유 위치에
+              // `session_start`가 존재할 수 없고, `spanOf`는 그것 없이는 span을 내지
+              // 않는다. 닫는 것은 오염이 아니라 **단일 실패점**이다: 격리를 지키는
+              // 것이 writer의 kind 게이트 하나뿐이라, `A1_AXIS_KINDS`에 kind가
+              // 추가되거나 세션 축 이벤트가 어떤 경로로든 공유 위치에 닿으면 B2가
+              // 조용히 깨지고 그것을 붉게 만들 단언이 없다.
+              //
+              // 술어는 writer와 **같은 집합**을 읽는다. reader가 자기 사본을 새로
+              // 열거하면 두 축이 갈려 검사 자체가 성립하지 않는다.
+              //
+              // 경계는 `dirIsShared` **단독이 아니다**. 공유 위치에는 자기 worktree가
+              // 쓴 A1 이벤트도 들어가므로(`msw-events.js:418-423`) "공유에서 읽음"을
+              // "외래"로 등치하면 자기 세션까지 깎인다. 반대로 kind **단독**이면
+              // 로컬 `session_start`/`session_end`까지 막혀 `concurrent_pairs_count`와
+              // `context_remaining_pct`가 통째로 사라진다 — 오늘 없는 오염을 막으려다
+              // 실재하는 집계를 죽이는 순손실이다. 두 조건의 논리곱이라야 한다
+              // (Implement-Codex R1 F1 · L2 security/MEDIUM).
+              //
+              // 가드가 감싸는 범위는 **세션 누적 블록 전체**다. 엔트리 생성만 막으면
+              // 아래 `events.push`와 `session_end` 갱신이 그대로 돌아, 앞선 공유 A1
+              // 이벤트가 이미 만들어 둔 엔트리에 외래 span과 외래 context 샘플이
+              // 실린다(Implement-Codex R1 F1).
+              //
+              // 가드 **밖**에 남는 것은 정확히 A1 축 계수기 셋
+              // (`task_started`/`task_completed`/`task_ship_sealed`)이고, 그 집합은
+              // 우연이 아니라 `A1_AXIS_KINDS` 그 자체다 — A1 축은 공유 위치에서
+              // 읽혀야 하고 그것이 M1이 세운 경계다. santa R3 이전에는 이 열거가
+              // 셋을 말하면서 실제로는 여섯이 밖에 있었다(evidence 계수기 3종이
+              // 함께 새어 있었다). 지금은 열거와 실제가 같다.
+              const sessionAxisAdmissible =
+                !(dirIsShared && !mswEvents.A1_AXIS_KINDS.has(evt && evt.kind));
+              if (sessionAxisAdmissible) {
+                if (!sessions[sessionId]) {
+                  sessions[sessionId] = {
+                    session_id: sessionId,
+                    events: [],
+                    context_remaining_pct: null,
+                    task_completed: false,
+                    created_at: evt.created_at,
+                    ended_at: evt.ended_at,
+                    // Task 5a — 이 세션을 worktree-local 후보에서 본 적이 있는가.
+                    // 위 `sessionAxisAdmissible`는 공유 위치의 **비-A1 kind만** 거르므로
+                    // 공유 위치의 외래 A1 이벤트는 여전히 엔트리를 만든다 — 그것이 M1이
+                    // 세운 경계다. 그래서 "봤다"와 "여기서 봤다"를 구분하는 표식이
+                    // 필요하다. (santa R3 — 이 자리는 "kind 가드가 없어"라고 적혀
+                    // 있었는데, 그 가드를 열두 줄 위에 더한 커밋에서 그대로 남았다.)
+                    observed_local: false,
+                  };
                 }
-                if (evt.task_completed !== undefined && evt.task_completed !== null) {
-                  sessions[sessionId].task_completed = evt.task_completed;
+                if (!dirIsShared) sessions[sessionId].observed_local = true;
+                sessions[sessionId].events.push(evt);
+
+                // Collect context_remaining_pct and task_completed from session_end events
+                if (evt.kind === 'session_end') {
+                  sessions[sessionId].ended_at = evt.ended_at;
+                  if (evt.context_remaining_pct !== undefined && evt.context_remaining_pct !== null) {
+                    sessions[sessionId].context_remaining_pct = evt.context_remaining_pct;
+                  }
+                  if (evt.task_completed !== undefined && evt.task_completed !== null) {
+                    sessions[sessionId].task_completed = evt.task_completed;
+                  }
                 }
               }
 
@@ -257,14 +345,27 @@ function scanSessionActivity(repoRoot) {
 
               // M3 증거 충돌 taxonomy. guard_active는 충돌 유무와 무관하게
               // guarded write마다 emit되므로 producer-present의 **독립** 신호다.
-              if (evt.kind === 'evidence_guard_active') {
-                result.guard_active_count++;
-                result.collision_producer_present = true;
-              } else if (evt.kind === 'evidence_overwrite_observed') {
-                result.overwrite_observed_count++;
-              } else if (evt.kind === 'evidence_conflict_prevented') {
-                result.conflict_prevented_count++;
-                if (CLAIM_FENCE_KINDS.has(evt.conflict_kind)) result.claim_denied_count++;
+              //
+              // santa R3 (reviewer B/HIGH) — 이 세 계수기는 Task 5 가 세운 격리 **안쪽**에
+              // 속한다. 위 세션 축과 마찬가지로 B2 를 먹이는 로컬 축이고, A1 축이
+              // 아니므로 공유 위치에서 읽힐 이유가 없다. 그런데 가드가 세션 누적
+              // 블록에서 끝나 이들만 `dirIsShared` 와 무관하게 돌고 있었다 — Task 5 가
+              // 닫았다고 주장한 단일 실패점이 evidence 축에 그대로 남아 있던 것이다.
+              // 오늘 도달 불가라는 사실(writer 의 kind 게이트)은 Task 5 자신의 정당화와
+              // 같고, 그 정당화가 세션 축에 유효하면 여기에도 유효하다.
+              //
+              // 술어는 `sessionAxisAdmissible` **그대로** 재사용한다. 같은 경계를 두
+              // 번 표현하면 그 둘이 갈리는 순간 어느 쪽이 계약인지 말할 수 없게 된다.
+              if (sessionAxisAdmissible) {
+                if (evt.kind === 'evidence_guard_active') {
+                  result.guard_active_count++;
+                  result.collision_producer_present = true;
+                } else if (evt.kind === 'evidence_overwrite_observed') {
+                  result.overwrite_observed_count++;
+                } else if (evt.kind === 'evidence_conflict_prevented') {
+                  result.conflict_prevented_count++;
+                  if (CLAIM_FENCE_KINDS.has(evt.conflict_kind)) result.claim_denied_count++;
+                }
               }
             } catch (lineErr) {
               // Per-line malformed isolation (R2-F1 absorption)

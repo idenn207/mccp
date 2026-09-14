@@ -905,3 +905,201 @@ test('A3: an unimportable tiktoken degrades to a status, not an unhandled crash'
       'an unimportable tokenizer must say so in not_delivered_reason');
   }
 });
+
+// ── orchestrator-step-wiring M3 (Task 1 · DD1) — A1 spike 가드의 부호 ──────────
+//
+// 두 단언은 **짝**이어야 한다. 앞만 있으면 "가드를 지웠다"와 구별되지 않는다.
+
+function a1Model(startupCount, priorStartupCount) {
+  const model = {
+    sources: {
+      session_activity: {
+        ok: true,
+        task_startups_count: startupCount,
+        task_completions_count: 1,
+        startups_producer_present: true,
+        completions_producer_present: true,
+        sessions: [],
+        sessions_local: [],
+        producer_coverage: 'session-activity',
+      },
+    },
+  };
+  if (priorStartupCount !== undefined) model._priorStartupCount = priorStartupCount;
+  return model;
+}
+
+test('A1 (M3 Task 1): a missing baseline is not evidence of a spike', () => {
+  const a1 = computeMetrics(a1Model(51))[A1_WORK_COMPLETION_RATE];
+  assert.notEqual(a1.status, 'invalid',
+    'the pre-M3 condition (`startupCount > 50 && !model._priorStartupCount`) was a time bomb: '
+    + 'M1 made the denominator monotonically increasing, so crossing the threshold killed A1 '
+    + 'at exactly the point the metric starts to mean something');
+  assert.equal(a1.status, 'computed');
+  assert.equal(a1.spike_guard, 'dormant',
+    'the guard not judging must be SAID, not merely not-invalid — a silent pass reads as '
+    + '"the anti-gaming axis is live"');
+  assert.ok(typeof a1.spike_guard_reason === 'string' && a1.spike_guard_reason.length > 0);
+});
+
+test('A1 (M3 Task 1): with a baseline present the guard still fires', () => {
+  // 이것은 **부호 test이지 계약 test가 아니다**. DD2가 기준선 producer를 만들지
+  // 않기로 확정했으므로 이 분기는 production 입력으로 도달 불가이고, 여기 심는
+  // `_priorStartupCount`는 어떤 실 derive 모델도 만들 수 없다. 그럼에도 짝으로
+  // 두는 이유는 위 단언 단독으로는 "부호를 고쳤다"와 "가드를 지웠다"가 구별되지
+  // 않기 때문이다. 영구 dormant라는 대가는 backlog (c)에 등재돼 있다.
+  const a1 = computeMetrics(a1Model(51, 10))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid');
+  assert.equal(a1.invalid_reason, 'unit_count_spike_suspected');
+  assert.equal(a1.spike_guard, undefined,
+    'present-only: when the guard CAN judge there is nothing dormant to report');
+});
+
+test('A1 (M3 Task 1): the dormant marker does not wait for the threshold', () => {
+  // 임계 아래에서도 실려야 한다(23은 임의의 sub-threshold 값이다 — 오늘의 실측값은
+  // 3이고, 이 단언은 특정 수가 아니라 "임계 미만"이라는 성질에만 의존한다).
+  // 51에서만 단언하면 오늘 도달하지
+  // 않는 조건만 검사하게 되고, 배너 토큰도 같은 이유로 0개 표면이 된다.
+  const a1 = computeMetrics(a1Model(23))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'computed');
+  assert.equal(a1.spike_guard, 'dormant');
+});
+
+// ── orchestrator-step-wiring M3 (Task 4) — A2 분자와 분모의 모집단 일치 ────────
+
+test('A2 (M3 Task 4): the numerator reads the same population as the denominator', () => {
+  // 이 fixture는 **코드 계약 test**다. Task 5가 착지한 뒤 실 producer는 공유 위치의
+  // 외래 세션에 `context_remaining_pct`를 실을 수 없다(`session_end`는 A1 축 밖이라
+  // 세션 맵에 들어가지 못한다). 그래서 이 model은 손으로 조립한다 — 고정하려는 것은
+  // 도달 가능한 상태가 아니라 **`computeA2`가 어느 집합을 읽는가**이고, 오늘 무해한
+  // 이유가 강제되지 않은 우연이라는 것이 Task 4의 전제 그대로다.
+  const scan = {
+    ok: true,
+    sessions: [
+      { session_id: 'loc-1', context_remaining_pct: 40, observed_local: true },
+      { session_id: 'for-1', context_remaining_pct: 90, observed_local: false },
+    ],
+    sessions_local: [
+      { session_id: 'loc-1', context_remaining_pct: 40, observed_local: true },
+    ],
+    producer_coverage: 'session-activity',
+  };
+  const a2 = computeMetrics({ sources: { session_activity: scan } })[A2_CONTEXT_REMAINING];
+  assert.equal(a2.numerator, 1,
+    'a numerator of 2 would take a sample from a session this location never observed, '
+    + 'while the denominator counts only the one it did');
+  assert.deepEqual(a2.value, { p50: 40, p95: 40 },
+    'the foreign 90 must not move the percentiles');
+});
+
+test('A2 (M3 Task 4): the sessions_local fallback keeps its pre-M3 behaviour', () => {
+  // 구 소스(이 필드를 모르는 producer)에서는 분자·분모가 함께 `sessions`로 접힌다.
+  // Task 4가 그 fallback까지 바꾸면 레거시 모델의 A2가 조용히 비어 버린다.
+  const legacy = {
+    ok: true,
+    sessions: [
+      { session_id: 'a', context_remaining_pct: 55 },
+      { session_id: 'b', context_remaining_pct: null },
+    ],
+    producer_coverage: 'session-activity',
+  };
+  const a2 = computeMetrics({ sources: { session_activity: legacy } })[A2_CONTEXT_REMAINING];
+  assert.equal(a2.numerator, 1);
+  assert.equal(a2.denominator, 2);
+});
+
+// ── santa R3 — `ok` 와 `degraded` 는 다른 사실이다 ───────────────────────────
+//
+// source 는 shard 하나를 못 읽으면 `degraded` 를 세우고 **나머지로 계속 센다**
+// (fail-open per-source). 소비자가 그 상태를 버리면 A1 은 부분 corpus 에서 나온
+// 비율을 `computed` + `integrity_ok:true` 로 발행한다 — 못 읽은 shard 에 미완료
+// 단위가 들어 있으면 분모가 조용히 깎여 완주율이 위로 편향되고, 그 수치는 아무
+// 자격 없이 신뢰된다. `computeA3` 는 이미 이 선례를 세워 두었고 A1 만 빠져 있었다.
+
+function a1DegradedModel(extra) {
+  return {
+    sources: {
+      session_activity: Object.assign({
+        ok: true,
+        degraded: true,
+        task_startups_count: 1,
+        task_completions_count: 1,
+        startups_producer_present: true,
+        completions_producer_present: true,
+        sessions: [],
+        sessions_local: [],
+        producer_coverage: 'session-activity',
+      }, extra || {}),
+    },
+  };
+}
+
+test('A1 (santa R3): a degraded scan cannot publish a trusted completion rate', () => {
+  const a1 = computeMetrics(a1DegradedModel())[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid',
+    'an unreadable shard means the denominator may be short; answering anyway reports '
+    + 'a biased rate as fact. measured status: ' + a1.status);
+  assert.equal(a1.integrity_ok, false,
+    'this is the field a consumer reads to decide whether the number is usable');
+  assert.equal(a1.numerator, null, 'no partial counts leak out under an invalid verdict');
+  assert.equal(a1.denominator, null);
+  assert.equal(a1.value, null);
+  assert.match(String(a1.invalid_reason), /degraded/,
+    'the reason names the axis, so the operator can act. measured: ' + a1.invalid_reason);
+});
+
+// santa R4 (reviewer A/LOW) — R3의 이 test는 `ok:true` + `error` 라는 **오늘 도달
+// 불가한** 모양을 만들고 "verbatim 보고"를 계약으로 못박았다. `scanSessionActivity`는
+// `error`를 바깥 catch 에서만 세우고 그 catch 가 `ok:false`도 함께 세우므로, 앞선
+// `!ok` 가드가 먼저 반환한다. 게다가 verbatim 은 **틀린 계약**이었다:
+// `invalid_reason`은 `derive/mask.js`가 지나가지 않는 필드라 `err.message`의
+// 절대경로가 그대로 모델에 실린다(현재 red 인 `mask.test.js`가 `metrics.B3`에서
+// 정확히 그 부류를 지목한다). 그래서 단언을 뒤집는다 — 사유는 전달하되 **마스킹해서**
+// 전달한다. 모양이 오늘 도달 불가라는 사실은 여기 적어 두고, 그럼에도 분기를 남기는
+// 이유는 미래의 편집이 `error`만 세우게 되는 날 침묵하지 않기 위해서다.
+test('A1 (santa R4): a scan error reaches invalid_reason with absolute paths masked', () => {
+  const a1 = computeMetrics(a1DegradedModel({
+    degraded: false, error: 'EACCES on /home/someone/private/shard-3.jsonl',
+  }))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid');
+  assert.ok(!/\/home\/someone\/private/.test(String(a1.invalid_reason)),
+    'invalid_reason is not on any masker path, so the metric must mask it itself. '
+    + 'measured: ' + a1.invalid_reason);
+  assert.match(String(a1.invalid_reason), /EACCES/,
+    'the operator still learns what failed — masking is not deletion');
+});
+
+test('A1 (santa R4): malformed event lines are an integrity fact, not a silent loss', () => {
+  const a1 = computeMetrics(a1DegradedModel({ degraded: false, invalid_count: 1 }))[A1_WORK_COMPLETION_RATE];
+  assert.equal(a1.status, 'invalid',
+    'a line that could not be parsed may have been a task_started; the denominator is '
+    + 'then short and the rate biased upward, with nothing marking it. measured: ' + a1.status);
+  assert.equal(a1.integrity_ok, false);
+  assert.match(String(a1.invalid_reason), /malformed event line/);
+});
+
+test('A2/B2 (santa R4): the same source damage reaches the sibling metrics', () => {
+  // R3은 이 선례를 A1 한 곳에만 적용했다. 같은 source를 읽는 지표가 같은 손상에
+  // 다르게 반응하면 어느 쪽이 계약인지 말할 수 없다.
+  const m = computeMetrics(a1DegradedModel());
+  assert.equal(m[A2_CONTEXT_REMAINING].status, 'invalid',
+    'A2 percentiles from a partially-read corpus are not trustworthy either');
+  assert.equal(m[A2_CONTEXT_REMAINING].integrity_ok, false);
+  assert.equal(m[B2_CONCURRENT_CONFLICTS].status, 'invalid',
+    'B2 can report a computed zero conflicts while the shard that held them was unread');
+  assert.equal(m[B2_CONCURRENT_CONFLICTS].integrity_ok, false);
+});
+
+test('A2/B2 (santa R4): a healthy scan is untouched by the shared guard', () => {
+  const m = computeMetrics(a1Model(3));
+  assert.notEqual(m[A2_CONTEXT_REMAINING].status, 'invalid');
+  assert.notEqual(m[B2_CONCURRENT_CONFLICTS].status, 'invalid');
+});
+
+test('A1 (santa R3): a healthy scan is untouched by the degraded branch', () => {
+  const a1 = computeMetrics(a1Model(3))[A1_WORK_COMPLETION_RATE];
+  assert.notEqual(a1.status, 'invalid',
+    'the branch must be reachable ONLY on degradation — otherwise it is not a guard, '
+    + 'it is an outage. measured status: ' + a1.status);
+  assert.equal(a1.integrity_ok, true);
+});

@@ -93,6 +93,13 @@ test('html — topbar freshness "갱신" present', () => {
 // the manifest agree.
 const MANIFEST_VERSION = require('../../../../.claude-plugin/plugin.json').version;
 
+// The trust signal both faces must carry: "this console is a derive artifact,
+// not a human-edited document." Held as ONE constant so the two faces cannot
+// drift apart — PRODUCT.md Design Principle 4 asks that the same information be
+// present in both, and the markdown face went without these two tokens until
+// M4. A per-face literal list would let one side lose a token silently.
+const FOOTER_TRUST_TOKENS = ['derive-only', 'LLM-free'];
+
 test('html — footer version matches plugin.json (footer element anchored)', () => {
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor the version inside the <footer> element. Asserting a bare /v1\.x\.y/
@@ -102,6 +109,20 @@ test('html — footer version matches plugin.json (footer element anchored)', ()
   assert.match(r.html, new RegExp('<footer[^>]*>v' + escaped + ' ·'),
     `html footer must carry v${MANIFEST_VERSION} (plugin.json)`);
   assert.match(r.html, /통합 derive/);
+});
+
+// M4 R3. This pair is the compensating check named in
+// scripts/version-declaration-guard.js: that guard now asserts the ABSENCE of a
+// literal on the anchor line, which cannot tell "derived" from "wired to
+// something else" — only rendered output can, and this is where it is measured.
+test('both footers carry the same trust tokens (information parity)', () => {
+  const r = renderWithStubs(makeFullModel(Date.now()));
+  const htmlFoot = (r.html.match(/<footer[^>]*>[\s\S]*?<\/footer>/) || [''])[0];
+  const mdFoot = (r.md.split('\n').filter((l) => /_derived from \.claude\//.test(l))[0]) || '';
+  FOOTER_TRUST_TOKENS.forEach((tok) => {
+    assert.ok(htmlFoot.includes(tok), `html footer missing "${tok}": ${htmlFoot}`);
+    assert.ok(mdFoot.includes(tok), `markdown footer missing "${tok}": ${mdFoot}`);
+  });
 });
 
 test('markdown — ## 대시보드 anchor preserved (M2 rename, F3 absorption)', () => {
@@ -136,7 +157,15 @@ test('markdown — footer version matches plugin.json (footer line anchored)', (
   const r = renderWithStubs(makeFullModel(Date.now()));
   // Anchor on the footer line for the same reason the html assertion does — a
   // bare /v1\.x\.y/ also matches plan-derived milestone labels in the body.
-  const escaped = MANIFEST_VERSION.replace(/\./g, '\\.');
-  assert.match(r.md, new RegExp('^_derived from \\.claude\\/ · v' + escaped + '_$', 'm'),
-    `markdown footer must carry v${MANIFEST_VERSION} (plugin.json)`);
+  //
+  // M4 recovered this assertion. It used to pin the WHOLE line shape
+  // (`^_derived from .claude/ · vX.Y.Z_$`), which made the trust-token addition
+  // below a red test rather than the parity fix it is. The line-shape pin was
+  // never the point: what this test cares about is that the footer line carries
+  // the manifest's number. Token presence is asserted separately, from ONE
+  // shared constant, so the two faces cannot drift apart.
+  const line = r.md.split('\n').filter((l) => /^_derived from \.claude\//.test(l));
+  assert.equal(line.length, 1, 'expected exactly one markdown footer line, got ' + line.length);
+  assert.ok(line[0].includes('v' + MANIFEST_VERSION),
+    `markdown footer must carry v${MANIFEST_VERSION} (plugin.json), got: ${line[0]}`);
 });

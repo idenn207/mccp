@@ -164,8 +164,13 @@ test('resolution.review_verdict / review_source / review_proof are INSIDE receip
 });
 
 test('briefing_* stays carved out — the contrast that justifies the choice', () => {
+  // ponytail: clone, don't rebuild — makeSkeleton stamps created_at at
+  // millisecond resolution, so two independent builds straddling an ms
+  // boundary fail this equal-assertion even with the carve-out intact
+  // (measured: 3/20 flakes, worse under full-suite load). Known debt:
+  // docs/multi-session-work-loop/debt-inventory.json "전체 스위트 flaky".
   const a = receiptWithReview();
-  const b = receiptWithReview();
+  const b = JSON.parse(JSON.stringify(a));
   b.meta.briefing_summary = 'stamped after sealing, therefore excluded';
   b.meta.briefing_token_count = 42;
   assert.equal(receiptHash(a), receiptHash(b),

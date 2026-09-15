@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "id": "2026-09-15T06-09-34-154Z__14bf601f",
+  "created_at": "2026-09-15T06:09:34.154Z",
+  "session_id": "e7979d03-250c-4c38-a6c4-5f81dbb70e75",
+  "scan_hash": "058947c07006c329140dd00276c2e0bdd70073268d9493d1688cf707360b4226",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/orchestrator-step-wiring.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/orchestrator-step-wiring.prd.md",
+          "to": ".claude/prds/archived/orchestrator-step-wiring.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/orchestrator-step-wiring-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/orchestrator-step-wiring-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/orchestrator-step-wiring-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/orchestrator-step-wiring-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/orchestrator-step-wiring-m3-rev2.plan.md",
+          "to": ".claude/PRPs/plans/archived/orchestrator-step-wiring-m3-rev2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/orchestrator-step-wiring-m4.plan.md",
+          "to": ".claude/PRPs/plans/archived/orchestrator-step-wiring-m4.plan.md"
+        }
+      ]
+    }
+  ]
+}

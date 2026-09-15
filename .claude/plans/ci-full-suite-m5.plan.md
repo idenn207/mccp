@@ -177,7 +177,7 @@ routing mode: auto (effective at implement stage). 이 plan은 렌더 표면을 
 ## Milestone Closure Provenance
 
 - Milestone : ci-full-suite-m5
-- Verdict   : skipped
+- Verdict   : done
 - Closure   : .claude/milestone-closures/ci-full-suite-m5.md
-- sha256    : 4a53b260db9baf95c230b32bedba2cb711984e01b9a401eacc9e45b4bacb72c6
-- Stamped at: 2026-09-14T08:32:52.397Z
+- sha256    : f757adbcfaa0aeffb2f4ac02c29ea3434ac628843cfa8d68890145a9c0c47f80
+- Stamped at: 2026-09-15T05:02:31.182Z

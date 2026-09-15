@@ -322,7 +322,7 @@ test('a manifest deleted mid-flight refuses instead of re-deriving the denominat
   // Reproduce the crash window: seal swapped, carried lines not yet appended.
   const plan = reseal.planReseal(root);
   assert.equal(plan.ok, true);
-  const candidate = reseal.buildCandidate(di.readInventory(root), plan);
+  const candidate = reseal.buildCandidate(root, di.readInventory(root), plan);
   const rel = di.archiveRelFor(plan.old_sha);
   fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
   fs.writeFileSync(path.join(root, rel),
@@ -365,7 +365,7 @@ test('an in-progress manifest whose target matches the disk resumes the append',
   writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
 
   const plan = reseal.planReseal(root);
-  const candidate = reseal.buildCandidate(di.readInventory(root), plan);
+  const candidate = reseal.buildCandidate(root, di.readInventory(root), plan);
   const rel = di.archiveRelFor(plan.old_sha);
   fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
   fs.writeFileSync(path.join(root, rel), JSON.stringify(di.readInventory(root), null, 2) + '\n', 'utf8');
@@ -468,4 +468,316 @@ test('a tracked archive filed under a sha it does not hash to is not an ancestor
     'a filename is a claim; only the recompute checks it');
   assert.equal(anc.unverified.length, 1);
   assert.match(anc.unverified[0].reason, /does not hash to the sha it is filed under/);
+});
+
+// ── M4 Task 1: a seal records ITS OWN commit and source bytes ────────────────
+
+test('a re-seal measures its own commit and digests instead of inheriting them', () => {
+  const crypto = require('node:crypto');
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+  const old = sealAndDispose(root);
+
+  // The fixture seals on an EMPTY repo, so the predecessor has no commit. After
+  // two commits HEAD is real — which makes "copied" and "measured" visibly
+  // different values rather than two spellings of the same one.
+  assert.equal(old.meta.sealed_at_commit, null, 'fixture: sealed before any commit');
+
+  writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
+  const head = git(root, ['rev-parse', 'HEAD']).trim();
+  const backlogDigest = 'sha256:' + crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(root, '.claude', 'plans', 'codex-findings-backlog.md')))
+    .digest('hex');
+
+  const res = reseal.applyReseal(root, { apply: true });
+  assert.equal(res.ok, true, JSON.stringify(res));
+
+  const fresh = di.readInventory(root);
+  assert.equal(fresh.meta.sealed_at_commit, head,
+    'the new seal names the commit it was actually made at');
+  assert.equal(fresh.meta.source_digests.backlog, backlogDigest,
+    'source digests are re-measured, not carried');
+  assert.notEqual(fresh.meta.source_digests.backlog, old.meta.source_digests.backlog,
+    'the backlog changed between generations, so the digest must too');
+
+  // The predecessor's values are not lost — they move to `supersedes`.
+  assert.equal(fresh.meta.supersedes.sealed_at_commit, old.meta.sealed_at_commit);
+  assert.equal(fresh.meta.supersedes.inventory_sha256, old.inventory_sha256);
+
+  // `meta` is outside the digest, so none of this moved the binding.
+  assert.equal(di.inventoryHash(fresh.items), fresh.inventory_sha256);
+});
+
+// ── M4 Task 2: the m10 seal axis splits ancestor-bound from mismatched ───────
+//
+// `verifyDispositions` already makes this distinction and its comment calls the
+// undivided count "a thousand-line false alarm". The gate was still counting
+// every non-current sha as drift, so a successful re-seal turned the seal axis
+// red for the exact reason succession exists to make normal.
+
+test('after a re-seal the gate seal axis reports ancestor-bound, not mismatch', () => {
+  const gate = require('../msw-metrics/m10-coverage-gate');
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2), row(3)] });
+  const old = sealAndDispose(root);
+  const oldBound = di.readDispositions(root).lines
+    .filter(function (r) { return r.inventory_sha256 === old.inventory_sha256; }).length;
+  assert.ok(oldBound > 0, 'fixture: the old seal has bound lines');
+
+  writeBacklog(root, [row(1, 'HIGH'), row(2), row(3), row(4)]);
+  const res = reseal.applyReseal(root, { apply: true });
+  assert.equal(res.ok, true, JSON.stringify(res));
+
+  const seal = gate.evaluateGate({ repoRoot: root }).seal;
+  assert.equal(seal.ok, true, JSON.stringify(seal));
+  assert.equal(seal.mismatched_lines, 0, 'a verified ancestor is not drift');
+  assert.equal(seal.ancestor_bound_lines, oldBound,
+    'every old line is accounted for under the ancestor it names');
+
+  // Non-vacuous contrast: an archive that leaves the index stops being a
+  // verifiable ancestor, and those same lines go back to being mismatch.
+  git(root, ['rm', '--cached', '-q', '--', res.archive]);
+  const after = gate.evaluateGate({ repoRoot: root }).seal;
+  assert.equal(after.ancestor_bound_lines, 0);
+  assert.equal(after.mismatched_lines, oldBound);
+  assert.equal(after.ok, false);
+});
+
+// ── M4 Task 3: operational safety on the apply path ─────────────────────────
+
+// (f) Every abort leaves the seal byte-identical, and removing the cause lets the
+// same run converge. An abort that half-applied would be unrecoverable: the
+// ledger is append-only and git is the only undo.
+test('each abort leaves the seal untouched and converges once the cause is gone', () => {
+  // archive-conflict — an archive already at the path, with other content.
+  {
+    const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+    const old = sealAndDispose(root);
+    const sealBytes = fs.readFileSync(path.join(root, di.INVENTORY_REL), 'utf8');
+    const archiveRel = di.archiveRelFor(old.inventory_sha256);
+    fs.mkdirSync(path.join(root, path.dirname(archiveRel)), { recursive: true });
+    fs.writeFileSync(path.join(root, archiveRel), '{"not":"the seal"}\n', 'utf8');
+
+    writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
+    const res = reseal.applyReseal(root, { apply: true });
+    assert.equal(res.aborted, 'archive-conflict');
+    assert.equal(fs.readFileSync(path.join(root, di.INVENTORY_REL), 'utf8'), sealBytes);
+    assert.equal(reseal.readManifest(root).state, 'in-progress');
+
+    fs.unlinkSync(path.join(root, archiveRel));
+    const retry = reseal.applyReseal(root, { apply: true });
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(retry.appended, retry.carried);
+    assert.equal(reseal.readManifest(root).state, 'complete');
+  }
+
+  // archive-not-stageable — the archive cannot enter the index, so it could never
+  // be a verifiable ancestor. Aborting BEFORE the swap is what keeps that from
+  // becoming a permanently broken binding.
+  {
+    const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+    sealAndDispose(root);
+    const sealBytes = fs.readFileSync(path.join(root, di.INVENTORY_REL), 'utf8');
+    fs.writeFileSync(path.join(root, '.gitignore'), 'docs/multi-session-work-loop/seals/\n', 'utf8');
+    git(root, ['add', '--', '.gitignore']);
+
+    writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
+    const res = reseal.applyReseal(root, { apply: true });
+    assert.equal(res.aborted, 'archive-not-stageable', JSON.stringify(res));
+    assert.equal(fs.readFileSync(path.join(root, di.INVENTORY_REL), 'utf8'), sealBytes);
+
+    fs.writeFileSync(path.join(root, '.gitignore'), '\n', 'utf8');
+    const retry = reseal.applyReseal(root, { apply: true });
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(retry.appended, retry.carried);
+  }
+
+  // preflight-unresolved — the successor stops naming the seal it accepted, so
+  // every carried `deferred` fails validation. Refused before the swap.
+  {
+    const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+    const old = sealAndDispose(root);
+    const sealBytes = fs.readFileSync(path.join(root, di.INVENTORY_REL), 'utf8');
+    fs.writeFileSync(path.join(root, 'docs/next.md'), 'Successor with no marker.\n', 'utf8');
+
+    writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
+    const res = reseal.applyReseal(root, { apply: true });
+    assert.equal(res.aborted, 'preflight-unresolved', JSON.stringify(res));
+    assert.equal(fs.readFileSync(path.join(root, di.INVENTORY_REL), 'utf8'), sealBytes);
+
+    writeSuccessor(root, 'docs/next.md', [old.inventory_sha256]);
+    const retry = reseal.applyReseal(root, { apply: true });
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.equal(retry.appended, retry.carried);
+  }
+});
+
+// (g) The lock itself.
+test('apply refuses while a live lock is held, reclaims a dead one, and always releases', () => {
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+  sealAndDispose(root);
+  const before = di.readDispositions(root).lines.length;
+  const lockAbs = path.join(root, reseal.LOCK_REL);
+
+  // Live holder (this very process) — refuse, and change nothing.
+  fs.mkdirSync(path.dirname(lockAbs), { recursive: true });
+  fs.writeFileSync(lockAbs, JSON.stringify({
+    pid: process.pid, host: os.hostname(), started_at: new Date().toISOString(),
+  }), 'utf8');
+  writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
+  const held = reseal.applyReseal(root, { apply: true });
+  assert.equal(held.aborted, 'locked');
+  assert.match(held.reason, /live pid/);
+  assert.equal(di.readDispositions(root).lines.length, before, 'a refusal writes nothing');
+  assert.ok(fs.existsSync(lockAbs), 'a refusal does not steal the holder\'s lock');
+
+  // A dead pid on this host is reclaimed once.
+  const dead = execFileSync('node', ['-e', 'process.stdout.write(String(process.pid))'],
+    { encoding: 'utf8' }).trim();
+  fs.writeFileSync(lockAbs, JSON.stringify({
+    pid: Number(dead), host: os.hostname(), started_at: new Date().toISOString(),
+  }), 'utf8');
+  const res = reseal.applyReseal(root, { apply: true });
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal(res.reclaimed_stale_pid, Number(dead));
+  assert.equal(fs.existsSync(lockAbs), false, 'a successful run releases');
+
+  // And an abort releases too — otherwise one failure locks the tool forever.
+  fs.writeFileSync(path.join(root, 'docs/next.md'), 'no marker\n', 'utf8');
+  writeBacklog(root, [row(1, 'HIGH'), row(2), row(3), row(4)]);
+  const aborted = reseal.applyReseal(root, { apply: true });
+  assert.equal(aborted.ok, false);
+  assert.equal(fs.existsSync(lockAbs), false, 'an abort releases');
+});
+
+// (g2) Codex implement-R1 F1 — reclaimers are serialized. Deterministic: the
+// guard file standing in for a reclaimer already inside the section.
+test('a second reclaimer refuses while the reclaim guard is held', () => {
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH')] });
+  fs.mkdirSync(path.join(root, '.claude', 'state'), { recursive: true });
+  const lockAbs = path.join(root, reseal.LOCK_REL);
+  const deadPid = Number(execFileSync('node',
+    ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(lockAbs, JSON.stringify({
+    pid: deadPid, host: os.hostname(), started_at: '2026-01-01T00:00:00.000Z',
+  }), 'utf8');
+
+  const guardAbs = path.join(root, reseal.RECLAIM_LOCK_REL);
+  fs.writeFileSync(guardAbs, JSON.stringify(
+    { pid: process.pid, host: os.hostname(), started_at: 'x' }), 'utf8');
+
+  const denied = reseal.acquireLock(root);
+  assert.equal(denied.ok, false, 'the stale lock is reclaimable, but not concurrently');
+  assert.match(denied.reason, /another process is reclaiming/);
+  assert.ok(fs.existsSync(lockAbs), 'the denied reclaimer did not unlink anything');
+
+  // Remove the guard and the same stale lock IS reclaimable — so the refusal
+  // above is the serializer, not a blanket refusal.
+  fs.unlinkSync(guardAbs);
+  const got = reseal.acquireLock(root);
+  assert.equal(got.ok, true, JSON.stringify(got));
+  assert.equal(got.reclaimed, deadPid);
+  assert.equal(reseal.releaseLock(root, got.body), true);
+  assert.equal(fs.existsSync(guardAbs), false, 'the guard is released too');
+});
+
+// (g3) security-reviewer S-HIGH-1 — "I unlinked it, so my create must succeed" is
+// false: a process that never saw an EEXIST can take the lock in that gap. The
+// gap is injected deterministically rather than raced.
+test('a reclaimer refuses when a third process wins the re-create gap', () => {
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH')] });
+  fs.mkdirSync(path.join(root, '.claude', 'state'), { recursive: true });
+  const lockAbs = path.join(root, reseal.LOCK_REL);
+  const deadPid = Number(execFileSync('node',
+    ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).trim());
+  const stale = JSON.stringify({
+    pid: deadPid, host: os.hostname(), started_at: '2026-01-01T00:00:00.000Z',
+  });
+  fs.writeFileSync(lockAbs, stale, 'utf8');
+
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = function (p) {
+    realUnlink.call(fs, p);
+    if (String(p) === lockAbs) {
+      // The third process, arriving by the ordinary path, in the gap.
+      fs.writeFileSync(lockAbs, JSON.stringify({
+        pid: process.pid, host: os.hostname(), started_at: 'third-process',
+      }), 'utf8');
+    }
+  };
+  let res;
+  try {
+    res = reseal.acquireLock(root);
+  } finally {
+    fs.unlinkSync = realUnlink;
+  }
+  assert.equal(res.ok, false, 'the reclaimer must not proceed alongside the winner');
+  assert.match(res.reason, /took .* during reclaim/);
+  assert.equal(JSON.parse(fs.readFileSync(lockAbs, 'utf8')).started_at, 'third-process',
+    'and it must not have overwritten the winner');
+  assert.equal(fs.existsSync(path.join(root, reseal.RECLAIM_LOCK_REL)), false);
+});
+
+// A lock with no readable owner is refused, not reclaimed on a guess.
+test('a lock whose body never landed is refused with a recovery instruction', () => {
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH')] });
+  fs.mkdirSync(path.join(root, '.claude', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(root, reseal.LOCK_REL), '', 'utf8');
+  const res = reseal.acquireLock(root);
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /no readable owner/);
+  assert.match(res.reason, /remove .* by hand/);
+});
+
+// (h) B1 — the archive path is derived and refused BEFORE the manifest is
+// written. The branch is not reachable through `apply` (planReseal only passes a
+// digest it recomputed), so what is falsifiable is the ORDER, and that is what is
+// asserted. A source scan is the only thing that goes red if it moves back.
+test('the archive-path guard sits ahead of the manifest write', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', 'msw-metrics', 'reseal.js'), 'utf8');
+  const guard = src.indexOf("aborted: 'archive-path-invalid'");
+  const manifest = src.indexOf('writeJsonAtomic(manifestPath(repoRoot), manifest)');
+  assert.ok(guard > 0 && manifest > 0, 'both sites exist');
+  assert.ok(guard < manifest,
+    'a refused archive path must not leave a manifest claiming an in-progress run');
+  // And the derivation itself still refuses a malformed digest.
+  assert.equal(di.archiveRelFor('sha256:nothex'), null);
+  assert.equal(di.archiveRelFor(null), null);
+});
+
+// (i) A→B→A — live debt hashing back to an ancestor is reported at plan time.
+test('debt that moved backwards is refused by the plan, not by a cryptic preflight', () => {
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+  sealAndDispose(root);
+  const A = [row(1, 'HIGH'), row(2)];
+  writeBacklog(root, A.concat([row(3)]));
+  const fwd = reseal.applyReseal(root, { apply: true });
+  assert.equal(fwd.ok, true, JSON.stringify(fwd));
+
+  writeBacklog(root, A);                       // back to the A tree
+  const plan = reseal.planReseal(root);
+  assert.equal(plan.ok, false);
+  assert.equal(plan.degraded[0].name, 'candidate-is-ancestor');
+  assert.match(plan.degraded[0].reason, /moved backwards/);
+
+  // (d) and the CLI exit reflects it.
+  assert.equal(reseal.runCli(['plan', '--json', '--repo-root', root]), reseal.EX_FAIL);
+  assert.equal(reseal.applyReseal(root, { apply: true }).aborted, 'plan-degraded');
+});
+
+// (j) B35 — a refusal reason must not carry a filesystem path.
+test('preflight refusals are scrubbed of absolute paths', { skip: process.getuid && process.getuid() === 0 }, () => {
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
+  sealAndDispose(root);
+  const successor = path.join(root, 'docs/next.md');
+  fs.chmodSync(successor, 0o000);
+  try {
+    writeBacklog(root, [row(1, 'HIGH'), row(2), row(3)]);
+    const res = reseal.applyReseal(root, { apply: true });
+    assert.equal(res.aborted, 'preflight-unresolved', JSON.stringify(res));
+    const text = JSON.stringify(res);
+    assert.ok(!text.includes(root), 'the fixture path must not appear in the output');
+    assert.ok(!/"[^"]*\/(tmp|home)\//.test(text), 'no absolute path at all');
+  } finally {
+    fs.chmodSync(successor, 0o644);
+  }
 });

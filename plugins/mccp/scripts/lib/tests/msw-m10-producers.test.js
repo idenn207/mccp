@@ -181,6 +181,38 @@ test('an absent fix-task slot is a state, not a failure', () => {
   assert.equal(built.stats.total, 1);
 });
 
+// ── accepted 는 부채다 (closure-accounting M3 DD3) ────────────────────────────
+
+test('an accepted finding is still debt; only a closed one leaves the denominator', () => {
+  const adj = function (id, seq, over) {
+    return Object.assign({
+      kind: 'finding_adjudicated', ts: '2026-09-01T00:00:01.000Z',
+      finding_id: id, work_unit: 'unit', seq: seq,
+      event_id: '00000000-0000-4000-8000-00000000000' + seq,
+      batch_expected: 1, gate_decision_id: 'unit',
+    }, over || {});
+  };
+  const root = makeRepo({
+    findingEvents: [
+      openEvent({ finding_id: '0123456789abcde1', seq: 1, event_id: '00000000-0000-4000-8000-000000000001' }),
+      openEvent({ finding_id: '0123456789abcde2', seq: 2, event_id: '00000000-0000-4000-8000-000000000002' }),
+      openEvent({ finding_id: '0123456789abcde3', seq: 3, event_id: '00000000-0000-4000-8000-000000000003' }),
+      // ACCEPT_NOW 는 "저자가 고치기로 했다"이지 "고쳤다"가 아니다 — 열린 채 남는다
+      // (findings-registry.js foldEvents · feedback-loop-design.md §2 "열린 채").
+      adj('0123456789abcde2', 4, { state: 'accepted' }),
+      adj('0123456789abcde3', 5, { kind: 'finding_closed', closure_type: 'deferred' }),
+    ],
+  });
+  const ids = di.buildInventory(root).items
+    .filter(function (i) { return i.source === 'findings'; })
+    .map(function (i) { return i.item_id; })
+    .sort();
+
+  // 부채 = 종결되지 않은 것. accepted 가 여기서 빠지면 그 3건은 어느 분모에도 잡히지
+  // 않은 채 봉인 이후로 계속 누락된다 (라이브에서 실측된 registry 1259 대 report 1256).
+  assert.deepEqual(ids, ['findings:0123456789abcde1', 'findings:0123456789abcde2']);
+});
+
 // ── invariant 5: linking, not folding ────────────────────────────────────────
 
 test('a cross-source duplicate is LINKED, and both rows stay in the denominator', () => {
@@ -552,10 +584,14 @@ function gateRepo(over) {
     item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#164',
   }]);
 
-  fs.mkdirSync(path.join(root, '.claude', 'prds'), { recursive: true });
-  fs.writeFileSync(path.join(root, gate.PRD_REL),
-    '| # | Milestone | Outcome | Status | Plan |\n' +
-    '| 10 | **debt** | outcome | ' + (o.status || 'complete') + ' | [p](p.md) |\n', 'utf8');
+  // `prdLocation`: 'active' (default) · 'archived' (§3.11 moved it) · 'none'.
+  const prdBody = '| # | Milestone | Outcome | Status | Plan |\n' +
+    '| 10 | **debt** | outcome | ' + (o.status || 'complete') + ' | [p](p.md) |\n';
+  const prdRel = (o.prdLocation === 'archived') ? gate.PRD_ARCHIVED_REL : gate.PRD_REL;
+  if (o.prdLocation !== 'none') {
+    fs.mkdirSync(path.join(root, path.dirname(prdRel)), { recursive: true });
+    fs.writeFileSync(path.join(root, prdRel), prdBody, 'utf8');
+  }
 
   fs.mkdirSync(path.join(root, 'docs', 'multi-session-work-loop'), { recursive: true });
   fs.writeFileSync(path.join(root, 'docs', 'multi-session-work-loop', 'note.md'),
@@ -664,4 +700,83 @@ test('deferring or rejecting an item never makes it eligible for suppression', (
   for (const d of di.SUPPRESSING_DISPOSITIONS) {
     assert.ok(di.DISPOSITIONS.includes(d));
   }
+});
+
+// ── M4 Task 2: the flip axis survives the PRD being archived ─────────────────
+//
+// §3.11 moves a finished PRD under `.claude/prds/archived/`, and that move used
+// to sever this axis's only input: the gate answered "PRD absent — cannot tell
+// whether M10 flipped" about a PRD that had been archived precisely BECAUSE it
+// flipped. The criterion is unchanged; only where it is read from gained a
+// fallback.
+
+test('the flip axis reads an archived PRD, and says so when neither path exists', () => {
+  const archived = gateRepo({ prdLocation: 'archived' });
+  const flip = gate.evaluateGate({ repoRoot: archived.root }).prd_flip;
+  assert.equal(flip.ok, true, JSON.stringify(flip));
+  assert.equal(flip.status, 'complete');
+  assert.equal(flip.path, gate.PRD_ARCHIVED_REL, 'the answer names where it read');
+
+  // The criterion did not become lenient — an archived PRD whose row is not
+  // complete still fails.
+  const pending = gateRepo({ prdLocation: 'archived', status: 'in-progress' });
+  assert.equal(gate.evaluateGate({ repoRoot: pending.root }).prd_flip.ok, false);
+
+  // Neither path: still a refusal, and the reason names both places it looked.
+  const none = gateRepo({ prdLocation: 'none' });
+  const absent = gate.evaluateGate({ repoRoot: none.root }).prd_flip;
+  assert.equal(absent.ok, false);
+  assert.match(absent.reason, /PRD absent/);
+  assert.match(absent.reason, /archived/);
+});
+
+// ── M4 Task 6: a quoted marker must not accept a real handoff ───────────────
+
+test('a marker inside a code span or a raw-text block is not acceptance', () => {
+  const SHA = 'sha256:' + 'a'.repeat(64);
+  const M = '<!-- accepts-inventory: ' + SHA + ' -->';
+  const accepts = function (body) { return di.collectAcceptedShas(body).has(SHA); };
+
+  // Positive controls FIRST — if these were false the negatives below would be
+  // satisfied by a stripper that erases everything.
+  assert.equal(accepts('Plain.\n\n' + M + '\n'), true, 'a bare marker is acceptance');
+  assert.equal(accepts('<pre>example</pre>\n\n' + M + '\n'), true,
+    'a marker AFTER a closed block is acceptance');
+
+  // (t1) inline code span.
+  assert.equal(accepts('Write `' + M + '` to accept.\n'), false);
+
+  // (t3) security-reviewer S-HIGH-2 — a longer backtick run. A rule that closed
+  // at the first backtick would leave this exposed; CommonMark closes a run of N
+  // only with the next run of exactly N.
+  assert.equal(accepts('Write ``' + M + '`` to accept.\n'), false);
+  assert.equal(accepts('Write ```' + M + '``` to accept.\n'), false);
+
+  // (t2) S-HIGH-2 — the block opens MID-LINE, not at column 0. Markdown passes
+  // raw HTML through from anywhere, so a reader sees this as a quoted example;
+  // an anchored matcher would leave the marker inside it live.
+  assert.equal(accepts('For example: <pre>' + M + '</pre> — do not copy.\n'), false);
+  assert.equal(accepts('See <code>' + M + '</code> above.\n'), false);
+
+  // multi-line balanced block, indented so it is not column 0 either.
+  assert.equal(accepts('Note:\n  <pre>\n' + M + '\n  </pre>\nEnd.\n'), false);
+
+  // an unterminated raw-text block at line start runs to EOF.
+  assert.equal(accepts('<pre>\nstill quoted\n' + M + '\n'), false);
+
+  // (t4) local review H1 — the block pass must run AFTER the fence pass. A fence
+  // line interrupts a paragraph that opened `<pre>` inline, so a reader sees the
+  // marker as fenced code; a block match taken first spans from that inline tag
+  // to the `</pre>` inside the fence, erases the fence opener with it, and leaves
+  // the quoted marker live. HEAD refused both of these; the first M4 draft took them.
+  assert.equal(accepts('Removes `<pre>` blocks. Example:\n```markdown\n</pre>\n' + M + '\n```\n'), false);
+  assert.equal(accepts('see <code>\n```\n</code>\n' + M + '\n```\n'), false);
+
+  // Structures the old stripper already covered stay covered.
+  assert.equal(accepts('```\n' + M + '\n```\n'), false);
+  assert.equal(accepts('> ' + M + '\n'), false);
+  assert.equal(accepts('    ' + M + '\n'), false);
+
+  // A lone backtick is literal text, so it must not swallow a following marker.
+  assert.equal(accepts('a ` b\n\n' + M + '\n'), true);
 });

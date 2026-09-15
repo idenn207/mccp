@@ -1,10 +1,10 @@
 ---
 state_version: 1
-task_fingerprint: orchestrator-step-wiring-m3-rev2
+task_fingerprint: closure-accounting-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-14T05:02:32.287Z
+updated_at: 2026-09-14T08:49:27.869Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-14T05:02:32.287Z
+last_event_at: 2026-09-14T08:49:27.869Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,42 +12,38 @@ chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/174
 chain_progress: |
   {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
-dep_check_at: 2026-09-14T04:51:21.636Z
+dep_check_at: 2026-09-14T08:34:33.250Z
 escalate_pending: true
-escalate_pending_decision_id: orchestrator-step-wiring-m4
+escalate_pending_decision_id: closure-accounting-m4
 ---
 ## Goal
-orchestrator-step-wiring M3 — PR 게이트 완주. PR-Codex 3라운드 수렴(R3 approve), 실 결함 3건 흡수. PRD M3는 머지 전까지 in-progress.
+closure-accounting M1 — closure-report. 구현·PR-Codex 2라운드 흡수 완료. push 직전에서 대기(누락 receipt로 ship-gate aggregate ok=false).
 
 ## Plan
-- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1·M2 complete, M3 in-progress
-- plan: .claude/plans/orchestrator-step-wiring-m3-rev2.plan.md · 결과 .claude/PRPs/reports/orchestrator-step-wiring-m3-report.md
-- version: 브랜치는 plugin.json version을 선언하지 않는다(우산 결정 1). version-declaration-guard ok
+- PRD: .claude/prds/orchestrator-step-wiring.prd.md — M1 complete, M2는 머지 전까지 in-progress (사용자 판정 2026-09-04)
+- plan: .claude/plans/orchestrator-step-wiring-m2.plan.md · 결과 .claude/PRPs/reports/orchestrator-step-wiring-m2-report.md
+- version: 자식 브랜치는 plugin.json version을 선언하지 않는다(우산 결정 1). main의 version-declaration-guard가 이제 기계로 강제하며 통과 확인
+- M1은 PR #174로 머지됐고 이 브랜치가 그 위에 쌓인다
 
 ## Done
-- origin/main(ecf3b36) 병합 2ce4444 — 충돌 3건 해소(backlog 양쪽 보존 · STATE.md ours · fix-task-applied ours). §3.5.1 검증: 삭제 0건 · main 신규 파일 소실 0건 · backlog 파서 invalid 0
-- PR-Codex R1 HIGH 흡수 505a326 — commonDirOf가 fs 오류를 삼켜 공유 corpus가 조용히 누락되고 A1이 상향 편향되던 축. commonDirInfoOf 신설로 부재/판독불가 분리, commonDirOf는 wrapper라 기존 호출자 3곳 무변경
-- PR-Codex R2 흡수 6ada46c — (a) HIGH: 같은 구멍이 existsSync probe 층에 잔존(조상 EACCES) → error-aware statSync + isAbsentFsError 술어 공유 (b) MEDIUM: 이 브랜치가 도입한 회귀로 control 제거를 masking 앞에 두어 U+000B/U+000C 경계가 소실돼 절대경로가 누출 → 경계 control을 공백으로 접음
-- 세 수정 전부 반증 확인 — 수정 전 tree에서 신규 test fail, 수정 후 pass. 앞선 판이 commonDirOf를 throw 스텁으로 교체해 지나쳤던 성질을 실제 fs 실패 주입(EISDIR·EACCES 조상·VT/FF 경계)으로 대체
-- PR-Codex R3: verdict=approve · findings 0 · actionable false (cap 3/3 소진, base origin/main)
-- 회귀: in-scope 282 pass/0 fail · state 217 pass/0 fail · derive 146 pass/1 fail(선재 mask.test.js — 수정 전 HEAD에서도 동일 실패로 귀속 확인)
-- 가드: version-declaration-guard ok(선언 없음) · release-manifest-guard ok · env-contract L1~L12 ok
-- backlog 5행 적재 — impeccable critique MEDIUM 3 · LOW 1 + m8-coverage-gate 동일축 MEDIUM 1(실패 방향이 보수적이라 범위 외)
+- 구현 착지 + 보고서 + base 머지(충돌 2건 양쪽 보존, 행 산술 1180+15+84=1279로 확인)
+- PR-Codex R1 HIGH 흡수 — 격차를 길이차가 아니라 ID로 센다. 재현 1689 대 1703, 봉인 14건 소실. 추가·삭제 상쇄 시 격차 0 → 재봉인 경고 침묵이 진짜 위험이었다
+- PR-Codex R2 HIGH 흡수 — 봉인 digest를 items로 재계산해 검증. 재현: 봉인 1건으로 잘라도 digest 유지 시 pct 100 · degraded 빈 배열
+- test 25 → 27종, 양방향 mutation으로 비공허성 확인(검증 끄면 (i) red, 전부 degrade하면 (i2)+(m1) red)
+- 전수 스위트 green(failing 0) + CI 게이트 exit 0 + 커버리지 386/392 · plan Validation 1~9 전건 exit 0
+- ship receipt 봉인 — verdict divergent 그대로, MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE override는 경고로만 기록
 
 ## In Progress
-없음 — 사이클 봉인됨
+push + gh pr create 대기. 사용자 판단 필요.
 
 ## Next Step
-다음 사이클이 anchor 축을 소유한다. 이 브랜치는 검증된 작업 8커밋을 담은 채 미푸시 상태로 남는다.
+ship-gate aggregate ok=false의 유일 원인은 누락 receipt 2건이고 MCCP_SKIP_RECEIPT로도 안 풀린다. 진행하려면 그 상태를 받아들이고 push+PR하거나, 브랜치명을 plan basename(closure-accounting-m1)에 맞춰 슬러그를 정렬한다.
 
 ## Last Decision
-anchor 복구를 위해 캡을 1→2로 올려 L2를 재실행했고(§3.16 이탈, 사유 backlog 기록) 비수렴으로 실패했다 — 패널 4/4 응답 중 architect·test·invariant fail, decide=divergent, 원장 2/2 소진, receipt 미갱신. B(새 slug 재-ship)로 넘어가지 않은 이유는 같은 라운드의 invariant HIGH 가 slug 재키잉을 정확히 반증했기 때문이다(이 plan은 이미 두 번 재키잉했다). 캡 3도 도달 불가다 — quorum.js:199가 blocking finding 0을 요구하는데 invariant 의 지적은 이미 실행된 이력에 대한 것이라 plan 편집으로 사라지지 않는다. stale 에 대한 문서화된 우회는 없다(pr.md 세 지점 전부 validate 이고 validate-cmd 는 MCCP_SKIP_RECEIPT 를 읽지 않는다 — 실측). 따라서 위조 대신 봉인을 택했다.
+라운드를 늘리지 않고 audited override로 ship하기로 했다(§3.16). R2 흡수 코드가 또 미리뷰이므로 R3를 열면 같은 논리가 무한히 반복된다 — §3.16이 실측으로 기록한 8시간·6라운드 병리가 그것이다. override는 verdict를 재작성하지 않으므로 dedupe는 계속 fail-closed다. 미흡수 MEDIUM 2건은 재현 절차째 backlog에 있고, 그중 하나는 거짓 100%로 가는 알려진 잔여 경로라고 명시했다.
 
 ## Open Questions
-- stale anchor 는 미해소다. 막는 것은 M3 결함이 아니라 게이트 기계의 공백이며 backlog HIGH 2건으로 등재돼 있다(2026-08-16 행의 review-축 정정 · 2026-09-08 재키잉 행)
-- 위치 독립성은 성립하나 일회성이다 — 설치 cache 가 여전히 로컬에 쓰므로 새 이벤트가 쌓이면 재차 갈린다. 재수렴은 migrations/msw-events-common-dir.js 재실행(idempotent)
-- plan 산문이 착지한 코드를 서술하지 않는 문서 부채 2건(가드 술어 · Validate 판별자) + plan Validation 3 의 vacuous 검증 1건이 L2 패널 R1 에서 HIGH 로 지목돼 backlog 등재됨
-- escalate_pending 은 여전히 live(decision=m3-rev2). converged mccp-pr-codex receipt 가 쓰이면 자동 clear 되나 이 사이클엔 도달하지 않았다
+- plan-implement file-expansion — see .claude/state/fix-task.md; implementation is green, the question is scope acceptance
 
 ## Last Updated
-2026-09-14T05:02:32.287Z
+2026-09-14T08:49:27.869Z

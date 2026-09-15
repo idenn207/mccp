@@ -1,0 +1,89 @@
+# closure report — periodic, NON-GATING.
+#
+# WHY THIS EXISTS. The debt-closure instrument works and nothing calls it. The
+# PRD measured that directly: of the workflows in this directory, zero invoke
+# `closure/cli.js`, `debt-inventory.js` or `m10-coverage-gate.js`, and the only
+# non-test callers are read-side consumers. An instrument nobody runs reports
+# whatever it reported last — which is how `open: 0` stayed true over a
+# denominator that had gone 55% stale (PRD Risk 1, metric 5).
+#
+# THIS IS NOT A GATE. The report exits 0 no matter how large the gap is (UI7),
+# and it is not in the required-checks list (`scripts/ci-required-checks.js`
+# reads `test-suite.yml` only). It sets no threshold and blocks no merge — M4
+# deliberately does not decide what an acceptable gap is (UI12).
+#
+# SO WHAT DOES RED MEAN? Not "the debt got worse". The CLI's contract is exit 0,
+# so a failure here means the instrument could not RUN — a broken require, a
+# missing file, a crash. That is the wiring regression this job exists to catch,
+# which is why there is no `continue-on-error`: swallowing the failure would put
+# the job back in the class of things that report nothing while nobody looks.
+#
+# THE NUMBERS ARE THE RUNNER'S. A CI checkout has no untracked working files, so
+# its live count can differ from a developer's. Neither is wrong: the canonical
+# answer is always the output at the moment of running (PRD Evidence).
+#
+# The `pull_request` trigger is narrow on purpose — it fires only for changes to
+# the instrument itself, which also means the PR that introduces this file
+# exercises it once before merge. `schedule` and `workflow_dispatch` only fire
+# for a workflow already on the default branch, so without that trigger this
+# would land unverified. GitHub disables a cron on a repository that has been
+# idle for 60 days; `push: main` keeps running regardless.
+
+name: closure-report
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+  # The filter lists the instrument and its LOAD-TIME requires. Deeper or lazy
+  # requires are not chased here; a break there still surfaces on `push: main`.
+  pull_request:
+    paths:
+      - '.github/workflows/closure-report.yml'
+      - 'plugins/mccp/scripts/lib/closure/**'
+      - 'plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js'
+      - 'plugins/mccp/scripts/lib/msw-metrics/reseal.js'
+      - 'plugins/mccp/scripts/lib/msw-metrics/m10-coverage-gate.js'
+      - 'plugins/mccp/scripts/state/findings-registry.js'
+      - 'plugins/mccp/scripts/derive/sources/backlog.js'
+      - 'plugins/mccp/scripts/receipt/decision.js'
+
+permissions:
+  contents: read
+
+jobs:
+  closure-report:
+    name: closure report (non-gating)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      # Each invocation is its OWN command, redirected to a file. Appending
+      # inside a `{ ... } >> "$GITHUB_STEP_SUMMARY"` group would take the group's
+      # exit status from the last `echo`, so a crashed CLI would be reported as a
+      # green job — the precise failure this workflow exists to detect.
+      - name: Run the closure report
+        run: node plugins/mccp/scripts/lib/closure/cli.js report > closure-report.txt
+
+      - name: Run the closure report (json)
+        run: node plugins/mccp/scripts/lib/closure/cli.js report --json > closure-report.json
+
+      # Exit 0 proves the CLI did not crash, not that it emitted JSON. A consumer
+      # of the json form reads the file, so the file is what gets checked.
+      - name: Check the json report parses
+        run: node -e 'JSON.parse(require("fs").readFileSync("closure-report.json", "utf8"))'
+
+      - name: Publish to the job summary
+        run: |
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat closure-report.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

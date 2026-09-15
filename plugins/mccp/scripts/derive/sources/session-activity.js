@@ -56,6 +56,9 @@ function scanSessionActivity(repoRoot) {
     prd_granularity_excluded_count: 0,   // `work_unit_kind='prd'`라 분모에서 뺀 작업 단위
     work_unit_kind_unknown_count: 0,     // 필드 부재/미지값 — 분모에는 **포함**하되 병기
     completion_without_startup: 0,       // 완주는 있는데 분모에 없는 작업 단위 (DD4 비대칭)
+    // orchestrator-step-wiring M4 (Task 3) — 이 위치에서만 보이는 A1 축 이벤트 수. A1 값에는
+    // 관여하지 않는다. 공유 위치가 해소되지 않으면 비교 대상이 없어 `null`이다(DD4).
+    a1_local_only_events: null,
     sessions: [],
     // Task 5a — **worktree-local 후보에서 관측된** 세션만. `computeA2`의 분모는
     // 이것을 읽는다. `sessions`(전체)는 공유 위치의 외래 A1 세션까지 포함하므로,
@@ -213,7 +216,18 @@ function scanSessionActivity(repoRoot) {
     const sealedWorkUnits = new Set();
     const seenEventIds = new Set();
     const seenLegacyKeys = new Set();
+    // orchestrator-step-wiring M4 (Task 3 · DD3) — 위치별 A1 축 이벤트 키. 동일성 판정은
+    // 마이그레이션의 `keyOf`(`migrations/msw-events-common-dir.js`)와 같아서, 마이그레이션이
+    // 옮기는 것과 여기서 "이 위치에만 있다"고 세는 것이 같다. 두 접두는 첫 글자가 달라
+    // 서로 충돌하지 않는다.
+    const a1LocalKeys = new Set();
+    const a1SharedKeys = new Set();
     const legacyKeyOf = (e) => [e.session_id, e.kind, e.ts, e.ended_at || '', e.created_at || ''].join('\u0000');
+
+    // 선언은 `legacyKeyOf` **뒤**다 — 위에 두면 호출이 한 줄이라도 앞으로 옮겨지는
+    // 순간 TDZ ReferenceError가 나고, 그것을 per-line `catch`가 `invalid_count`로
+    // 삼켜 조용한 오집계가 된다(code-review LOW).
+    const a1KeyOf = (e) => (e.event_id ? 'id:' + e.event_id : 'legacy:' + legacyKeyOf(e));
 
     for (let di = 0; di < scanDirs.length; di++) {
       const mswEventsDir = scanDirs[di].dir;
@@ -232,6 +246,11 @@ function scanSessionActivity(repoRoot) {
           for (const line of lines) {
             try {
               const evt = JSON.parse(line);
+              // M4 (Task 3) — dedupe `continue`보다 **앞**이다. 뒤에 두면 먼저 읽힌 local 사본만
+              // 키가 남고 공유 사본은 건너뛰어져, 양쪽에 다 있는 이벤트까지 local-only로 잡힌다.
+              if (evt && mswEvents.A1_AXIS_KINDS.has(evt.kind)) {
+                (dirIsShared ? a1SharedKeys : a1LocalKeys).add(a1KeyOf(evt));
+              }
               if (evt && evt.event_id) {
                 if (seenEventIds.has(evt.event_id)) continue;
                 seenEventIds.add(evt.event_id);
@@ -376,6 +395,15 @@ function scanSessionActivity(repoRoot) {
           result.degraded = true;
         }
       }
+    }
+
+    // orchestrator-step-wiring M4 (Task 3 · DD4) — 공유 위치가 **해소됐을 때만** 센다. 해소는
+    // 됐는데 디렉토리가 아직 없으면 공유 집합이 빈 것이므로 local A1 이벤트 전부가
+    // local-only이고, 그것이 정확한 신호다. 해소가 안 되면 비교 대상이 없어 `null`로 남는다.
+    if (sharedDir) {
+      let localOnly = 0;
+      for (const k of a1LocalKeys) if (!a1SharedKeys.has(k)) localOnly++;
+      result.a1_local_only_events = localOnly;
     }
 
     // 2. A1의 분모·분자는 **작업 단위** 기준이다 (M8 · DD3).

@@ -332,6 +332,64 @@ function buildClosureReport(repoRoot) {
     };
   }
 
+  // DD3 — the report BORROWS `verify`'s judgment instead of re-deriving it.
+  //
+  // Until M4 this file never called `validateDisposition` at all, so a line could
+  // carry any string as its disposition and still be counted as closed: rewriting
+  // every judgment to `NOT_A_REAL_ENUM` reproduced `closed: 1115 · pct: 100 ·
+  // degraded: []` — a fresh route to the comfortable 100% this milestone exists to
+  // remove. Reassembling the validator here would just create a second opinion
+  // that can drift from the gate's; the gate already computes this.
+  //
+  // `verify` checks every line under the CURRENT sha, not the folded record, so a
+  // single old invalid line that was later corrected still nulls the row. That is
+  // the conservative direction and it agrees with the gate.
+  //
+  // An answer that is not a number is not zero (backlog 2026-09-14 MEDIUM): the
+  // early returns inside `verifyDispositions` omit the field entirely, and
+  // `undefined > 0` is false — a success-direction default, which is the exact
+  // pathology this PRD is about. A mocked module without the function is skipped,
+  // the same carve-out `inventoryHash` above already uses.
+  let dispositionValidity = null;
+  if (typeof debtInv.verifyDispositions === 'function') {
+    let verified = null;
+    try {
+      verified = debtInv.verifyDispositions(repoRoot);
+    } catch (err) {
+      dispositionValidity = {
+        name: 'disposition-validity',
+        reason: scrubPathsFromMessage(
+          'the disposition validator threw: ' + (err.message || String(err)), repoRoot),
+      };
+    }
+    if (!dispositionValidity) {
+      const invalid = verified && verified.invalid_dispositions;
+      if (typeof invalid !== 'number') {
+        dispositionValidity = {
+          name: 'disposition-validity',
+          reason: 'the disposition validator reported no invalid_dispositions count, '
+            + 'so validity is unknown — not assumed clean',
+        };
+      } else if (invalid > 0) {
+        dispositionValidity = {
+          name: 'disposition-validity',
+          reason: invalid + ' disposition line(s) fail the validator the gate uses, '
+            + 'so the closed count cannot be trusted',
+        };
+      }
+    }
+  }
+
+  // One place decides whether the disposition axis is countable, and one list
+  // names WHY in the order a reader should look. A corrupt seal and a malformed
+  // ledger and an invalid judgment are three different failures; telling a reader
+  // the wrong one sends them to the wrong file.
+  const disposalBlockers = [];
+  if (sealDigestMismatch) disposalBlockers.push('seal digest does not match its items');
+  if (dispositionValidity) disposalBlockers.push('invalid dispositions');
+  if (disposalDegraded) disposalBlockers.push('ledger has malformed lines');
+  const disposalBlocked = disposalBlockers.length > 0;
+
   // Read live inventory (buildInventory throws on failure)
   let liveInventory = null;
   let buildError = null;
@@ -353,7 +411,13 @@ function buildClosureReport(repoRoot) {
         by_source: sealBySource,
         age_days: ageDays,
       },
-      dispositions: {
+      // B15 — what this path reports must not depend on which failure happened
+      // FIRST. A corrupt seal or an invalid ledger observed above is still true
+      // when `buildInventory` throws afterwards, and the old early return
+      // dropped both: it published a confident `dispositions` block and a
+      // degraded list holding only the build error. Same nulling rule as the
+      // normal path, so the two cannot disagree about one measurement.
+      dispositions: disposalBlocked ? null : {
         total: sealItems,
         by_disposition: dispositionsByType,
         disposed: disposedCount,
@@ -361,7 +425,10 @@ function buildClosureReport(repoRoot) {
         fixed: fixedCount,
         suppressing: debtInv.SUPPRESSING_DISPOSITIONS,
       },
-      degraded: [buildError],
+      degraded: [buildError]
+        .concat(sealDigestMismatch ? [sealDigestMismatch] : [])
+        .concat(dispositionValidity ? [dispositionValidity] : [])
+        .concat(disposalDegraded ? [disposalDegraded] : []),
     });
   }
 
@@ -463,6 +530,18 @@ function buildClosureReport(repoRoot) {
       });
     }
 
+    // B18 — a registry that answers without a `findings` array has not answered.
+    // The old shape fell through this `if` and left `findingsInfo` at its `{0,0}`
+    // initialiser, so the row published `0 / 0` with an empty degraded[] — a
+    // measurement claim made from no measurement.
+    if (allFindings && !Array.isArray(allFindings.findings)) {
+      findingsIncomplete = true;
+      findingsDegraded.push({
+        name: 'findings-registry',
+        reason: 'readAll returned no findings array',
+      });
+    }
+
     if (allFindings && Array.isArray(allFindings.findings)) {
       findingsList = allFindings.findings;
       // Count opened vs closed (non-closed is open per upstream countFindings)
@@ -502,21 +581,22 @@ function buildClosureReport(repoRoot) {
   // measurement, and the confident one is the one a reader quotes.
   ledgers.push({
     name: 'disposition-ledger',
-    closed: (disposalDegraded || sealDigestMismatch) ? null : disposedCount,
-    total: (disposalDegraded || sealDigestMismatch) ? null : sealItems,
-    pct: (!disposalDegraded && !sealDigestMismatch && sealItems > 0)
+    closed: disposalBlocked ? null : disposedCount,
+    total: disposalBlocked ? null : sealItems,
+    pct: (!disposalBlocked && sealItems > 0)
       ? parseFloat((disposedCount * 100 / sealItems).toFixed(2))
       : null,
-    // The note must name the ACTUAL reason: a corrupt seal and a malformed
-    // ledger are different failures, and a reader who is told the wrong one
-    // looks in the wrong place.
-    denominator_note: (disposalDegraded || sealDigestMismatch)
+    // DD4 — `closed` keeps its name (the baseline-subset test fixes the shape),
+    // but it cannot travel alone. Of the 1101 it counts here, 970 are `deferred`:
+    // read as a closure rate it says 38.75% of the debt is dealt with, when what
+    // is dealt with is 131 and what is FIXED is 1. Three different questions,
+    // three numbers, same null rule — a reader quoting one of them can see the
+    // other two beside it.
+    resolved: disposalBlocked ? null : resolvedCount,
+    fixed: disposalBlocked ? null : fixedCount,
+    denominator_note: disposalBlocked
       ? 'sealed inventory at ' + (sealedAtCommit || 'unknown')
-        + ' — NOT COUNTED ('
-        + (sealDigestMismatch
-          ? 'seal digest does not match its items'
-          : 'ledger has malformed lines')
-        + '; see degraded)'
+        + ' — NOT COUNTED (' + disposalBlockers[0] + '; see degraded)'
       : 'sealed inventory at ' + (sealedAtCommit || 'unknown'),
   });
 
@@ -570,7 +650,7 @@ function buildClosureReport(repoRoot) {
   // gate: it still exits 0 no matter how large the gap is, and it does not tell
   // anyone to run anything automatically.
   let resealWarning = null;
-  if (gapCount > 0 && !disposalDegraded && !sealDigestMismatch) {
+  if (gapCount > 0 && !disposalBlocked) {
     resealWarning = (
       gapCount + ' live item(s) are outside the sealed denominator. ' +
       'Succession is available: `node plugins/mccp/scripts/lib/msw-metrics/reseal.js` ' +
@@ -587,6 +667,7 @@ function buildClosureReport(repoRoot) {
   if (producersDegraded) allDegraded.push(producersDegraded);
   for (const d of findingsDegraded) allDegraded.push(d);
   if (disposalDegraded) allDegraded.push(disposalDegraded);
+  if (dispositionValidity) allDegraded.push(dispositionValidity);
   if (sealDigestMismatch) allDegraded.push(sealDigestMismatch);
   if (liveInventoryDegraded) allDegraded.push(liveInventoryDegraded);
   // PR-Codex R1 F1 — an unidentifiable item makes the sealed/live set difference
@@ -630,7 +711,7 @@ function buildClosureReport(repoRoot) {
       by_source: liveBySource,
     },
     denominator_gap: finalDenominatorGap,
-    dispositions: (disposalDegraded || sealDigestMismatch) ? null : {
+    dispositions: disposalBlocked ? null : {
       total: sealItems,
       by_disposition: dispositionsByType,
       disposed: disposedCount,

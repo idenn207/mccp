@@ -113,8 +113,22 @@ function formatTable(obj) {
     lines.push('LEDGER CLOSURE RATES');
     for (const ledger of obj.ledgers) {
       lines.push('  ' + ledger.name);
-      lines.push('    Closed:        ' + ledger.closed + ' / ' + ledger.total);
-      lines.push('    Pct:           ' + ledger.pct + '%');
+      // DD4 — a row that carries `resolved` is counting DISPOSITIONS, not
+      // closures: 1101 of 2841 with 970 of them `deferred` is not "38.75% closed".
+      // The label change and the extra line travel together, and the branch keys
+      // off the KEY's presence, never the row's name — a row is what it carries.
+      const disposed = Object.prototype.hasOwnProperty.call(ledger, 'resolved');
+      // A null count is "not counted", never the text `null / null` — the reason
+      // lives in Denominator, so that is where the reader is sent.
+      const counted = ledger.closed !== null && ledger.closed !== undefined;
+      lines.push('    ' + (disposed ? 'Disposed:      ' : 'Closed:        ')
+        + (counted ? ledger.closed + ' / ' + ledger.total : 'not counted (see Denominator)'));
+      if (disposed && counted) {
+        lines.push('    Resolved:      ' + ledger.resolved
+          + ' (fixed ' + ledger.fixed + ')');
+      }
+      lines.push('    Pct:           '
+        + (ledger.pct === null || ledger.pct === undefined ? 'n/a' : ledger.pct + '%'));
       lines.push('    Denominator:   ' + ledger.denominator_note);
       if (Array.isArray(ledger.producers)) {
         lines.push('    Producers:');

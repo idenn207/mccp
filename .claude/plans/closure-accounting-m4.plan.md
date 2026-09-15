@@ -612,6 +612,90 @@ routing mode: auto (effective at implement stage). implement 단계의 디자인
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
 
+## Codex Implementation Review
+
+- 호출: `node /home/madsc/.claude/plugins/cache/mccp/mccp/1.33.6/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2)
+- 라운드 수: 1 (cap 1 · `MCCP_GATE_ROUND_CAP=1` · 봉인 `mccp-implement-codex__closure-accounting-m4`)
+- classification: `ok` · structured verdict `needs-attention` → `divergent` · durationMs 66687
+- 합치 결론: DD7의 dead-PID lock 회수가 **상호배제를 성립시키지 못한다**. 나머지 여섯 결정은
+  반박되지 않았고, meta-only 봉인 정정이 1101건의 결속과 digest를 보존한다는 것은 리뷰어가
+  독립적으로 확인했다(`invalid_dispositions` 0).
+- YAGNI Triage:
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 — 동시 stale-lock 회수자 둘이 모두 apply에 진입한다 | HIGH | ACCEPT_NOW | 실재한다. A·B가 같은 죽은 lock을 관측 → A가 unlink 후 자기 lock 생성 → B가 *옛* 관측으로 A의 **살아있는** lock을 unlink. `O_EXCL`은 생성만 보호하고 read-check-unlink 구간은 보호하지 않으며, release의 pid 검사는 이미 깨진 배타성을 복원하지 못한다. 결과는 manifest·seal 덮어쓰기와 carried 줄 중복 append — append-only 원장이라 되돌릴 수 없다 |
+- F1 흡수 (Task 3(a) 확장, DD7 상위집합):
+  - 회수를 **직렬화**한다. `<lock>.reclaim`을 `wx`로 먼저 잡은 프로세스만 unlink+재생성 구간에
+    들어간다. 잡지 못하면 다른 회수자가 작업 중이라는 뜻이므로 `aborted:'locked'`로 거절한다.
+  - 구간 안에서 lock body를 **다시 읽어** 관측했던 소유자와 같고 여전히 죽었을 때만 회수한다.
+    A가 이미 자기 lock을 세웠다면 B는 살아있는 소유자를 보고 거절한다 — 이것이 F1의 시퀀스를
+    구조적으로 닫는 지점이다.
+  - 리뷰어가 요구한 **결정적 2-회수자 test**: `.reclaim`이 이미 존재하는 상태에서 stale lock을
+    회수하려 하면 반드시 거절한다(Task 3(g2)). mutation — 직렬화 검사를 빼면 red.
+  - 리뷰어의 대안(자동 회수 제거)은 택하지 않았다. DD7이 정한 "같은 host의 죽은 pid는 1회
+    회수한다"는 계약을 유지하면서 race만 닫는 쪽이 더 작은 변화이고, 회수 제거는 crash 1회마다
+    사람이 개입해야 하는 비용을 새로 만든다.
+  - **남는 천장**: 회수자가 구간 안에서 죽으면 `.reclaim`이 남아 apply가 영구 거절한다.
+    fail-closed이고 거절 메시지가 두 경로를 모두 이름으로 부른다. 자동 만료(lease)는 두지 않는다 —
+    lease를 두는 순간 같은 TOCTOU가 한 층 위에서 재현된다.
+- Deferred to backlog: 0
+- Open Questions: 없음 (F1 흡수 완료 — DIVERGENT_UNRESOLVED 아님)
+- Codex session 참조: threadId `01a09f0d-b636-7953-a836-10ea1110586a`
+- 리뷰어 주석(범위 밖, 기록만): "M4 is plan-only at HEAD" — 이 게이트는 Phase 3 EXECUTE **앞**에서
+  돌므로 구조적으로 참이다. 산출 diff에 대한 리뷰는 `/mccp:pr`의 PR-Codex 소관이다.
+
+### Security Reviewer
+
+`Task(mccp:security-reviewer)` — 설계 단계 리뷰(코드 미작성). **CRITICAL 0 · HIGH 2 · 둘 다 흡수.**
+나머지 4개 초점 질문은 이슈 없음 또는 MEDIUM으로 판정됐다.
+
+**S-HIGH-1 — `.reclaim` 직렬화는 "회수자 vs 회수자"만 닫는다. "회수자 vs 신규 획득자"가 남는다.**
+Codex F1 흡수가 옳았지만 불충분하다. A가 `.reclaim`을 쥐고 죽은 lock을 `unlink()`한 **직후의 틈**에서,
+EEXIST를 한 번도 겪지 않은 제3의 프로세스 C가 평범하게 `open(reseal.lock,'wx')`를 시도하면 파일이 순간
+없으므로 **성공한다**. 그 뒤 A의 재생성이 EEXIST를 맞는데, A가 그것을 "내가 지웠으니 당연히 성공"으로
+가정하고 무시하거나 `'w'`로 덮어쓰면 A와 C가 함께 `o.apply`에 들어간다 — F1이 막으려던 것과 같은 클래스가
+다른 행위자 조합으로 재발한다.
+- 흡수: 재생성은 **반드시 `wx`**(절대 `'w'` 아님)이고, 그 EEXIST는 `aborted:'locked'`로 **명시 처리**한다.
+  "unlink가 성공했으니 open도 성공한다"고 가정하는 분기를 두지 않는다.
+- 선례를 그대로 쓴다: `pr-phase-lock.js:477-504` `cmdEnter`가 같은 형태(`unlink` → 재시도 `open(wx)` →
+  `catch EEXIST` → 로그 후 거절)를 이미 구현한다. DD7이 §3.6의 락 **3종을 재사용하지 않는다**는 결정과
+  별개다 — 여기서 가져오는 것은 락이 아니라 이 한 줄의 안전장치다.
+- `finally`의 self-pid 릴리스 검사(DD7)가 이 경로에서도 A가 **C의** lock을 지우지 않게 막는다. 유지한다.
+- test 추가 **(g3)**: 재생성 틈에서 제3의 평범한 acquire가 이기면 회수자는 `locked`로 거절한다.
+  mutation — 재생성을 `'w'`로 바꾸거나 EEXIST 분기를 지우면 red.
+
+**S-HIGH-2 — 균형 raw-text 블록에 줄 선두 앵커를 걸면 under-removal이 된다.**
+Task 6 Action의 "줄 선두"가 미종결 케이스에만 걸리는지 균형 케이스에도 걸리는지 문장이 모호하다.
+mirror 선례는 둘을 **의도적으로 다르게** 다룬다: 균형 블록 제거(`intent-claims.js:64-72`)는 **앵커가
+없고**, 미종결 open 탐지(`intent-claims.js:92`)만 줄 선두로 좁힌다 — 그 앵커의 목적은 코드 주석
+(`intent-claims.js:88-91`)이 밝히듯 **과다 제거를 막는 것**이지 과소 제거 방지가 아니다.
+균형 매칭까지 줄 선두로 좁히면, 문장 중간에서 열린 `<pre>…</pre>` 안의 예시 마커가 **지워지지 않고**
+남는다. 렌더러는 그것을 raw HTML로 통과시켜 사람 눈에는 인용으로 보이는데 `collectAcceptedShas`는
+원문에서 마커를 찾아 **진짜 승인으로 처리한다** — DD6이 "과다 제거가 안전한 방향"이라고 판단한 그
+방향의 반대다.
+- 흡수: 균형 블록 정규식은 선례와 동일하게 **줄 선두 앵커 없이** 전문을 매칭한다. 줄 선두 제약은
+  미종결 open 탐지에만 남긴다. (DD6 정정이 아니라 DD6이 이미 정한 판단을 문장에서 확정하는 것이다.)
+- test 추가 **(t2)**: 줄 **중간**(column≠0)에서 열린 `<pre>…</pre>` 안의 마커는 수락되지 않는다.
+- test 추가 **(t3)**: 길이 2 이상의 backtick run으로 감싼 마커도 수락되지 않는다. CommonMark의 짝
+  규칙(여는 run과 **정확히 같은 길이**의 다음 run이 닫는다)을 따르므로, 길이가 섞인 줄에서 회귀가 난다.
+
+**S-MEDIUM (즉시 흡수)** — Task 5의 단언이 positive뿐이라 훗날 누가 `err.code` 대신 `err.message`
+(Node fs 에러는 실패 경로를 메시지에 담는다)를 실으면 잡지 못한다. reason 문자열에 `/`가 **없음**을
+단언하는 negative assert 한 줄을 Task 5 test에 더한다.
+
+**S-MEDIUM (backlog 이연)** — CI step summary의 텍스트 fence 조기 종료. 리포트가 저장소 콘텐츠를
+그대로 싣고 그 안에 백틱 3연속이 섞이면 fence가 끊겨 GitHub이 markdown으로 렌더한다. 올리지 않은 근거:
+`pull_request` paths 필터가 계기 **코드**로만 좁혀 있어 fork PR이 콘텐츠만 바꿔 발화시킬 수 없고
+(실제 표면은 `push:main`·`schedule`이며 그 콘텐츠는 이미 머지된 것), `contents: read` +
+`persist-credentials: false` + secrets 미사용이라 write 경로가 없으며, step summary는 GitHub이
+새니타이즈하고, UI7대로 이 출력은 아무 것도 gate하지 않는다. → backlog.
+
+**이슈 없음으로 확인된 2건**: item 2(ordering) — `plan.old_sha`는 `planReseal`의 digest 검증
+(`reseal.js:126`)을 통과한 값만 쓰고 `inventoryHash`는 항상 `INVENTORY_SHA_RE`를 만족하므로 정상 흐름에서
+`archiveRelFor`가 null이 될 일은 없다. 이 수정은 **미래 회귀 대비 방어**이지 현재 도달 가능한 취약점의
+수정이 아니다(그래도 순서 이동은 부작용이 없다). item 3(scrub) — `scrubPathsFromMessage`는 repoRoot
+하위뿐 아니라 임의 POSIX 절대경로를 매칭하므로 `checkSuccessor`의 `err.message` 케이스를 정확히 덮는다.
+
 ## External Research Provenance
 
 - Source PRD: .claude/prds/closure-accounting.prd.md

@@ -410,6 +410,22 @@ function headCommit(repoRoot) {
   }
 }
 
+// The three collector inputs, digested at the moment of sealing.
+//
+// Extracted from `sealInventory` so a RE-seal can measure its own sources instead
+// of inheriting the predecessor's. `buildCandidate` used to copy
+// `doc.meta.source_digests` forward, which made every generation claim the bytes
+// of the first one — a value that reads as measurement but is provenance from
+// another commit. The predecessor's values are not lost: `meta.supersedes` keeps
+// them, and `meta.ancestry` keeps the chain.
+function sourceDigests(repoRoot) {
+  return {
+    backlog: fileDigest(repoRoot, '.claude/plans/codex-findings-backlog.md'),
+    fix_task: fileDigest(repoRoot, '.claude/state/fix-task.md'),
+    fix_task_applied: fileDigest(repoRoot, '.claude/state/fix-task-applied.md'),
+  };
+}
+
 function inventoryPath(repoRoot) { return path.join(repoRoot, INVENTORY_REL); }
 function dispositionsPath(repoRoot) { return path.join(repoRoot, DISPOSITIONS_REL); }
 
@@ -542,11 +558,7 @@ function sealInventory(repoRoot) {
     meta: {
       sealed_at: new Date().toISOString(),
       sealed_at_commit: headCommit(repoRoot),
-      source_digests: {
-        backlog: fileDigest(repoRoot, '.claude/plans/codex-findings-backlog.md'),
-        fix_task: fileDigest(repoRoot, '.claude/state/fix-task.md'),
-        fix_task_applied: fileDigest(repoRoot, '.claude/state/fix-task-applied.md'),
-      },
+      source_digests: sourceDigests(repoRoot),
       stats: built.stats,
       note: 'Snapshot semantics: this denominator is the debt at sealed_at_commit. ' +
         'Debt appended afterwards — including by M10\'s own gates — is outside it ' +
@@ -655,9 +667,64 @@ function indentColumns(line) {
   return col;
 }
 
+// Raw-text HTML blocks, and inline code spans.
+//
+// The rules are mirrored from `intent-claims.js` (NOT the function — that one
+// erases HTML comments, and this marker IS an HTML comment), and the mirror keeps
+// its ASYMMETRY, which is the whole point:
+//
+//   - a BALANCED block is matched ANYWHERE, with no line-start anchor. Markdown
+//     passes raw HTML through from mid-line too, so `<pre>` opened after a
+//     sentence renders as a quoted example to a reader while an anchored matcher
+//     leaves the marker inside it intact — the author believes they quoted it and
+//     the collector accepts it as a real handoff.
+//   - only the UNTERMINATED open is anchored to the line start, and that anchor
+//     exists to prevent OVER-removal: "use the <code> tag" mid-sentence is inline
+//     HTML, not a block, and treating it as one would swallow the rest of the
+//     document (`intent-claims.js:88-91` states the same reason).
+//
+// `code` is in the unterminated set here though `intent-claims` leaves it out.
+// That direction only ever refuses a marker, and a refused deferral fails closed.
+const RAW_TEXT_BLOCK_RE =
+  /<(pre|code|script|style|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+const RAW_TEXT_OPEN_RE = /^[ ]{0,3}<(pre|code|script|style|textarea)\b/i;
+
+// Newline count is preserved so the line scanner below sees the same line
+// structure — collapsing a block would join its neighbours and could create an
+// anchor that was never in the document.
+function blankPreservingLines(match) {
+  return '\n'.repeat(match.split('\n').length - 1);
+}
+
+// CommonMark inline code: a run of N backticks is closed by the NEXT run of
+// EXACTLY N. Length matters — a marker wrapped in ``…`` is not closed by a single
+// backtick, so a rule that stopped at the first backtick would leave it exposed.
+// A run with no matching partner is literal text and is kept.
+function stripInlineCode(line) {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    if (line.charAt(i) !== '`') { out += line.charAt(i); i += 1; continue; }
+    let n = 0;
+    while (i + n < line.length && line.charAt(i + n) === '`') n += 1;
+    let j = i + n;
+    let close = -1;
+    while (j < line.length) {
+      if (line.charAt(j) !== '`') { j += 1; continue; }
+      let m = 0;
+      while (j + m < line.length && line.charAt(j + m) === '`') m += 1;
+      if (m === n) { close = j; break; }
+      j += m;
+    }
+    if (close === -1) { out += line.slice(i, i + n); i += n; continue; }
+    i = close + n;
+  }
+  return out;
+}
+
 function stripQuotedForMarker(text) {
   const lines = String(text == null ? '' : text).split(/\r?\n/);
-  const out = [];
+  const kept = [];
   let fence = null;
   for (const line of lines) {
     if (fence) {
@@ -666,17 +733,35 @@ function stripQuotedForMarker(text) {
       if (close && close[1].charAt(0) === fence.charAt(0) && close[1].length >= fence.length) {
         fence = null;
       }
-      out.push('');
+      kept.push('');
       continue;
     }
     const open = line.match(FENCE_OPEN_RE);
-    if (open) { fence = open[1]; out.push(''); continue; }
-    if (BLOCKQUOTE_RE.test(line)) { out.push(''); continue; }
-    if (indentColumns(line) >= 4) { out.push(''); continue; }
-    out.push(line);
+    if (open) { fence = open[1]; kept.push(''); continue; }
+    if (BLOCKQUOTE_RE.test(line)) { kept.push(''); continue; }
+    if (indentColumns(line) >= 4) { kept.push(''); continue; }
+    kept.push(line);
   }
   // An unterminated fence swallows the rest of the document, same rule the repo's
   // other stripper uses — refusing is safe, accepting on a half-open fence is not.
+
+  // Raw-text blocks are matched only over what the fence pass KEPT. Run first, a
+  // match could start at an inline `<pre>` on a paragraph line and end at a
+  // `</pre>` inside the fence below it — erasing the fence opener and leaving the
+  // fenced (quoted) marker live, because a fence line interrupts that paragraph.
+  // This order can only over-remove: a fence line inside a line-start `<pre>`
+  // block opens a fence the renderer would not, which refuses a marker.
+  const out = [];
+  let rawTextOpen = false;
+  for (const line of kept.join('\n').replace(RAW_TEXT_BLOCK_RE, blankPreservingLines).split('\n')) {
+    // An unterminated raw-text block runs to the end of the document, the same
+    // rule an unterminated fence already follows.
+    if (rawTextOpen) { out.push(''); continue; }
+    // Balanced blocks are already gone, so an opener still standing here is
+    // unterminated by definition.
+    if (RAW_TEXT_OPEN_RE.test(line)) { rawTextOpen = true; out.push(''); continue; }
+    out.push(stripInlineCode(line));
+  }
   return out.join('\n');
 }
 
@@ -1207,6 +1292,8 @@ module.exports = {
   buildInventory,
   readInventory,
   sealInventory,
+  headCommit,
+  sourceDigests,
   SEALS_DIR_REL,
   ARCHIVE_SHA_PREFIX_LEN,
   INVENTORY_SHA_RE,

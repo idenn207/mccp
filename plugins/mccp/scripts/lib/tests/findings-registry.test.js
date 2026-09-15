@@ -525,3 +525,43 @@ test('C1-REGISTRY-ALLOWLIST: 레지스트리 소스에 리터럴 NUL 바이트�
   const key = reg.matchKeyOf({ perspective: 'security', cited_path: 'a.js' });
   assert.ok(key.indexOf(String.fromCharCode(0)) !== -1, 'separator is still U+0000');
 });
+
+// ── M4 Task 5: an enumeration failure is degraded, not an empty repository ───
+
+test('readAll degrades when the findings directory cannot be enumerated', () => {
+  const fsx = require('node:fs');
+  const osx = require('node:os');
+  const pathx = require('node:path');
+  const reg = require('../../state/findings-registry');
+
+  const tmp = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'mccp-fr-'));
+
+  // A regular file where a directory is expected: readdir gives ENOTDIR on every
+  // platform and for every uid, so this does not quietly pass as root.
+  const asFile = pathx.join(tmp, 'not-a-dir');
+  fsx.writeFileSync(asFile, 'x', 'utf8');
+  const bad = reg.readAll({ dir: asFile });
+  assert.equal(bad.degraded, true, 'an unreadable directory is not an empty one');
+  assert.ok(bad.degraded_reasons.some(function (r) {
+    return /findings directory unreadable: ENOTDIR/.test(r);
+  }), JSON.stringify(bad.degraded_reasons));
+  assert.deepEqual(bad.findings, []);
+
+  // DD5 — the reason carries an errno and nothing else. A positive assertion
+  // alone would still pass if someone later swapped in `err.message`, which
+  // names the failing path; this is the assertion that would not.
+  for (const r of bad.degraded_reasons) {
+    assert.ok(r.indexOf('/') === -1, 'no path component in a degraded reason: ' + r);
+    assert.ok(r.indexOf(tmp) === -1, 'and certainly not the real one');
+  }
+
+  // ENOENT keeps its meaning: nothing has been written yet.
+  const missing = reg.readAll({ dir: pathx.join(tmp, 'nope') });
+  assert.equal(missing.degraded, false, 'absence is a state, not a failure');
+  assert.deepEqual(missing.findings, []);
+  assert.deepEqual(missing.degraded_reasons, []);
+
+  // And the public shape of listWorkUnits is unchanged.
+  assert.ok(Array.isArray(reg.listWorkUnits({ dir: asFile })));
+  assert.deepEqual(reg.listWorkUnits({ dir: asFile }), []);
+});

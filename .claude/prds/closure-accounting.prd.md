@@ -117,9 +117,9 @@ We'll know we're right when **`closure report`가 오늘 `open: 0` 대신
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | closure-report | 봉인 분모와 라이브 부채의 격차 · 봉인 나이 · 두 종결 계기의 불일치 · 판정/해소/수정 3분할이 하나의 read-only CLI(`closure report [--json]`)로 산출된다. 재봉인 없음 · 상태 변경 없음 · 게이트 없음 · 신규 코드 파일 3건 + 문서 2건 편집 | complete | [.claude/plans/closure-accounting-m1.plan.md](../plans/closure-accounting-m1.plan.md) |
-| 2 | reseal-path | 재봉인이 기존 판정 1115건의 결속을 끊지 않고 수행되는 경로가 생긴다(승계 또는 재키잉). 격차가 실제로 0으로 떨어지는 것이 1회 실측된다 | in-progress | [.claude/plans/closure-accounting-m2.plan.md](../plans/closure-accounting-m2.plan.md) |
+| 2 | reseal-path | 재봉인이 기존 판정 1115건의 결속을 끊지 않고 수행되는 경로가 생긴다(승계 또는 재키잉). 격차가 실제로 0으로 떨어지는 것이 1회 실측된다 — **1101 carried · 14 dropped · `after.denominator_gap.count === 0` 실측**(PR #194, 2026-09-14 머지) | complete | [.claude/plans/closure-accounting-m2.plan.md](../plans/closure-accounting-m2.plan.md) |
 | 3 | registry-reachability | **이관 + 정직화로 착지했다.** 양자택일 둘 다 기각 — 은퇴의 전제("0건")는 이미 거짓이고(`finding_adjudicated` 3건, `mode=codex` 경로), 패널 판정 producer는 `diverse-agent-review` #1.5 소관이다. 대신 셋을 했다: `accepted`가 부채 분모에서 조용히 빠지던 누수를 닫고(`state !== 'closed'`), `closure report`의 registry 행이 채널별 **producer 도달성**을 함께 싣게 하고(`ledgers[].producers[]` — 1.4%가 "부채 종결률"로 인용되지 못하게), `CLOSURE_FROM_ADJUDICATION` 경유를 소스 대조 test로 강제되는 계약으로 남겼다 | complete | [.claude/plans/closure-accounting-m3.plan.md](../plans/closure-accounting-m3.plan.md) |
-| 4 | instrument-repair | M1·M2 산출물이 스스로 틀린 값을 내는 경로를 닫는다. 재봉인은 전임 봉인의 commit·digest를 복사하지 않고, 검증에 실패한 판정은 종결로 세지 않으며, 재봉인 뒤 m10 게이트는 조상 결속을 불일치로 보고하지 않는다. `closure report`는 CI에서 주기적으로 호출된다. 부채 상환 없음 · 새 임계 없음 · 게이트 없음 | in-progress | [.claude/plans/closure-accounting-m4.plan.md](../plans/closure-accounting-m4.plan.md) |
+| 4 | instrument-repair | M1·M2 산출물이 스스로 틀린 값을 내는 경로를 닫는다. 재봉인은 전임 봉인의 commit·digest를 복사하지 않고, 검증에 실패한 판정은 종결로 세지 않으며, 재봉인 뒤 m10 게이트는 조상 결속을 불일치로 보고하지 않는다. `closure report`는 CI에서 주기적으로 호출된다. 부채 상환 없음 · 새 임계 없음 · 게이트 없음 | complete | [.claude/plans/closure-accounting-m4.plan.md](../plans/closure-accounting-m4.plan.md) |
 
 **M2 신설**: `plugins/mccp/scripts/lib/msw-metrics/reseal.js` ·
 `plugins/mccp/scripts/lib/tests/msw-reseal.test.js` ·
@@ -151,13 +151,23 @@ M4는 M3와 `report.js`·`cli.js`·`debt-inventory.js`·`findings-registry.js`·
 
 ## Open Questions
 
-- [ ] **재봉인이 기존 판정을 어떻게 승계하는가.** 1115줄이 전부 옛 `inventory_sha256`에
-  묶여 있으므로 새 봉인은 그 전부를 unmatched로 만든다. 승계 규칙(같은 `item_id`면 판정을
-  물려받는다)을 둘 것인지, `evidence-durability`의 재키잉 선례(§3.12 `v1.22.4-cwd-rebind.js`)를
-  따를 것인지 — **M2가 답한다.** M1은 답하지 않고 격차만 센다.
-- [ ] **분모 밖 1372건의 목표값이 무엇인가.** 0이 목표인지(모든 부채가 항상 판정 대상),
+- [x] **재봉인이 기존 판정을 어떻게 승계하는가.** — **승계이지 재키잉이 아니다 (M2,
+  2026-09-14).** 재키잉 선례(§3.12 `v1.22.4-cwd-rebind.js`)는 전이되지 않는다: 거기서는
+  결속이 **파일명**이라 끊으면 dangling이 되므로 양쪽을 원자적으로 다시 키잉하는 것이 유일한
+  정직한 수였지만, 여기서 결속은 append-only 로그의 **줄 안 필드**이고 그 형태의 규칙은 이
+  원장이 이미 정해 뒀다 — *"재판정은 덮어쓰지 않고 기록한다"*. 그래서 옛 줄은 **한 줄도 손대지
+  않고**, 승계된 항목마다 새 digest에 묶인 **새 줄**이 판정 내용을 verbatim 복사해 붙는다
+  (provenance 2필드만 추가). 실측: **1101 carried · 14 dropped · 0 carry_blocked**, 아카이브
+  `docs/multi-session-work-loop/seals/debt-inventory-f171a42e2c34.json`, 격차 0 관측.
+  `deferred` 983건이 옛 sha만 이름 부르는 문제는 successor 문서에 새 sha를 자동으로 찍는 대신
+  **검증된 조상 집합을 허용**해 풀었다 — 전자는 `checkSuccessor`가 존재하는 이유를 공허하게
+  만든다.
+- [ ] **분모 밖 부채의 목표값이 무엇인가.** 0이 목표인지(모든 부채가 항상 판정 대상),
   아니면 사이클 경계마다 리셋되는 상수인지. 우산의 같은 질문(`evidence-audit`의 상시 exit 4
   baseline)이 아직 열려 있고 **같은 종류의 결정**이다. 근거 없는 임계를 날조하지 않는다.
+  **관측 갱신(2026-09-14, M4)**: 재봉인 직후 0 → 5일 뒤 426 → 6일 뒤 **454(13.81%)**. 즉
+  격차는 닫아도 다시 벌어지며, 그 속도가 이 질문의 실질이다. M4는 CI로 이 수치를 주기적으로
+  **보이게** 할 뿐 목표를 정하지 않는다(UI12 · 결정 4 — 리포트는 게이트가 아니다).
 - [ ] **`deferred` 983건을 어떻게 볼 것인가.** 판정됐으나 해소되지 않았고, 88.2%가 이 상태다.
   이연이 정당한 판정인지 판정 회피의 완곡어인지는 이 PRD가 답할 수 없다 —
   표본을 읽어야 하고 그것은 조사(`/mccp:meta-research`) 범위다.
@@ -169,8 +179,14 @@ M4는 M3와 `report.js`·`cli.js`·`debt-inventory.js`·`findings-registry.js`·
   `observed{total, open, accepted, closed, by_closure_type}`을 병기하므로, 낮은 종결률이
   "부채가 안 갚혔다"가 아니라 "이 채널은 애초에 종결을 낼 수 없다"로 읽힌다. enum 은퇴는
   기각했다(아래 M3 행).
-- [ ] **리포트를 어디에 표시하는가.** `STATUS.md`는 `.claude/cache/`라 gitignored이고
-  산출한 worktree에만 있다. M1은 CLI 단독이며 대시보드 배선은 하지 않는다.
+- [x] **리포트를 어디에 표시하는가.** — **CLI + CI job summary. 대시보드는 배선하지 않는다
+  (M4, 2026-09-14).** `STATUS.md`는 `.claude/cache/`라 gitignored이고 산출한 worktree에만
+  있으므로 표시면이 될 수 없다. `.github/workflows/closure-report.yml`이 `push: main` · 주 1회
+  cron · `workflow_dispatch` · 계기 자신의 파일을 건드리는 PR에서 돌고, 텍스트 리포트를
+  job summary에 붙인다. **비-게이트다** — required check가 아니고(`ci-required-checks.js`는
+  `test-suite.yml`만 본다), `continue-on-error`도 두지 않는다. 그래서 red는 "부채가 나빠졌다"가
+  아니라 **"계기가 실행되지 못했다"** 는 뜻이고, 그것이 지표 5가 원하는 배선 회귀 신호다.
+  CI 러너의 수치는 미커밋 파일이 없어 로컬과 다를 수 있으며, 정본은 언제나 실행 시점 산출이다.
 
 ## Risks
 

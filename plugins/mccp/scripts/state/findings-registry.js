@@ -740,20 +740,42 @@ function readShard(workUnit, opts) {
   };
 }
 
-function listWorkUnits(opts) {
+// 열거 실패는 **빈 저장소가 아니다**. 이 `catch`가 모든 오류를 `[]`로 접었기 때문에
+// EACCES 하나로 findings 1250건이 0건이 되는 동안 `readAll`은 `degraded:false`를 냈다
+// (PR-Codex R1 F2 재현). 부재(ENOENT)만 "아직 아무것도 없다"이고, 그 밖의 errno는
+// 소비처가 알아야 하는 사실이다.
+//
+// 반환형은 **바꾸지 않는다** — `listWorkUnits`는 계속 배열만 돌려준다. 오류를 볼 수
+// 있어야 하는 것은 `readAll` 하나뿐이라, 전 호출자의 시그니처를 흔들 이유가 없다.
+function enumerateWorkUnits(opts) {
   const dir = resolveFindingsDir(opts);
   let entries;
-  try { entries = fs.readdirSync(dir); } catch (_e) { return []; }
-  return entries
-    .filter(function (f) { return f.endsWith('.jsonl'); })
-    .map(function (f) { return f.slice(0, -'.jsonl'.length); })
-    .sort();
+  try {
+    entries = fs.readdirSync(dir);
+  } catch (err) {
+    if (err.code === 'ENOENT') return { units: [], error: null };
+    // 코드만 싣는다. Node의 fs 오류 message는 실패한 **경로**를 담고, 이 문자열은
+    // 리포트와 CI 요약으로 흘러간다(DD5).
+    return { units: [], error: err.code || 'UNKNOWN' };
+  }
+  return {
+    units: entries
+      .filter(function (f) { return f.endsWith('.jsonl'); })
+      .map(function (f) { return f.slice(0, -'.jsonl'.length); })
+      .sort(),
+    error: null,
+  };
+}
+
+function listWorkUnits(opts) {
+  return enumerateWorkUnits(opts).units;
 }
 
 // **전 샤드 스캔이 명시 계약이다**(DD4). "현재 slug만 읽기"로 좁혀지면 그 순간
 // 분모가 조용히 줄어 C1을 부풀리는 방향이 열린다.
 function readAll(opts) {
-  const units = listWorkUnits(opts);
+  const enumerated = enumerateWorkUnits(opts);
+  const units = enumerated.units;
   const shards = units.map(function (u) { return readShard(u, opts); });
   const findings = [];
   shards.forEach(function (s) { findings.push.apply(findings, s.findings); });
@@ -764,10 +786,14 @@ function readAll(opts) {
     findings: findings,
     counts: countFindings(findings),
     malformed: shards.reduce(function (a, s) { return a + s.malformed; }, 0),
-    degraded: shards.some(function (s) { return s.degraded; }),
-    degraded_reasons: shards.reduce(function (a, s) {
+    degraded: !!enumerated.error || shards.some(function (s) { return s.degraded; }),
+    // 열거 실패는 **맨 앞**이다. 그 아래 샤드별 사유는 "읽은 것"에 대한 진단이지만
+    // 이것은 "무엇을 읽어야 했는지조차 모른다"는 뜻이라 먼저 읽혀야 한다.
+    degraded_reasons: (enumerated.error
+      ? ['findings directory unreadable: ' + enumerated.error] : []
+    ).concat(shards.reduce(function (a, s) {
       return a.concat(s.degraded_reasons.map(function (r) { return s.work_unit + ': ' + r; }));
-    }, []),
+    }, [])),
   };
 }
 

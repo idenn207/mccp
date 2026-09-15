@@ -45,12 +45,163 @@
 // write access to the repo. That is stated rather than defended.
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const di = require('./debt-inventory');
 const { scrubPathsFromMessage } = require('../closure/report');
 
 const MANIFEST_REL = '.claude/state/reseal-manifest.json';
+
+// ── apply lock ───────────────────────────────────────────────────────────────
+//
+// `apply` replaces the sealed denominator and appends to an append-only ledger.
+// Two of them at once can interleave into a manifest and a seal that describe
+// different runs, or append a carried batch twice — and git is the only undo.
+//
+// This does NOT reuse the three locks of §3.6. Those carry caller contracts
+// (token IPC, heartbeat, lease) built for minute-long phases driven by hooks;
+// `apply` is a CLI a human runs once, so a lease and a heartbeat would be
+// machinery with no operator. What it borrows instead is ONE line from
+// `pr-phase-lock.js#cmdEnter`: the re-create after an unlink is itself `wx`, and
+// its EEXIST is a refusal.
+//
+// Both names end in `.lock` so the existing `.gitignore` rule
+// (`.claude/state/*.lock`) covers them. `reseal-reclaim.lock`, not
+// `reseal.lock.reclaim`: that single-level glob matches only a `.lock` suffix, so
+// the other spelling would show up as untracked in every `git status`.
+const LOCK_REL = '.claude/state/reseal.lock';
+const RECLAIM_LOCK_REL = '.claude/state/reseal-reclaim.lock';
+
+function lockPath(repoRoot) { return path.join(repoRoot, LOCK_REL); }
+function reclaimLockPath(repoRoot) { return path.join(repoRoot, RECLAIM_LOCK_REL); }
+
+function createExclusive(abs, body) {
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const fd = fs.openSync(abs, 'wx', 0o600);
+    try {
+      fs.writeFileSync(fd, JSON.stringify(body, null, 2) + '\n', 'utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, code: err.code || 'UNKNOWN' };
+  }
+}
+
+function readLockBody(abs) {
+  try {
+    return JSON.parse(fs.readFileSync(abs, 'utf8'));
+  } catch (err) {
+    return null;
+  }
+}
+
+// `EPERM` means the pid exists and belongs to someone else — alive, not orphaned.
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+function selfBody() {
+  return { pid: process.pid, host: os.hostname(), started_at: new Date().toISOString() };
+}
+
+function sameOwner(a, b) {
+  return !!a && !!b && a.pid === b.pid && a.host === b.host && a.started_at === b.started_at;
+}
+
+function manualRecovery(rel) {
+  return ' If no re-seal is running, remove ' + rel + ' by hand and retry.';
+}
+
+function acquireLock(repoRoot) {
+  const abs = lockPath(repoRoot);
+  const mine = selfBody();
+
+  const first = createExclusive(abs, mine);
+  if (first.ok) return { ok: true, body: mine, reclaimed: null };
+  if (first.code !== 'EEXIST') {
+    return { ok: false, reason: 'could not create ' + LOCK_REL + ' (' + first.code + ')' };
+  }
+
+  const held = readLockBody(abs);
+  // Empty or unparsable: a crash landed BETWEEN the exclusive create and the
+  // write, so there is no recorded owner to judge dead. Reclaiming on that guess
+  // would be reclaiming on no evidence, and an mtime lease would just move the
+  // same check-then-act race one layer up. Refuse, and name the file.
+  if (!held || typeof held.pid !== 'number' || typeof held.host !== 'string') {
+    return { ok: false, reason: LOCK_REL + ' exists but carries no readable owner ' +
+      '(a crash between create and write).' + manualRecovery(LOCK_REL) };
+  }
+  if (held.host !== os.hostname()) {
+    return { ok: false, reason: 'held by pid ' + held.pid + ' on another host (' +
+      held.host + ') since ' + held.started_at + '. Liveness is not observable from ' +
+      'here, so this refuses rather than guessing.' + manualRecovery(LOCK_REL) };
+  }
+  if (pidAlive(held.pid)) {
+    return { ok: false, reason: 'held by live pid ' + held.pid + ' since ' + held.started_at };
+  }
+
+  // Dead owner on this host — reclaim once, but SERIALIZED.
+  //
+  // Without this guard two processes that both saw the same dead owner each
+  // unlink and re-create, and the second unlink removes the first's LIVE lock:
+  // O_EXCL protects creation, not read-check-unlink, and the pid check at release
+  // cannot restore an exclusivity that is already gone (Codex implement-R1 F1).
+  const guard = createExclusive(reclaimLockPath(repoRoot), mine);
+  if (!guard.ok) {
+    return { ok: false, reason: 'another process is reclaiming ' + LOCK_REL +
+      ' (' + RECLAIM_LOCK_REL + ' held).' + manualRecovery(RECLAIM_LOCK_REL) };
+  }
+  try {
+    // Re-read INSIDE the guarded section. If the winner already re-created the
+    // lock under its own live pid, this sees that and refuses — which is the
+    // point where the F1 sequence stops being possible.
+    const still = readLockBody(abs);
+    if (!sameOwner(still, held)) {
+      return { ok: false, reason: LOCK_REL + ' changed hands while it was being reclaimed' };
+    }
+    if (pidAlive(still.pid)) {
+      return { ok: false, reason: 'pid ' + still.pid + ' is alive after all' };
+    }
+    try {
+      fs.unlinkSync(abs);
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        return { ok: false, reason: 'could not remove the stale ' + LOCK_REL +
+          ' (' + err.code + ')' + manualRecovery(LOCK_REL) };
+      }
+    }
+    const retry = createExclusive(abs, mine);
+    if (!retry.ok) {
+      // "I unlinked it, so my open must succeed" is exactly the assumption that
+      // re-opens the race: in the gap between unlink and create, a process that
+      // never saw an EEXIST at all can take the lock by the ordinary path
+      // (security-reviewer S-HIGH-1). Treat this as held — never as `'w'`.
+      return { ok: false, reason: 'another process took ' + LOCK_REL +
+        ' during reclaim (' + retry.code + ')' };
+    }
+    return { ok: true, body: mine, reclaimed: held.pid };
+  } finally {
+    try { fs.unlinkSync(reclaimLockPath(repoRoot)); } catch (_e) { /* best effort */ }
+  }
+}
+
+// Only ever removes a lock this process still owns. Under the reclaim race that
+// is what stops a reclaimer from deleting the winner's live lock.
+function releaseLock(repoRoot, mine) {
+  const abs = lockPath(repoRoot);
+  if (!sameOwner(readLockBody(abs), mine)) return false;
+  try { fs.unlinkSync(abs); } catch (_e) { return false; }
+  return true;
+}
 
 const EX_OK = 0;
 const EX_FAIL = 1;
@@ -166,6 +317,23 @@ function planReseal(repoRoot) {
   }
 
   const newSha = di.inventoryHash(built.items);
+
+  // Live debt that hashes back to a generation this seal already descends from.
+  // It means the tree moved backwards (a revert, a restored file), and the old
+  // preflight refused it for a reason nobody could read: the candidate would
+  // declare an ancestry containing its own digest, which `sealAncestry` folds to
+  // null, so the batch failed as "candidate ancestry is malformed" on every retry
+  // — permanently, because retrying cannot change it. Say it here instead, where
+  // nothing has been written yet.
+  if (anc.verified.indexOf(newSha) !== -1) {
+    degraded.push({
+      name: 'candidate-is-ancestor',
+      reason: 'live debt hashes to ' + newSha + ', which this seal already descends ' +
+        'from — the tree moved backwards. A seal cannot be its own ancestor.',
+    });
+    return Object.assign({}, EMPTY, { old_sha: doc.inventory_sha256, new_sha: newSha });
+  }
+
   const newIndex = new Map(built.items.map(function (i) { return [i.item_id, i]; }));
 
   // Latest line wins, scoped to the CURRENT seal — the same fold `verify` uses.
@@ -294,13 +462,40 @@ function preflightCarried(repoRoot, candidateDoc, records) {
     const rec = Object.assign({}, raw, { inventory_sha256: candidateDoc.inventory_sha256 });
     const v = di.validateDisposition(
       repoRoot, rec, index, candidateDoc.inventory_sha256, anc.verified);
-    if (!v.ok) unresolved.push({ item_id: rec.item_id, reason: v.reason });
+    // `checkSuccessor` folds `err.message` into its reason, and a Node fs error
+    // names the path it failed on. These reasons are printed and can land in an
+    // artifact, so they go through the same scrubber the rest of this file uses.
+    if (!v.ok) {
+      unresolved.push({
+        item_id: rec.item_id,
+        reason: scrubPathsFromMessage(String(v.reason), repoRoot),
+      });
+    }
   }
   return { ok: unresolved.length === 0, unresolved: unresolved, ancestry: anc.verified };
 }
 
+// A dry run writes nothing, so it takes no lock. An `apply` takes the lock BEFORE
+// reading the seal or the manifest — reading them first would decide the branch
+// from a state another apply is in the middle of changing.
 function applyReseal(repoRoot, opts) {
   const o = opts || {};
+  if (!o.apply) return applyResealUnlocked(repoRoot, o);
+
+  const lock = acquireLock(repoRoot);
+  if (!lock.ok) {
+    return { ok: false, aborted: 'locked', reason: lock.reason, lock: LOCK_REL };
+  }
+  try {
+    const res = applyResealUnlocked(repoRoot, o);
+    if (lock.reclaimed !== null) res.reclaimed_stale_pid = lock.reclaimed;
+    return res;
+  } finally {
+    releaseLock(repoRoot, lock.body);
+  }
+}
+
+function applyResealUnlocked(repoRoot, o) {
   const doc = di.readInventory(repoRoot);
   const entry = decideEntry(repoRoot, doc);
 
@@ -352,6 +547,27 @@ function applyReseal(repoRoot, opts) {
     return { ok: true, mode: 'plan', dry_run: true, plan: summarize(plan) };
   }
 
+  // The archive path is derived and CHECKED before step 0, not after it. It used
+  // to be computed below the manifest write, so a sha that `archiveRelFor`
+  // refuses (it returns null on a malformed one) reached `path.join(repoRoot,
+  // null)` and threw — with the manifest already on disk claiming an in-progress
+  // run that had not begun. Nothing destructive has happened yet at this point,
+  // so this is a clean refusal.
+  //
+  // Not currently reachable through `apply`: `plan.old_sha` comes from a seal
+  // whose digest `planReseal` already recomputed, and `inventoryHash` only ever
+  // emits `sha256:` + 64 lowercase hex. This guards the shape rather than a live
+  // hole, which is why it refuses instead of throwing.
+  const archiveRel = di.archiveRelFor(plan.old_sha);
+  if (!archiveRel) {
+    return {
+      ok: false,
+      aborted: 'archive-path-invalid',
+      reason: 'the outgoing seal digest does not have the sha256:<64 hex> shape, so ' +
+        'no archive path can be derived from it; nothing was written',
+    };
+  }
+
   // ── step 0: manifest FIRST, before anything destructive ────────────────────
   const manifest = {
     schema: 1,
@@ -366,7 +582,6 @@ function applyReseal(repoRoot, opts) {
   writeJsonAtomic(manifestPath(repoRoot), manifest);
 
   // ── step 1: archive the outgoing seal ──────────────────────────────────────
-  const archiveRel = di.archiveRelFor(plan.old_sha);
   const archiveAbs = path.join(repoRoot, archiveRel);
   if (fs.existsSync(archiveAbs)) {
     const existing = fs.readFileSync(archiveAbs, 'utf8');
@@ -395,7 +610,7 @@ function applyReseal(repoRoot, opts) {
       reason: scrubPathsFromMessage(String(err.message || err), repoRoot) };
   }
 
-  const candidate = buildCandidate(doc, plan);
+  const candidate = buildCandidate(repoRoot, doc, plan);
   const pre = preflightCarried(repoRoot, candidate, plan.carried);
   if (!pre.ok) {
     return {
@@ -431,12 +646,20 @@ function applyReseal(repoRoot, opts) {
   };
 }
 
-function buildCandidate(doc, plan) {
+// A seal records the commit and the source bytes IT was made at, never its
+// predecessor's. Copying them forward (which this did until M4) makes every
+// generation claim provenance from the first one: the live seal said
+// `sealed_at 2026-09-08` beside `sealed_at_commit 9093b08`, a commit from a week
+// earlier, and carried that generation's `source_digests` too. Both values are
+// preserved where they belong — `meta.supersedes` — so nothing is lost by
+// measuring instead of inheriting.
+function buildCandidate(repoRoot, doc, plan) {
   const priorAncestry = (doc.meta && Array.isArray(doc.meta.ancestry)) ? doc.meta.ancestry : [];
   return {
     meta: Object.assign({}, doc.meta, {
       sealed_at: new Date().toISOString(),
-      sealed_at_commit: doc.meta.sealed_at_commit,
+      sealed_at_commit: di.headCommit(repoRoot),
+      source_digests: di.sourceDigests(repoRoot),
       stats: plan.new_stats,
       // `meta` is outside the digest, so adding these moves nothing: `inventoryHash`
       // covers `items[]` only. That is what makes succession possible without
@@ -498,6 +721,8 @@ const USAGE = [
   'usage: reseal.js [plan|apply] [--apply] [--json] [--repo-root <path>]',
   '',
   '  plan    (default) compute the succession and print it. Writes NOTHING.',
+  '          Exits 1 when the succession cannot be planned, so a script can tell',
+  '          "planned" from "refused" without parsing the JSON.',
   '  apply   perform the re-seal. Requires --apply as an explicit consent flag,',
   '          because `sealInventory` refuses re-sealing by design and a tool that',
   '          walks around that refusal must not be reachable by accident.',
@@ -518,7 +743,11 @@ function runCli(argv) {
     const plan = planReseal(repoRoot);
     const payload = Object.assign({ ok: plan.ok }, summarize(plan));
     process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
-    return EX_OK;
+    // The exit-0-always rule belongs to `closure report`, which is an instrument
+    // and must not turn a large gap into a red build (UI7). This is a tool: a
+    // caller has to be able to tell "could not plan" from "planned" without
+    // parsing stdout.
+    return plan.ok ? EX_OK : EX_FAIL;
   }
 
   if (cmd === 'apply') {
@@ -563,6 +792,10 @@ if (require.main === module) {
 module.exports = {
   runCli,
   MANIFEST_REL,
+  LOCK_REL,
+  RECLAIM_LOCK_REL,
+  acquireLock,
+  releaseLock,
   EX_OK,
   EX_FAIL,
   EX_USAGE,

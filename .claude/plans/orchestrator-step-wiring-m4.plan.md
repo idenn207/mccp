@@ -463,10 +463,3 @@ milestone을 PRD 경로로 부르면 원장이 PRD 슬러그에 묶인다)은 �
 ## Codex Adversarial Review
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
-
-## Milestone Closure Provenance
-- Milestone : 4-live-integrity-repair
-- Verdict   : done
-- Closure   : .claude/milestone-closures/4-live-integrity-repair.md
-- sha256    : sha256:5c08bc36855995d626ac2a643b531297c8e3f998ad705bda0bf4356c7321a318
-- Stamped at: 2026-09-14T08:32:23.958Z

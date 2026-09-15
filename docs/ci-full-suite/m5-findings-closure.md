@@ -5,7 +5,8 @@
 >
 > **반올림하지 않는다.** 8건 중 닫힘이 입증된 것은 **2건**이고 **6건은 `open`으로 남는다** —
 > 그 6건의 claim 원문이 존재하지 않아 무엇이 닫혔는지 대조할 수단이 없기 때문이다. 판정 원장
-> 적용(`dispose`)은 **이번 사이클에서 수행하지 않았다**(Task 3).
+> 적용(`dispose`)은 ~~이번 사이클에서 수행하지 않았다~~ **2026-09-15에 `fixed` 2건을 적용했다**
+> (Task 3 · §4.1 — 트리거 문구 편차 포함).
 
 ## 기계 판독 필드
 
@@ -14,7 +15,9 @@
 - seal-items: `2841`
 - seal-covers-targets: `8/8`
 - v3-verdict: `ready`
-- dispose-applied: `0`
+- dispose-applied: `2`
+- dispose-applied-at: `2026-09-15T04:59:56.643Z`
+- task3-trigger: `overridden by operator 2026-09-15 — closure-accounting M2 row in-progress on main`
 - batch-rows: `2`
 - c2-residue-removed: `77`
 - c2-residue-method: `line-exact removal (not git checkout)`
@@ -132,7 +135,7 @@ git이 실패해도 stdout이 비어 통과한다 — 즉 검사 없이 Acceptan
 - c2-nontarget-events-preserved: `verified — 신규 이벤트 0건 (제거 중 동시 쓰기 없었다)`
 - v4-verdict: `ok`
 
-## 4. Task 3 트리거 — 아직 열리지 않았다
+## 4. Task 3 트리거 — ~~아직 열리지 않았다~~ 적용됨 (2026-09-15 · §4.1)
 
 `docs/ci-full-suite/m5-dispositions.jsonl`(2줄)은 준비만 됐고 적용되지 않았다. 여는 조건:
 
@@ -146,3 +149,31 @@ docs/ci-full-suite/m5-dispositions.jsonl` → `verify`로 결속 확인 → Sess
 
 적용 직전에 V2·V3를 다시 돌린다 — `dispose`는 all-or-nothing이라 부분 적용이 없고, 봉인이 또
 전진했다면 결속 대상이 달라진다.
+
+### 4.1 적용 기록 (2026-09-15)
+
+운영자가 `/mccp:milestone-close` 진행 중 보류 해제를 승인했다. **조건 1은 문자 그대로 미충족인 채
+적용했다** — closure-accounting M2 행은 main(`gh api` 판독)과 c11 커밋
+(`git show c11-closure-accounting:`) 모두 `in-progress`이고, `complete`는 c11 작업 트리의
+미커밋 편집에만 있었다. 트리거가 지키려던 실질 전제는 적용 직전에 각각 확인했다.
+
+| 전제 | 확인 |
+|---|---|
+| 봉인이 대상을 포함한다 | V3 `ready` (2/2) |
+| M2 재봉인이 기존 결속을 끊지 않았다 | `.claude/_meta/data/2026-09-08-closure-reseal-live.json` — `after.denominator_gap.count: 0` · `binding_mismatch: 0` · `invalid_dispositions: 0` |
+| M2 이후 c11 변경이 batch 계약을 바꾸지 않는다 | `git diff 6425ff8 c11-closure-accounting -- plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js` — 봉인 분모 필터(`state === 'open'` → `state !== 'closed'`) 한 곳뿐이고 `validateDisposition`·batch 형식은 무변경. 다음 재봉인은 M2 승계 경로가 이 줄들을 운반한다 |
+| batch가 유효하다 | V2 `ok 2` (실제 `classifyEvidence` · 실제 registry open 대조) · V1·V4(종료코드 우선 강화판)·V5 통과 |
+
+적용 결과 (`node plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js dispose --batch docs/ci-full-suite/m5-dispositions.jsonl`):
+
+- dispose: `ok: true` · `appended: 2` · `rejected: []` · `disposed_at 2026-09-15T04:59:56.643Z` ·
+  `inventory_sha256 sha256:78aead8cb1e04f4862d929bbe6ca742edac86d7c84693c259dbce187580ec608`
+- verify 전 → 후: by_disposition의 fixed 1 → 3 · `open` 1740 → 1738 · `invalid_dispositions` 0 → 0 ·
+  `binding_mismatch` 0 → 0 · `unmatched_dispositions` 0 → 0 · `malformed_lines` 0 · `seal_intact: true`
+- 승입 억제: 두 id의 `suppressedFindingIds` 소속이 false → true. `handoff-items.js`
+  `enumerateOpenFindings` 결과에서 두 id 부재 (items 10 · truncated 507)
+- **`verify`의 `ok`는 적용 전후 모두 `false`다.** 원인은 `open === 0` 한 항뿐이고
+  (`debt-inventory.js:922-924`) 나머지 항은 전부 참이다. `open > 0`은 closure-accounting M2가
+  재봉인으로 만들려던 상태이며(그 plan DD7) 이 적용이 바꿀 수 있는 값이 아니다.
+
+닫히지 않은 것은 그대로다: `open` 6건(§2.2)은 원장에 싣지 않았고 여전히 승입된다.

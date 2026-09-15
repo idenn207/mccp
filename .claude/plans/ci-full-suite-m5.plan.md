@@ -173,11 +173,3 @@ routing mode: auto (effective at implement stage). 이 plan은 렌더 표면을 
 ## Codex Adversarial Review
 
 <!-- placeholder: will be replaced by Phase 7.3 -->
-
-## Milestone Closure Provenance
-
-- Milestone : ci-full-suite-m5
-- Verdict   : done
-- Closure   : .claude/milestone-closures/ci-full-suite-m5.md
-- sha256    : f757adbcfaa0aeffb2f4ac02c29ea3434ac628843cfa8d68890145a9c0c47f80
-- Stamped at: 2026-09-15T05:02:31.182Z

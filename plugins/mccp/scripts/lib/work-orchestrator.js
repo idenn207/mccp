@@ -631,8 +631,10 @@ function runCli(argv) {
       const reason = narrowReason(
         typeof rest['reason'] === 'string' ? rest['reason'] : '', repoRoot, deps);
       if (reason) entry.reason = reason;
-      const workUnit = resolveWorkUnit(repoRoot,
-        typeof rest['work-unit'] === 'string' ? rest['work-unit'] : null, deps);
+      // orchestrator-step-wiring M4 (Task 4) — `work_unit`도 `reason`과 같은 git-tracked
+      // STATE.md로 가므로 쓰기 전에 같은 좁히기를 지난다. 정상 슬러그는 원형 그대로다.
+      const workUnit = safeField(resolveWorkUnit(repoRoot,
+        typeof rest['work-unit'] === 'string' ? rest['work-unit'] : null, deps), deps, repoRoot);
       if (workUnit) entry.work_unit = workUnit;
       autoChain.recordStep(repoRoot, entry);
       return 0;

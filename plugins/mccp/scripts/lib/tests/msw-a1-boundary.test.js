@@ -990,3 +990,168 @@ test('(F1) a missing commondir resolves normally rather than degrading', () => {
   assert.equal(info.error, null, 'ENOENT on commondir is the ordinary non-worktree shape');
   assert.equal(scanSessionActivity(wt).degraded, false);
 });
+
+// ── orchestrator-step-wiring M4 (Task 3) — 위치 의존성의 가시성 ───────────────
+//
+// 설치 cache가 공유 위치에 쓰지 않는 동안 A1은 위치마다 갈린다. 그 사실을 값이 읽히는
+// 자리가 말하는지를 고정한다. 키는 마이그레이션 `keyOf`와 동형이라(DD3) 마이그레이션이
+// 옮기는 것과 신호가 세는 것이 같다.
+
+function runA1(root) {
+  const r = require('node:child_process').spawnSync(
+    process.execPath, [A1_CLI, 'a1', '--repo-root', root], { encoding: 'utf8' });
+  assert.equal(r.status, 0, 'the banner is fail-open and never blocks');
+  return (r.stdout || '').split('\n').filter(Boolean);
+}
+
+const A1_FIRST_LINE_RE =
+  /^A1 작업 단위 완주율 \S+ \(\S+\/\S+ · status=[\w-]+( · spike-guard=dormant)?\)$/;
+
+function m4Started(sid, eventId) {
+  const evt = {
+    kind: 'task_started', session_id: sid, work_unit: 'u-' + sid,
+    work_unit_kind: 'milestone', ts: '2026-05-01T00:00:00.000Z',
+  };
+  if (eventId) evt.event_id = eventId;
+  return evt;
+}
+
+test('(M4 Task 3a) an A1 event only this location holds is counted and named on a second line', () => {
+  const fx = mkFixture('m4only');
+  writeLine(localDirOf(fx.main), 'm4a', m4Started('m4a', 'm4a-t'));
+  assert.equal(scanSessionActivity(fx.main).a1_local_only_events, 1,
+    'a resolved shared location that does not exist yet is an empty set, so every local A1 '
+    + 'event is local-only (DD4)');
+  const lines = runA1(fx.main);
+  assert.equal(lines.length, 2, 'measured: ' + JSON.stringify(lines));
+  assert.match(lines[0], A1_FIRST_LINE_RE, 'the first line keeps its one-line budget and shape');
+  assert.match(lines[1], /이 위치에만 1건/);
+  // 이름은 **그대로 실행 가능한 형태**라야 한다. basename만 맞추면 저장소 루트에서
+  // ENOENT로 끝나는 접두도 통과한다(code-review MEDIUM).
+  assert.match(lines[1], /node plugins\/mccp\/scripts\/migrations\/msw-events-common-dir\.js$/,
+    'the signal must name what converges it — a count without a runnable action is the '
+    + 'spike-guard defect');
+});
+
+test('(M4 Task 3g) the signal keys the same events the migration moves', () => {
+  // DD3의 동형은 지금까지 주석으로만 있었다. 두 `keyOf`가 서로 다른 파일에 따로 살아
+  // 있으므로, 마이그레이션 쪽이 바뀌면 배너는 수렴하지 않는 조치를 권하게 된다.
+  // 여기서 고정하는 것은 함수 본문이 아니라 **관측 가능한 동치관계**다.
+  const mig = require('../../migrations/msw-events-common-dir');
+  const withId = m4Started('m4g', 'm4g-t');
+  const legacy = m4Started('m4g', null);
+  const cases = [
+    ['same event_id, other fields differ', withId, Object.assign({}, withId, { work_unit: 'u-x' }), true],
+    ['different event_id', withId, m4Started('m4g', 'm4g-other'), false],
+    ['legacy: identical tuple', legacy, m4Started('m4g', null), true],
+    ['legacy: differing ts', legacy, Object.assign({}, legacy, { ts: '2026-05-02T00:00:00.000Z' }), false],
+  ];
+  for (const [label, local, shared, same] of cases) {
+    const fx = mkFixture('m4g');
+    writeLine(localDirOf(fx.main), 'm4g', local);
+    writeLine(sharedDirOf(fx), 'm4g', shared);
+    assert.equal(mig.keyOf(local) === mig.keyOf(shared), same, label + ' — migration keyOf');
+    assert.equal(scanSessionActivity(fx.main).a1_local_only_events, same ? 0 : 1,
+      label + ' — signal');
+  }
+});
+
+test('(M4 Task 3b) the same event in both locations is not local-only — one line', () => {
+  // 판별자 둘: "local A1 이벤트를 전부 센다"는 구현이 red이고, 키 수집을 dedupe
+  // `continue` **뒤**에 두면 공유 쪽 사본이 건너뛰어져 역시 red다.
+  const fx = mkFixture('m4both');
+  writeLine(localDirOf(fx.main), 'm4b', m4Started('m4b', 'm4b-t'));
+  writeLine(sharedDirOf(fx), 'm4b', m4Started('m4b', 'm4b-t'));
+  assert.equal(scanSessionActivity(fx.main).a1_local_only_events, 0);
+  assert.equal(runA1(fx.main).length, 1);
+});
+
+test('(M4 Task 3c) non-A1 kinds are not counted', () => {
+  // `session_start`는 설계상 공유 위치로 가지 않으므로, 세면 영구적인 거짓 갈림이 된다.
+  const fx = mkFixture('m4kind');
+  writeLine(localDirOf(fx.main), 'm4c', {
+    kind: 'session_start', session_id: 'm4c', ts: '2026-05-01T00:00:00.000Z', event_id: 'm4c-s',
+  });
+  writeLine(localDirOf(fx.main), 'm4c', m4Started('m4c', 'm4c-t'));
+  writeLine(sharedDirOf(fx), 'm4c', m4Started('m4c', 'm4c-t'));
+  assert.equal(scanSessionActivity(fx.main).a1_local_only_events, 0);
+  assert.equal(runA1(fx.main).length, 1);
+});
+
+test('(M4 Task 3d) a legacy event without event_id matches by its legacy key', () => {
+  const fx = mkFixture('m4legacy');
+  writeLine(localDirOf(fx.main), 'm4d', m4Started('m4d', null));
+  writeLine(sharedDirOf(fx), 'm4d', m4Started('m4d', null));
+  assert.equal(scanSessionActivity(fx.main).a1_local_only_events, 0);
+});
+
+test('(M4 Task 3e) the field does not move A1 itself', () => {
+  // 같은 이벤트를 local에 두든 shared에 두든 A1 값은 같고 필드만 다르다. 기대값은
+  // 리터럴이다 — "도입 전과 같은 값"은 도입 후에 기준선을 잡을 수 없다(plan L2 LOW).
+  const events = [
+    m4Started('m4e', 'm4e-t'),
+    { kind: 'task_completed', session_id: 'm4e', work_unit: 'u-m4e',
+      ts: '2026-05-01T01:00:00.000Z', event_id: 'm4e-c' },
+  ];
+  const onLocal = mkFixture('m4elocal');
+  const onShared = mkFixture('m4eshared');
+  for (const e of events) {
+    writeLine(localDirOf(onLocal.main), 'm4e', e);
+    writeLine(sharedDirOf(onShared), 'm4e', e);
+  }
+  const a1Of = (root) => metricsMod.computeMetrics(
+    { sources: { session_activity: scanSessionActivity(root) } })[metricsMod.A1_WORK_COMPLETION_RATE];
+  const l = a1Of(onLocal.main);
+  const s = a1Of(onShared.main);
+  for (const a1 of [l, s]) {
+    assert.deepEqual([a1.numerator, a1.denominator, a1.value], [1, 1, 1],
+      'measured: ' + JSON.stringify(a1));
+  }
+  assert.equal(l.local_only_events, 2);
+  assert.equal(s.local_only_events, 0);
+});
+
+test('(M4 Task 3f) no resolvable shared location → null and a single line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-a1b-m4nogit-'));
+  try {
+    // tmpdir이 git 저장소 **안**이면 공유 위치가 해소돼 이 test의 전제가 무너진다.
+    // 그때 아래 `null` 단언만 붉어지면 원인을 읽을 수 없으므로 전제를 먼저 말한다.
+    const info = mswEvents.commonDirInfoOf(dir);
+    assert.equal(info && info.dir, null,
+      'fixture precondition: the tmpdir must not sit inside a git repository');
+    writeLine(localDirOf(dir), 'm4f', m4Started('m4f', 'm4f-t'));
+    // strict — 느슨한 `equal`이면 필드가 아예 없는(`undefined`) 구현도 통과한다.
+    assert.strictEqual(scanSessionActivity(dir).a1_local_only_events, null,
+      'without a shared location there is nothing to compare against (DD4)');
+    assert.equal(runA1(dir).length, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── orchestrator-step-wiring M4 (Task 5) — 실패 경로도 절대경로를 흘리지 않는다 ──
+
+test('(M4 Task 5) the a1 failure path scrubs absolute paths from the message', () => {
+  const fx = mkFixture('m4fail');
+  // 스캔 모듈 로드를 가로채 절대경로를 담은 오류를 던진다. 좁히기에 쓰는 `derive/mask`는
+  // 그대로 로드돼야 하므로 가로채는 요청은 하나뿐이다.
+  const preload = path.join(fx.base, 'boom-preload.js');
+  fs.writeFileSync(preload, [
+    "const Module = require('module');",
+    'const orig = Module._load;',
+    'Module._load = function (request) {',
+    "  if (/derive[\\\\/]sources[\\\\/]session-activity$/.test(request)) {",
+    "    throw new Error('boom at ' + process.env.MCCP_TEST_BOOM_PATH);",
+    '  }',
+    '  return orig.apply(this, arguments);',
+    '};',
+  ].join('\n'));
+  const r = require('node:child_process').spawnSync(process.execPath,
+    ['--require', preload, A1_CLI, 'a1', '--repo-root', fx.main],
+    { encoding: 'utf8', env: Object.assign({}, process.env, { MCCP_TEST_BOOM_PATH: fx.main }) });
+  assert.equal(r.status, 0, 'fail-open (UI4)');
+  assert.equal(r.stdout, '', 'the banner is omitted on failure');
+  assert.match(r.stderr, /\[mccp:a1\] failed/);
+  assert.ok(r.stderr.includes('boom at'), 'narrowing must not silence what failed');
+  assert.ok(!r.stderr.includes(fx.main), 'measured stderr: ' + JSON.stringify(r.stderr));
+});

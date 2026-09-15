@@ -196,6 +196,27 @@ test('(5) --work-unit wins when given', () => {
   assert.strictEqual(readChainProgress(repo).steps[0].work_unit, 'explicit-slug');
 });
 
+// orchestrator-step-wiring M4 (Task 4) — `--work-unit` 은 `--reason` 과 같은 durable
+// artifact(git-tracked STATE.md)로 가므로 같은 좁히기를 지난다. 바로 위 test 가 정상
+// 슬러그가 원형 그대로임을 함께 보증한다 — 좁히기가 조인 키를 바꾸지 않는다.
+test('(M4 Task 4) --work-unit is narrowed before it reaches STATE.md', () => {
+  const repo = mkRepo('wunarrow');
+  run(repo, ['record-halt', '--step', 'implement', '--site', '3.preflight',
+    '--work-unit', '/home/someone/private/leaked-unit']);
+  const raw = fs.readFileSync(path.join(repo, '.claude', 'state', 'STATE.md'), 'utf8');
+  assert.ok(raw.includes('chain_progress'), 'fixture precondition: the halt was recorded');
+  assert.ok(!raw.includes('/home/someone'),
+    'an absolute path must not reach the tracked file. measured: '
+    + JSON.stringify(readChainProgress(repo).steps[0].work_unit));
+
+  const repo2 = mkRepo('wuctl');
+  run(repo2, ['record-halt', '--step', 'implement', '--site', '3.preflight',
+    '--work-unit', 'a[31mb']);
+  const wu = readChainProgress(repo2).steps[0].work_unit;
+  assert.strictEqual(typeof wu, 'string', 'a narrowed non-empty value is still recorded');
+  assert.ok(!CONTROL_RE.test(wu), 'control chars must be stripped, got ' + JSON.stringify(wu));
+});
+
 test('(5) STATE.md task_fingerprint is the second choice', () => {
   const repo = mkRepo('wufingerprint');
   stateWriter.update(repo, { taskFingerprint: 'orchestrator-step-wiring-m2' });

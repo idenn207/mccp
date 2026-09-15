@@ -150,6 +150,32 @@ test('M9 Task 2: a blocking entry the panel never opened is skipped, not fabrica
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('closure-accounting M3: an accepted finding is still closed as deferred', () => {
+  // Accepting a finding does not resolve it. Filtering on `state === 'open'`
+  // skipped it, so the deferral reached the backlog while the registry kept the
+  // finding open forever — the seam diverse-agent-review #1.5 crosses when it
+  // wires adjudication into the panel.
+  const slug = 'm9-accepted';
+  const real = { perspective: 'architect', severity: 'HIGH', claim: 'an accepted reviewer finding' };
+  const root = makeRepo({ decision: decisionWith([real]) });
+
+  const id = openFinding(root, slug, real);
+  const adj = registry.appendFindings(slug,
+    [{ kind: 'finding_adjudicated', finding_id: id, state: 'accepted' }], { repoRoot: root });
+  assert.ok(adj.ok, 'fixture setup: finding_adjudicated must append');
+  assert.strictEqual(shardOf(root, slug).findings.find((f) => f.finding_id === id).state, 'accepted',
+    'precondition: the finding is accepted, not open');
+
+  const run = runBacklogAppend(root, slug);
+  assert.strictEqual(run.status, 0, run.stderr);
+
+  const rec = shardOf(root, slug).findings.find((f) => f.finding_id === id);
+  assert.strictEqual(rec.state, 'closed');
+  assert.strictEqual(rec.closure_type, 'deferred');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('M9 Task 2: when the backlog append fails, nothing is closed', () => {
   // Order is the contract. A finding closed as `deferred` with no deferral
   // record behind it is a closure pointing at nothing, so the failure path must

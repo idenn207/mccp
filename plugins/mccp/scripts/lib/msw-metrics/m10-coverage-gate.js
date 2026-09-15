@@ -46,6 +46,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PRD_REL = '.claude/prds/multi-session-work-loop.prd.md';
+const PRD_ARCHIVED_REL = '.claude/prds/archived/multi-session-work-loop.prd.md';
 const LEDGER_REL = 'docs/multi-session-work-loop/intent-violation-ledger.json';
 
 // The axes M10 undertook to record. An id missing from the ledger is a failure:
@@ -87,10 +88,28 @@ function checkSeal(repoRoot, debt) {
   const led = debt.readDispositions(repoRoot);
   if (!led.ok) return { ok: false, reason: 'disposition ledger unreadable: ' + led.error };
 
+  // A line bound to a VERIFIED ancestor is a historical normal state, not drift.
+  // `verifyDispositions` has drawn this distinction since succession landed — its
+  // comment calls the undivided count "a thousand-line false alarm" — and the
+  // gate was the one consumer still counting every non-current sha as mismatch.
+  // So a successful re-seal turned this axis red for the precise reason the
+  // succession path exists to make routine: 1101 bound, 1115 "mismatched".
+  //
+  // No new rule: the same oracle, so the gate cannot disagree with `verify` about
+  // what descends from what. An unjudgeable chain is a refusal, not an allowance.
+  const anc = debt.sealAncestry(repoRoot, doc.value);
+  if (anc === null) {
+    return { ok: false, reason: 'seal ancestry is malformed — refusing rather than ' +
+      'granting an allowance from a chain that cannot be judged' };
+  }
+  const ancestors = new Set(anc.verified);
+
   let bound = 0;
+  let ancestorBound = 0;
   let mismatched = 0;
   for (const rec of led.lines) {
     if (rec.inventory_sha256 === doc.value.inventory_sha256) bound += 1;
+    else if (ancestors.has(rec.inventory_sha256)) ancestorBound += 1;
     else mismatched += 1;
   }
 
@@ -102,6 +121,7 @@ function checkSeal(repoRoot, debt) {
     item_count: items.length,
     disposition_lines: led.lines.length,
     bound_lines: bound,
+    ancestor_bound_lines: ancestorBound,
     mismatched_lines: mismatched,
     malformed_lines: led.malformed,
   };
@@ -239,22 +259,36 @@ function checkIntentViolations(repoRoot, debt) {
 
 // ── axis 4 ───────────────────────────────────────────────────────────────────
 
+// A completed PRD is moved under `.claude/prds/archived/` (§3.11), and that move
+// severed this axis's only input: the gate reported `PRD absent — cannot tell
+// whether M10 flipped` about a PRD that had flipped and been archived precisely
+// BECAUSE it was finished. The criterion is unchanged; only the place it is read
+// from gains a fallback, mirroring `milestone-history.js`, which already looks in
+// the archive directly. Active first, so a PRD that is somehow in both is read
+// where work would edit it.
 function checkPrdFlip(repoRoot) {
-  const abs = path.join(repoRoot, PRD_REL);
-  if (!fs.existsSync(abs)) return { ok: false, reason: 'PRD absent — cannot tell whether M10 flipped' };
+  const candidates = [PRD_REL, PRD_ARCHIVED_REL];
+  const found = candidates.find(function (rel) {
+    return fs.existsSync(path.join(repoRoot, rel));
+  });
+  if (!found) {
+    return { ok: false, reason: 'PRD absent from both ' + PRD_REL + ' and ' +
+      PRD_ARCHIVED_REL + ' — cannot tell whether M10 flipped' };
+  }
   let body;
   try {
-    body = fs.readFileSync(abs, 'utf8');
+    body = fs.readFileSync(path.join(repoRoot, found), 'utf8');
   } catch (err) {
-    return { ok: false, reason: 'PRD unreadable: ' + err.message };
+    return { ok: false, reason: 'PRD unreadable: ' + err.message, path: found };
   }
   const row = body.split(/\r?\n/).find(function (l) { return /^\|\s*10\s*\|/.test(l); });
-  if (!row) return { ok: false, reason: 'no M10 row in the Delivery Milestones table' };
+  if (!row) return { ok: false, reason: 'no M10 row in the Delivery Milestones table', path: found };
   const cells = row.split('|').map(function (c) { return c.trim(); });
   const status = cells.length >= 5 ? cells[cells.length - 3] : null;
   return {
     ok: status === 'complete',
     status: status,
+    path: found,
     reason: status === 'complete' ? null : 'M10 row is "' + status + '", not complete',
   };
 }
@@ -306,5 +340,6 @@ module.exports = {
   REQUIRED_IV_IDS: REQUIRED_IV_IDS,
   IV_RESOLUTIONS: IV_RESOLUTIONS,
   PRD_REL: PRD_REL,
+  PRD_ARCHIVED_REL: PRD_ARCHIVED_REL,
   LEDGER_REL: LEDGER_REL,
 };

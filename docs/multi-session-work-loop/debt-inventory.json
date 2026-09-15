@@ -1,12 +1,8 @@
 {
   "meta": {
     "sealed_at": "2026-09-08T08:25:23.521Z",
-    "sealed_at_commit": "9093b08f9f136849b42c5f70617d8c31368e2614",
-    "source_digests": {
-      "backlog": "sha256:ce5810f8ba30ae4487a022f77f6414c3a1d83c9b17d79f00622c95058bbd2545",
-      "fix_task": null,
-      "fix_task_applied": "sha256:332c563f1d08d8f32362d7281390663c2b5005cfccc6caad95896c655362ce29"
-    },
+    "sealed_at_commit": "e5d274c4e621541f9a26e42bb85761387c5859b2",
+    "source_digests": null,
     "stats": {
       "total": 2841,
       "by_source": {

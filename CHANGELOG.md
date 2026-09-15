@@ -19,6 +19,46 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 
+- **closure-accounting M4 — 부채 종결 계기가 스스로 틀린 값을 내던 경로 여섯.** M1이 격차를
+  보이게 하고 M2가 닫는 경로를 만든 뒤, 두 산출물 자신이 잘못 답하고 있었다. (1) 재봉인이
+  `sealed_at_commit`·`source_digests`를 **전임 봉인에서 복사**해 모든 세대가 첫 세대의 출처를
+  주장했다 — `buildCandidate`가 이제 자기 값을 잰다(`debt-inventory.js`가 `headCommit` ·
+  `sourceDigests` export). 커밋된 봉인의 meta 2필드는 정정했고 `items[]`·`inventory_sha256`은
+  불변이라 판정 1101건의 결속은 움직이지 않는다. (2) m10 게이트가 재봉인 뒤 조상 결속 1115줄을
+  **불일치로 보고**했다 — `verifyDispositions`가 쓰는 것과 **같은 오라클**(`sealAncestry`)로
+  `ancestor_bound_lines`를 분리했다. 게이트는 여전히 exit 1이지만 이유가 `dispositions.open`으로
+  옮겨졌다(red→green이 아니라 **red의 이유를 정확하게** 만든 수정). (3) `closure report`가
+  판정을 **한 번도 검증하지 않아** 모든 판정을 `NOT_A_REAL_ENUM`으로 바꿔도 `closed 1115 ·
+  pct 100 · degraded []`가 나왔다 — `verifyDispositions`의 판정을 빌려 접고, **답이 숫자가
+  아니면 0이 아니라 미상**으로 처리한다. (4) registry 디렉토리 열거 실패가 `catch { return [] }`로
+  **빈 저장소와 구별되지 않아** EACCES 하나로 findings 1250→0이 되는 동안 `degraded:false`였다 —
+  ENOENT만 부재로 남기고 그 밖의 errno는 degraded로 흘린다(reason은 **errno만**, 경로 없음).
+  (5) 수락 마커 stripper가 inline code span과 raw-text HTML 블록을 지우지 않아 **인용된 예시
+  마커가 진짜 승인이 될 수 있었다** — 균형 블록은 줄 위치 무관(mid-line `<pre>`가 실제 누수
+  경로)이되 fence 판정 **뒤에** 돈다(먼저 돌면 inline `<pre>`가 뒤따르는 fence의 여는 줄을 삼켜
+  인용된 마커를 되살린다 — 로컬 코드 리뷰 H1), 미종결 open만 줄 선두, backtick run은 CommonMark 길이 규칙. 라이브 `invalid_dispositions`는
+  전후 0으로 불변. (6) 원장 행이 `deferred` 970건을 포함한 1101을 `Closed 38.75%`로 렌더해 종결률로
+  읽혔다 — `Disposed:` + `Resolved: 131 (fixed 1)`로 3분할.
+
+- **closure-accounting M4 — `reseal.js apply`의 운영 안전.** apply 경로 전체(resume 포함)를
+  `.claude/state/reseal.lock`(`O_EXCL`)으로 감싸고, 죽은 pid 회수는
+  `.claude/state/reseal-reclaim.lock`으로 **직렬화**한다(동시 회수자 둘이 서로의 살아있는 lock을
+  지우던 경로). unlink 뒤 재생성도 `O_EXCL`이고 그 EEXIST는 거절이다 — "내가 지웠으니 열린다"는
+  가정이 제3의 평범한 획득자에게 지는 지점. body가 없는 lock은 추측 회수 대신 복구 문구로
+  거절한다. 그 밖에: `archiveRelFor` null 검사를 manifest write **앞**으로 옮기고(옛 순서는
+  manifest를 남긴 채 throw), 되돌아간 부채를 plan 단계에서 `candidate-is-ancestor`로 말하며
+  (옛 경로는 이해 불가한 사유로 영구 abort), `reseal.js plan`이 `plan.ok`를 종료코드로 반영하고,
+  preflight 거절 사유에서 절대경로를 스크럽한다.
+
+- **closure-accounting M4 — 아무도 계기를 부르지 않던 것.** `.github/workflows/closure-report.yml`
+  신설(`push: main` · 주 1회 cron · `workflow_dispatch` · 계기 파일 PR). **게이트가 아니다** —
+  required check 아니고 격차 값으로 red가 되지 않는다. `continue-on-error`를 두지 않는 이유는
+  red의 의미가 "계기가 실행되지 못했다"이기 때문이다. `scripts/tests/closure-report-workflow.test.js`가
+  트리거 4종 · SHA pin(태그를 거부하는 음성 대조 포함) · `contents: read` · CLI가 redirect 그룹
+  **밖**에 있음(그룹은 exit를 마지막 echo에서 가져와 crash를 삼킨다)을 단언하고, 마지막 test는
+  CLI를 실제로 spawn한다.
+
+
 - **Codex hook 출력 계약 — 하네스 가드의 passthrough가 stdout을 오염시키던 것.**
   `bootstrap.js`의 `passthroughStdinAndExit`는 stdin을 stdout으로 되돌린다. Claude 쪽 ALLOW
   관용구이고 이 저장소의 hook 24곳이 공유하는 형태지만, Codex는 hook stdout을 **그 이벤트의
@@ -48,6 +88,17 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   신호가 사라지므로, 가드는 침묵·깨진 경로는 echo를 짝으로 단언한다.
 
 ### Added
+
+- **closure-accounting M3 — registry-reachability.** `closure report`의 `findings-registry` 행이
+  자기 **producer 도달성**을 함께 싣는다(`ledgers[].producers[]` — 채널별
+  `reachable{adjudicated, closure_types}` + `observed{total, open, accepted, closed, by_closure_type}`).
+  낮은 종결률(실측 `21 / 1505 · 1.4%`)이 "부채가 안 갚혔다"로 인용되던 것을 닫는다 — 분모의 86%를
+  차지하는 패널 채널은 기본 리뷰 모드에서 **종결을 낼 수 없고**, 그 배선은 `diverse-agent-review`
+  #1.5가 소유한다. 함께: `accepted` finding이 부채 분모에서 조용히 빠지던 누수를 닫았고
+  (`debt-inventory.js#collectFindings` → `state !== 'closed'`; 라이브 격차가 그만큼 **커지는** 방향으로
+  드러난다 — 재봉인은 하지 않는다), 선언(`PRODUCER_CHANNELS`)과 emitter 소스를 대조하는
+  falsifier(`findings-producer-reachability.test.js` R1~R8)가 계약 "판정은 `CLOSURE_FROM_ADJUDICATION`을
+  경유한다"를 강제한다. 그 스캔이 증명하지 않는 것(호출이 끊긴 emitter)은 문서에 명시했다.
 
 - **codex-harness-portability M3.5 — codex-ship (hotfix).** Codex 하네스에서 mccp가 **설치되고
   발화하는 상태**를 운영자 한 번의 명령으로 만든다. `plugins/mccp/scripts/lib/codex-bootstrap.js`

@@ -180,8 +180,31 @@ digest, and so does *every line* of `debt-dispositions.jsonl`. An enumerated
 deny-list cannot fix that, because the set of such files grows on its own and a
 re-seal writes more of them. The marker closes the class instead.
 
-A marker inside a fenced block, a blockquote, or indented code does **not** accept —
-otherwise a document explaining the format would accept on its own behalf.
+A marker inside a fenced block, a blockquote, indented code, an inline code span,
+or a raw-text HTML block (`pre`, `code`, `script`, `style`, `textarea`) does
+**not** accept — otherwise a document explaining the format would accept on its
+own behalf.
+
+Two details of that rule are load-bearing and easy to get backwards. A **balanced**
+raw-text block is stripped wherever it opens, including mid-line: markdown passes
+raw HTML through from anywhere, so `<pre>` opened after a sentence reads as a
+quoted example while an anchored matcher would leave the marker inside it live.
+Only the **unterminated** opener is required to sit at the start of a line, and
+that anchor exists to prevent over-removal — "use the `<code>` tag" mid-sentence is
+inline HTML, not a block. An inline span follows CommonMark: a run of *N* backticks
+is closed only by the next run of exactly *N*, so ``` ``…`` ``` wrapping is not
+defeated by looking for a single backtick.
+
+The block match also runs **after** the fence, blockquote and indented-code pass,
+over what that pass kept. Taken first, it can start at an inline `<pre>` on a
+paragraph line and end at a `</pre>` inside the fence that follows — a fence line
+interrupts that paragraph, so a reader sees fenced code, but the match erases the
+fence opener and leaves the quoted marker live. The price of this order is
+over-removal only: a fence line inside a line-start `<pre>` block opens a fence the
+renderer would not, and that can only refuse a marker.
+
+Over-removal is the safe direction: a stripped real marker yields no match, and no
+match refuses the deferral.
 
 ### The ancestor chain
 
@@ -216,12 +239,88 @@ that preceded it was an artifact of measuring a frozen denominator, which is the
 defect this whole axis exists to remove. Do not widen succession to keep the number
 green.
 
+### `seal_intact` is a narrower claim than it sounds
+
+`seal_intact` answers exactly one question: does `inventory_sha256` recompute from
+`items[]`. It says nothing about whether the lines bound to *other* digests belong
+to this seal's history — that is a separate judgment, made by `sealAncestry` under
+the three conditions above, and the two are reported as separate fields for that
+reason. A seal can be perfectly intact while its ancestry is malformed, and an
+unjudgeable ancestry is a refusal rather than an allowance.
+
+### Ancestor-bound lines are validated once, at append time
+
+A carried line is checked by `appendDispositions` when it is written, and after
+that it is **never re-validated**. `verifyDispositions` re-checks lines bound to
+the *current* digest; lines bound to an ancestor are counted, not re-examined. So
+if a successor document that satisfied a `deferred` at generation 1 is later
+deleted, the generation-1 lines keep their status while an equivalent line written
+today would be refused.
+
+This is a deliberate limit, not an oversight: re-validating the whole chain on
+every run would make a judgment's standing depend on the current state of files it
+was never bound to, which is the opposite of what a sealed record is for. What it
+costs is stated plainly — the older a generation, the weaker the evidence that its
+carried judgments would still hold today.
+
+### The 2026-09-08 seal meta was corrected
+
+The committed seal at `docs/multi-session-work-loop/debt-inventory.json` carried
+`sealed_at_commit: 9093b08…` beside `sealed_at: 2026-09-08`, and `source_digests`
+from that same earlier generation. Both were **inherited**: `buildCandidate` copied
+them from the predecessor instead of measuring its own. The commit was corrected to
+`e5d274c4e621541f9a26e42bb85761387c5859b2` — the HEAD the re-seal actually ran at,
+recorded independently as `repo_head` in
+`.claude/_meta/data/2026-09-08-closure-reseal-live.json` and confirmed reachable
+from this branch.
+
+`source_digests` was set to `null` rather than back-filled. The bytes of those three
+files at that moment cannot be proven after the fact (the tree may have held
+uncommitted lines), and nothing reads the field. **"Not measured" is the honest
+value; a plausible one would be a fabrication.** The predecessor's values are not
+lost — `meta.supersedes` still carries them.
+
+Only `meta` changed. `inventoryHash` covers `items[]`, so `inventory_sha256` and
+all 1101 carried bindings are byte-identical; the change is two fields, verifiable
+with `git diff --numstat`.
+
+### The apply lock, and what it does not cover
+
+`apply` takes `.claude/state/reseal.lock` (`O_EXCL`, body `{pid, host, started_at}`)
+before it reads anything, and releases it in a `finally` — but only if the lock is
+still the one this process wrote. A dead pid **on this host** is reclaimed once,
+and that reclamation is itself serialized behind `.claude/state/reseal-reclaim.lock`,
+because two processes that each saw the same dead owner would otherwise unlink each
+other's replacement. The re-create after the unlink is `O_EXCL` too: "I removed it,
+so my create must succeed" is false — an ordinary acquirer can win that gap.
+
+Three limits, stated rather than implied:
+
+- **Single host.** A lock held by a pid on another machine is refused, not
+  reclaimed, because liveness is not observable from here. Shared checkouts across
+  hosts are not protected against, they are refused.
+- **No lease.** A lock whose body never landed (a crash between create and write)
+  is refused with the path and a recovery instruction, not reclaimed on a guess. An
+  mtime lease would just move the same check-then-act race one layer up.
+- **Not forgery protection.** Same threat model as CLAUDE.md §3.12 — anyone who can
+  run node here can write the seal directly. The lock stops concurrent runs, not a
+  writer who means to.
+
 ### Reproducibility notice
 
 M10's completion verdict was `m10-coverage-gate.js` exit 0. After a re-seal that
 gate exits 1 on the same tree. The verdict is not being revoked — the evidence it
 stood on is preserved in the seal archive, so which digest it held for stays
 checkable. Only the location of that evidence moved.
+
+**Which axis is red changed in M4, and the reason matters.** The seal axis used to
+report `mismatched_lines: 1115` after a successful re-seal, because it counted
+every line not bound to the current digest as drift. It now separates
+`ancestor_bound_lines` using the same `sealAncestry` oracle `verifyDispositions`
+has always used, so that axis is green and `mismatched_lines` means what it says.
+The gate still exits 1 — now from `dispositions.open > 0`, which is the unjudged
+remainder a moved denominator is supposed to expose. **That was a correction to the
+reason for red, not a change from red to green.**
 
 ### Rolling back
 

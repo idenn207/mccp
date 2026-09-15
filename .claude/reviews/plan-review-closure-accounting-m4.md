@@ -1,0 +1,66 @@
+# Plan Review Panel — closure-accounting-m4
+
+**Plan**: `.claude/plans/closure-accounting-m4.plan.md` · **Plan version**: `sha256:cd495af9edb141ce2f0338cc2abff882d2778b4175b60c9d194d3c104fed1fde`
+**Verdict**: `divergent` via `hybrid`
+**Quorum**: 4/3 responses · 4 distinct roles (of 4 fielded) · passed=true
+**Layers**: L1 converged · L2 converged · L3 divergent
+**Halted at**: `5.2e`
+
+> Reason: L1+L2 converged but L3 (Codex) returned divergent
+
+## Findings
+
+| Perspective | Severity | Claim | Evidence |
+|---|---|---|---|
+| architect | MEDIUM | Task 2 and DD2 say m10's seal axis will use "the same ancestor judgment" as verifyDispositions, but the plan writes a second copy of that judgment in checkSeal instead of using the one that already exists. The two copies already disagree on the malformed-ancestry case, so the gate and the verifier can report different results for the same input. | verifyDispositions already computes and returns `ancestor_bound_lines` and `binding_mismatch` (debt-inventory.js:871-887, 936-937). When sealAncestry returns null, it treats the ancestry set as empty (`ancestrySet = new Set(ancestry \|\| [])`, :872-873), so every non-current line counts as a mismatch. The plan's Task 2 instead has checkSeal call `debt.sealAncestry` itself and return `{ok:false, reason:'seal ancestry is malformed'}` when the result is null. The consequences differ: one yields a mismatch count, the other a reason string with no counts. DD3 argues for borrowing verifyDispositions so the report and the gate cannot drift on validity, but DD2 does not apply that same argument to m10. |
+| architect | LOW | After Task 4(a), the report calls sealAncestry twice per run: once directly, and once more inside verifyDispositions. Each call re-reads the archives and runs `git ls-files` for every ancestor. The report's ancestry_depth and the validity verdict are therefore computed from two separate oracle calls that happen to agree today. | report.js:314 calls `debtInv.sealAncestry(repoRoot, sealDoc)` directly. verifyDispositions calls sealAncestry again at debt-inventory.js:871, and its own `ancestry_depth` output (:938) is ignored. isGitTracked spawns git for each sha (:453-461). |
+| security | LOW | The DD7 lock is owned by pid alone (reclaimed when the pid is dead on the same host, released when the pid matches), with no nonce. If a pid is reused, a live process with a recycled pid is treated as the owner. And if two processes both reclaim the same stale lock, the second unlink can remove the lock the first one just created. The plan scopes the lock to a single host and single operator and says it is not forgery prevention, so this is a residual risk rather than an escalation. | plan DD7: "EEXIST이고 같은 host의 죽은 pid면 1회 회수한다 … 해제는 자기 pid일 때만 finally에서 한다"; plan 'M4가 주장하지 않는 것': "lock은 단일 host 동시 실행만 막는다" |
+| security | LOW | The DD7 abort result returns the lock path and recovery text. The plan applies scrubPathsFromMessage only to the preflightCarried reason, not to this new 'locked' output. If that output is pasted into the committed Task 9 report, an absolute worktree path could leak (the same pattern as the earlier cwd leak). Today's reseal.js emits no repoRoot or absolute-path fields, so the only new path-bearing surface is this lock message. | plan DD7: "aborted:'locked'와 함께 경로·복구 지침을 돌려준다"; Task 3(e) scrubs only preflightCarried; plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js:704 shows how raw err.message carries paths |
+| test | MEDIUM | DD5 says all four registry consumers already have a degraded path, so no new field is needed. That is false for state/handoff-items.js, and no Validate line runs a test for that consumer or for derive/sources/findings.js. Task 5 changes readAll's degraded output, but the claim that consumers inherit the change is backed by nothing that could fail. | plugins/mccp/scripts/state/handoff-items.js:136-137 reads `all.findings` and never checks `all.degraded`. Plan DD5 says the 4 consumers '이미 degraded 경로를 가지고 있어'. Task 5 Validate runs only c1-feedback-loop, c1-coverage-gate and backlog-source. No derive findings-source test or handoff test is listed. |
+| test | LOW | Task 0's precondition check cannot catch a missing function. `grep -c` over 4 files prints one count per file, not one per function. If any single pattern still matches in a file, that file shows a count of 1 or more even when another of the 7 functions has been removed. | Plan Task 0 Validate: `grep -c "function buildCandidate\\\|...\\\|function runCli" <4 files>` is expected to show '7건 전부 1 이상'. runCli exists in reseal.js:507, m10-coverage-gate.js:289 and debt-inventory.js:1086, so those counts stay above 0 whether or not the other functions exist. |
+| test | LOW | Validation step 7 only prints the reseal plan exit code and asserts nothing. The live exit-code claim is therefore not checked mechanically. Task 3(i) covers the failure direction in a fixture. | Plan Validation 7: `node .../reseal.js plan --json > /dev/null; echo "reseal plan exit=$?"`, with no comparison and no non-zero exit on mismatch. |
+| invariant | MEDIUM | DD3/Task 4(a) checks validity only by `invalid_dispositions > 0`. It does not say what happens when verifyDispositions returns with no number or throws. verifyDispositions has early returns that leave `invalid_dispositions` undefined, and `undefined > 0` is false, so the row would count as valid. Those early returns (no inventory, ledger unreadable) are already degraded by other report branches today, so the exposure is small. But the predicate falls toward 'valid' on unknown input, and no test pins it (v1-v3 cover only numeric outcomes). | debt-inventory.js:853-867 early returns carry no invalid_dispositions; plan Task 4(a): "`invalid_dispositions > 0`을 disposal degraded로 접는다"; plan DD3: "mock 모듈에 함수가 없으면 검증을 건너뛴다" |
+| invariant | LOW | The DD7 lock reclaims a stale lock when two conditions hold: the lock is from the same host and its pid is dead. The plan does not say how the lock body is written. If the process crashes between the O_EXCL create and the body write, the lock is empty or cannot be parsed, and it falls into 'locked' permanently until someone deletes it by hand. That fails closed, which is safe, but no test covers it: (g) tests only a live pid and a dead child pid. | plan DD7: "EEXIST이고 같은 host의 죽은 pid면 1회 회수한다. 그 밖이면 `aborted:'locked'`"; Task 3(g) |
+| invariant | LOW | Task 1 hardcodes `sealed_at_commit` to e5d274c… on the evidence of an observation artifact alone. No validation step checks that this commit is reachable from HEAD or main. A value that is anchored but unverified replaces one that was wrong. This is display only: no gate reads the field. | plan Task 1 Action 3 and Validation 3 compare only against the string literal; DD1 cites only `repo_head` in 2026-09-08-closure-reseal-live.json |
+
+## Refutation attempted
+
+| Perspective | Verdict | What was attacked |
+|---|---|---|
+| architect | pass | Checked the plan's citations against the code. reseal.js#buildCandidate (:434-458) does copy sealed_at_commit and inherit source_digests through Object.assign, as claimed. sealInventory (:518-548) holds the headCommit and fileDigest logic the plan wants to reuse. m10 checkSeal (:74-108) counts every line that is not the current sha as mismatched, as claimed. verifyDispositions does split lines into ancestor-bound and mismatched (:878-888). report.js has 0 validateDisposition calls. archiveRelFor returns null on a malformed sha (:442-446). Grepped every readAll/listWorkUnits caller: the four consumers named in DD5 are the only readAll callers, and listWorkUnits is used only inside findings-registry.js (:687), so keeping its return type unchanged is harmless. stripQuotedForMarker has a single caller (collectAcceptedShas, :681), so changing it does not affect any other consumer. verifyDispositions is exported (:1212), so DD3's plan to borrow it is feasible. The DD4 key-presence render switch and the DD7 module-local lock introduce no layering problems. The only structural defect found is the duplicated ancestor judgment in m10 (MEDIUM); nothing HIGH or above. |
+| security | pass | 1) Workflow trust: checked whether the pull_request trigger could expose secrets. Permissions are contents:read, persist-credentials is false, actions are SHA-pinned with a negative-control test, and there is no pull_request_target, so a fork PR gets no write token. No escalation found. 2) Tamper surface of the seal meta rewrite: the plan changes only meta (sealed_at_commit set to e5d274c, source_digests nulled). Validation 3 confirms inventoryHash covers items only, so the binding does not move, and setting the digests to null ('not measured') does not make a forged value trusted. Checked that no non-test consumer reads source_digests: the plan claims a grep showing 0; I did not re-verify that. 3) Partial-state fallbacks: DD3 folds rows to null when dispositions are invalid (null, not 100%), DD5 treats every errno except ENOENT as degraded, and a mock without verifyDispositions skips the check. That skip only lives in the test path because production requires the real module. 4) Path handling: archiveRelFor validates against INVENTORY_SHA_RE before building the path (debt-inventory.js:442-446), and the plan moves the null check ahead of the manifest write. Git calls use an argv array with --. No traversal found. 5) Leakage: preflightCarried's reason gets scrubbed. The reseal plan output has no repoRoot or absolute-path fields (grep). DD5 carries only the error code. The CI job summary shows runner paths, not user paths. 6) DD6 stripper: over-stripping only makes a marker invalid, which fails closed. Under-stripping is what the change closes. 7) The lock pid-reuse and double-reclaim race are real but local and single-operator, so rated LOW. |
+| test | pass | I looked for existing tests that pin the current behaviour. msw-m10-producers.test.js:631-641 asserts mismatched_lines=1 for a line bound to a zero sha. That sha is not an ancestor, so the assertion still holds after DD2. It does not encode the bug; it covers the wrongly-approved direction, and Task 2 adds its own non-vacuous check (git rm --cached). msw-reseal.test.js does not assert on the gate's seal axis at all. The sealed_at_commit literals in report.test.js are mock fixtures, not producer assertions. On failure-direction coverage: Task 4 (v1/v2) tests the false-100% case against the real module, Task 5 uses ENOTDIR, which is deterministic, and Task 6 tests both suppression and positive controls. I checked that the cited functions exist (checkSeal:74, checkPrdFlip:242, buildCandidate:434, preflightCarried:286, stripQuotedForMarker:645, listWorkUnits:674). I checked that the Validate test paths exist (c1-*, backlog-source, findings-registry) and that the PRD M2 row matches the Task 8 grep pattern. I tested DD5's consumer-degraded claim against handoff-items.js and derive/sources/findings.js. Neither of my two strongest attacks, that existing suites pin mismatched_lines and that the report-validity fold has no over-permissive test, turned up a HIGH defect. |
+| invariant | pass | 1. Checked DD2 (the m10 seal axis turning green) against the current checkSeal (m10-coverage-gate.js:90-98) and verifyDispositions (debt-inventory.js:871-924). A null sealAncestry returns ok:false, and ancestors that fail verification stay counted as mismatched. The non-vacuous `git rm --cached` control stops the gate from opening in a way that looks valid but proves nothing, so the gate stays honest. 2. Checked that editing only `meta` in the committed seal leaves the binding intact: inventoryHash covers only items, and Validation 3 recomputes it. 3. Traced reseal failure paths. The archive-path null check and the lock both now come before the manifest. A-B-A is refused through the existing plan-degraded path. `plan` now exits 1 when ok is false. 4. Traced report degradation: unreadable ledger or malformed lines (report.js:173, 269-273), the early return when buildInventory throws, and non-array findings. 5. Traced DD5: only ENOENT counts as empty; any other error is degraded. 6. Traced DD6: over-stripping ends in verify failing closed, and a live invariance check backs this. 7. Checked the CI workflow: it has no gating, no continue-on-error, and no group-exit trap that swallows a CLI crash. No path I traced ends in an approval that nothing verified. The residuals are one MEDIUM and two LOW. |
+
+## Measurement
+
+<!-- Written by plan-review/cli.js record on EVERY exit path, pass or halt.
+     Machine-readable; do not hand-edit. A null field means the axis was
+     not observed, never that it was zero. -->
+
+```json
+{
+  "verdict": "divergent",
+  "source": "hybrid",
+  "layers": {
+    "l1": "converged",
+    "l2": "converged",
+    "l3": "divergent"
+  },
+  "quorum": {
+    "responded": 4,
+    "required": 3,
+    "roles": 4,
+    "of": 4,
+    "passed": true
+  },
+  "wall_clock_ms": 179341,
+  "halt_stage": "5.2e",
+  "backlog_appended": null,
+  "backlog_skipped_nonblocking": null,
+  "granted": 4,
+  "reviewed_plan_hash": "sha256:cd495af9edb141ce2f0338cc2abff882d2778b4175b60c9d194d3c104fed1fde",
+  "plan_path": ".claude/plans/closure-accounting-m4.plan.md",
+  "recorded_at": "2026-09-14T05:33:18.311Z"
+}
+```

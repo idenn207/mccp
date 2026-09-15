@@ -122,7 +122,9 @@ UNC root 2.7초 블록 · 태그 재접힘), 원문이 없으면 그 finding이 
 registry는 잠금 없이 `O_APPEND`하므로(`plugins/mccp/scripts/state/findings-registry.js:380-386`),
 파일 전체를 되돌리면 재측정과 실행 사이에 들어온 정당한 이벤트까지 지워지고 그 손실은 이후
 검증에서 깨끗한 상태로 보인다. 대신 **식별된 77줄만 정확히 제거**하고, 쓰기 직전 재판독으로
-경쟁 창을 닫고, 비대상 이벤트 보존을 사후 단언했다. 실행 전 diff patch와 marker는 백업했다.
+경쟁 창을 좁히고, 비대상 이벤트 보존을 사후 단언했다. **재판독은 창을 닫지 못한다**(PR-Codex
+R1 F1 정정, 2026-09-15) — 재판독과 재작성 사이에 들어온 append는 재작성이 지우고 사후 단언의
+기대값에도 없어 검증을 통과한다. 이 절차로는 그 창의 손실을 막지도 탐지하지도 못한다. 실행 전 diff patch와 marker는 백업했다.
 `orchestrator-step-wiring-m4.jsonl`(c2 자신의 게이트 산출물)은 건드리지 않았다.
 
 검증 명령도 교체했다(R1 F2 흡수). plan의 V4는 `test -z "$(git … status --porcelain …)"`라
@@ -132,7 +134,7 @@ git이 실패해도 stdout이 비어 통과한다 — 즉 검사 없이 Acceptan
 
 - c2-residue-lines-removed: `77`
 - c2-marker-removed: `yes`
-- c2-nontarget-events-preserved: `verified — 신규 이벤트 0건 (제거 중 동시 쓰기 없었다)`
+- c2-nontarget-events-preserved: `unproven — 재판독 시점까지 신규 이벤트 0건. 재판독~재작성 창의 append는 이 절차로 탐지 불가 (PR-Codex R1 F1 · backlog 2026-09-15 HIGH)`
 - v4-verdict: `ok`
 
 ## 4. Task 3 트리거 — ~~아직 열리지 않았다~~ 적용됨 (2026-09-15 · §4.1)

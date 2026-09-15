@@ -37,9 +37,12 @@ plan Task 2의 `git checkout -- <16 shard>`를 쓰지 않는다. 대신:
 4. 쓰기 후 각 파일이 "HEAD 버전 + (비대상 신규 이벤트)"와 같은지 단언한다.
 5. 실행 전 diff patch와 marker를 scratchpad에 백업한다 — 실패 시 복원 경로.
 
-잔여(인정): c2 세션이 3단계와 4단계 사이에 append하면 그 이벤트는 보존되지만 V4가 red가 된다.
-그것은 손실이 아니라 정직한 신호이므로 그때는 멈추고 보고한다. `idle`은 쓰기 중단 보장이
-아니라는 리뷰어 지적을 이 절차가 받아들인 방식이다.
+잔여(PR-Codex R1 F1로 정정, 2026-09-15): 3단계 재판독과 재작성 사이에는 경쟁 창이 남는다.
+registry writer가 잠금 없는 `O_APPEND`(`plugins/mccp/scripts/state/findings-registry.js:481`)라
+그 창에 c2가 append한 이벤트는 재작성이 지우고, 그 이벤트는 기대 스냅샷에도 백업에도 없으므로
+4단계 단언과 V4는 통과한다. 즉 이 절차는 그 창의 동시 쓰기 손실을 막지도 탐지하지도 못한다.
+이전 판의 "3단계와 4단계 사이 append는 보존된다"는 거짓이었다. 실제 손실 여부는 미판정이며
+`.claude/plans/codex-findings-backlog.md` 2026-09-15 HIGH 행이 소유한다.
 
 ### F2 흡수 — V4 교체 (plan Validation V4 대체 명령)
 

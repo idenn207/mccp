@@ -1,0 +1,134 @@
+{
+  "source_run": "34195014409",
+  "generated_for": "ci-full-suite M4 OQ3",
+  "legs": [
+    {
+      "leg": "ubuntu-latest-node20",
+      "platform": "linux",
+      "node_version": "v20.20.2",
+      "git_sha": "e5d274c4e621541f9a26e42bb85761387c5859b2",
+      "ci_run_id": "34195014409",
+      "ok": true,
+      "attribution": "complete",
+      "exit_code": 1,
+      "files_total": 392,
+      "files_excluded": 0,
+      "per_file_len": 392,
+      "wall_clock_ms": 133302,
+      "redaction_ok": false,
+      "redaction_degraded": [],
+      "redaction_scan_truncated": false,
+      "redaction_hits": [
+        {
+          "at": "$.failing[9].error",
+          "rule": "win-drive-abs",
+          "length": 3
+        }
+      ],
+      "red_files": [
+        "plugins/mccp/scripts/derive/tests/mask.test.js",
+        "plugins/mccp/scripts/lib/tests/dispatch-fullcycle-smoke.test.js",
+        "plugins/mccp/scripts/lib/tests/leadtime.test.js",
+        "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+        "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js",
+        "plugins/mccp/scripts/receipt/tests/receipt-linkage-fields.test.js"
+      ],
+      "failing_count": 16
+    },
+    {
+      "leg": "ubuntu-latest-node24",
+      "platform": "linux",
+      "node_version": "v24.20.0",
+      "git_sha": "e5d274c4e621541f9a26e42bb85761387c5859b2",
+      "ci_run_id": "34195014409",
+      "ok": true,
+      "attribution": "complete",
+      "exit_code": 1,
+      "files_total": 392,
+      "files_excluded": 0,
+      "per_file_len": 392,
+      "wall_clock_ms": 110063,
+      "redaction_ok": false,
+      "redaction_degraded": [],
+      "redaction_scan_truncated": false,
+      "redaction_hits": [
+        {
+          "at": "$.failing[2].error",
+          "rule": "win-drive-abs",
+          "length": 3
+        }
+      ],
+      "red_files": [
+        "plugins/mccp/scripts/derive/tests/mask.test.js",
+        "plugins/mccp/scripts/lib/tests/leadtime.test.js",
+        "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+        "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js",
+        "plugins/mccp/scripts/receipt/tests/receipt-linkage-fields.test.js"
+      ],
+      "failing_count": 11
+    },
+    {
+      "leg": "windows-latest-node20",
+      "platform": "win32",
+      "node_version": "v20.20.2",
+      "git_sha": "e5d274c4e621541f9a26e42bb85761387c5859b2",
+      "ci_run_id": "34195014409",
+      "ok": true,
+      "attribution": "complete",
+      "exit_code": 1,
+      "files_total": 392,
+      "files_excluded": 0,
+      "per_file_len": 392,
+      "wall_clock_ms": 536483,
+      "redaction_ok": false,
+      "redaction_degraded": [],
+      "redaction_scan_truncated": false,
+      "redaction_hits": [
+        {
+          "at": "$.failing[1].error",
+          "rule": "posix-home",
+          "length": 48
+        }
+      ],
+      "red_files": [
+        "plugins/mccp/scripts/lib/closure/tests/report.test.js",
+        "plugins/mccp/scripts/lib/tests/dispatch-fullcycle-smoke.test.js",
+        "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+        "plugins/mccp/scripts/lib/tests/plan-review-write-invariants.test.js",
+        "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js"
+      ],
+      "failing_count": 13
+    },
+    {
+      "leg": "windows-latest-node24",
+      "platform": "win32",
+      "node_version": "v24.19.0",
+      "git_sha": "e5d274c4e621541f9a26e42bb85761387c5859b2",
+      "ci_run_id": "34195014409",
+      "ok": true,
+      "attribution": "complete",
+      "exit_code": 1,
+      "files_total": 392,
+      "files_excluded": 0,
+      "per_file_len": 392,
+      "wall_clock_ms": 517422,
+      "redaction_ok": false,
+      "redaction_degraded": [],
+      "redaction_scan_truncated": false,
+      "redaction_hits": [
+        {
+          "at": "$.failing[0].error",
+          "rule": "posix-home",
+          "length": 48
+        }
+      ],
+      "red_files": [
+        "plugins/mccp/scripts/lib/closure/tests/report.test.js",
+        "plugins/mccp/scripts/lib/tests/msw-m8-producers.test.js",
+        "plugins/mccp/scripts/lib/tests/plan-review-write-invariants.test.js",
+        "plugins/mccp/scripts/lib/tests/santa-loop-cap.test.js"
+      ],
+      "failing_count": 8
+    }
+  ]
+}

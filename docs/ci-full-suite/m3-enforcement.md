@@ -194,8 +194,8 @@ green으로 완주했다. 3·4는 그대로 남는다 — 둘 다 이 PR이 아�
 |---|---|---|---|
 | 1 | PR에서 `test-suite` 체크가 발화하고 green | **충족** | run `34176593137` (PR #185, HEAD `cb64b70`) — `full test suite gate` pass, 2m11s |
 | 2 | 커버리지 실값이 **CI에서** 산출 | **충족** | 같은 run의 `gate.json`: `coverage_pct` 98.4655 · `denominator` 391 · `unexplained` [] · `missing` [] |
-| 3 | 절단 A·B가 각각 CI에서 red를 만든 run URL 둘 | **미충족** | DD5의 버리는 PR 절차. 로컬 왕복만 통과(§4) |
-| 4 | 운영자 branch protection 설정 후 `ci-required-checks.js`가 exit 0 | **미충족** | 수동 1회. 현재 진단은 `protection_absent`를 정직하게 보고한다 |
+| 3 | 절단 A·B가 각각 CI에서 red를 만든 run URL 둘 | **미충족(2026-09-08 M4 재확인)** | DD5의 버리는 PR 절차. 로컬 왕복만 통과(§4). **M4가 바꾼 것**: 이 산출물을 막던 것이 절차가 아니라 코드였음이 드러났고 그 결함은 닫혔다 — `wiring-cut.js#applyDelete`가 대상 가드 없이 임의 경로를 `git rm` 해, 절단 B가 자기 test(`Gate discriminating-power tests` step이 부르는 둘)나 격리 6건을 고르면 `Enumerate sanity` 등가 단언이 **판정보다 먼저** 죽어 `gate.json`이 생성되지 않았다. 이제 5 사유 코드로 거부한다. 남은 것은 원격 왕복뿐 |
+| 4 | 운영자 branch protection 설정 후 `ci-required-checks.js`가 exit 0 | **미충족(2026-09-08 M4 재확인)** | 수동 1회 — 인증 계정 `madsci207`이 `admin:false`라 수행 주체는 `idenn207`이다. **M4가 바꾼 것**: 이 산출물은 그 전까지 **원리상 도달 불가**였다. 진단이 admin 전용 `/branches/{b}/protection/required_status_checks`를 읽어 non-admin에게 보호 유무와 무관하게 404 → `protection_absent`를 냈으므로, `idenn207`이 무엇을 설정하든 이 계정으로는 exit 0이 나올 수 없었다. 이제 world-readable `/branches/{b}`를 읽고 `protection_unreadable`(권한/판독)과 `protection_absent`(보호 없음)를 가른다 |
 
 ### 7a. 첫 라이브 발화 — 막았고, 막은 것이 옳았다 (2026-09-08)
 

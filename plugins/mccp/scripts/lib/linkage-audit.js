@@ -938,6 +938,13 @@ function judgeShipLinkage(ship, byPath) {
     return { ok: false, check: 'seal', reason: 'receipt_digest_mismatch' };
   }
 
+  // 검사 0b — 정체성. 슬러그는 파일명에서 오고(`:218`) 봉인은 본문만 덮으므로, 링크된
+  // receipt 를 다른 이름으로 복사하면 봉인도 backlink 도 유효한 채 그 이름이 ship 한
+  // 것으로 판정됐다 (PR-Codex R2 F1).
+  if (ship.body.decision_id !== ship.slug || ship.body.gate_id !== 'mccp-pr-codex') {
+    return { ok: false, check: 'identity', reason: 'decision_id_mismatch' };
+  }
+
   // 검사 4 — 자격. **먼저** 판정한다 (Codex F1).
   // `computeLinkage` 는 자격 오라클이 아니다: `:383` 이 `eligibleShips` 를 그대로
   // 순회할 뿐 `classifyShipEligibility` 를 부르지 않고, 자격 판정은 **호출자**가

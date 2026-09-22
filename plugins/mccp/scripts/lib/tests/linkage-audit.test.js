@@ -1236,6 +1236,20 @@ test('live (PR-Codex F1): a ship edited after sealing fails even with its old ha
   assert.equal(r.json.failures[0].reason, 'receipt_digest_mismatch');
 });
 
+test('live (PR-Codex R2 F1): a linked receipt copied under another decision\'s name does not ship that decision', function () {
+  const { root } = mkRepo();
+  commitLinkedShip(root, 'linked');
+  const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
+  // 바이트 그대로 복사한다 — 봉인도 backlink 도 유효하다. 다른 것은 파일명뿐이다.
+  fs.copyFileSync(path.join(rc, 'linked.json'), path.join(rc, 'target.json'));
+  commitAt(root, '2024-02-02T00:00:00+00:00', 'copy linked receipt under another name');
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'target', '--json']);
+  assert.equal(r.code, 1);
+  assert.equal(r.json.state, 'violations');
+  assert.equal(r.json.failures[0].check, 'identity');
+  assert.equal(r.json.failures[0].reason, 'decision_id_mismatch');
+});
+
 test('live (plan fixture 3): another ship\'s link never approves the named one — no over-approval', function () {
   const { root } = mkRepo();
   commitLinkedShip(root, 'linked');                       // 이 ship 은 완전히 링크됨

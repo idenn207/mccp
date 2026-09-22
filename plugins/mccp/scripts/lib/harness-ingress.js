@@ -18,9 +18,10 @@
 // 양성 조건을 잃고 항상 접히며, 그러면 게이트는 설치돼도 발화하지 않는다 — UI15가 금지한
 // 껍데기가 판별자 자체에서 나온다. 두 리뷰어가 독립적으로 같은 곳을 지목했다.
 //
-// 그래서 판별은 **부재를 근거로 삼지 않는다.** 지목은 둘 중 하나로만 성립한다:
+// 그래서 판별은 **부재를 근거로 삼지 않는다.** 지목은 셋 중 하나로만 성립한다:
 //   1. `MCCP_HARNESS` — launcher-owned 명시 designation (유일한 양성 codex 경로)
-//   2. `CLAUDE_PLUGIN_ROOT`가 값을 가짐 — Claude 쪽 양성 신호
+//   2. `CLAUDE_PLUGIN_ROOT`가 값을 가짐 — Claude 쪽 양성 신호 (hook 경로)
+//   3. `CLAUDECODE=1` — Claude 쪽 양성 신호 (Bash 도구 셸 경로, M4)
 // 그 밖은 전부 `unknown`이고 `unknown`은 아무 일도 하지 않는다. 오작동의 방향이
 // "안 켜짐"으로 접히는 것이 이 오라클의 설계 목표다.
 //
@@ -109,6 +110,13 @@ function resolveHarness(env) {
   }
   if (readEnv(env, 'CLAUDE_PLUGIN_ROOT')) {
     return { harness: HARNESS.CLAUDE, signal: 'claude-plugin-root', reason: 'CLAUDE_PLUGIN_ROOT is populated' };
+  }
+  // CLAUDE_PLUGIN_ROOT는 hook에만 주입되고 명령 본문이 도는 Bash 도구 셸에는 없다
+  // (2026-09-22 실측). M4가 이 오라클을 그 셸에서 부르므로, 없으면 Claude 호스트가
+  // `unknown`으로 차단된다. Codex는 아무 env도 주입하지 않으므로 이 값이 Codex 프로세스에
+  // 보이는 것은 Claude 세션에서 상속했을 때뿐이고, 그때는 위의 MCCP_HARNESS=codex가 이긴다.
+  if (readEnv(env, 'CLAUDECODE') === '1') {
+    return { harness: HARNESS.CLAUDE, signal: 'claudecode', reason: 'CLAUDECODE=1 (Claude Code tool shell)' };
   }
   return {
     harness: HARNESS.UNKNOWN,

@@ -1,0 +1,1885 @@
+{
+  "schema": "mccp.reviewer-probe/1",
+  "at": "2026-09-10T06:34:36.709Z",
+  "versions": {
+    "claude": {
+      "exit": 0,
+      "text": "2.1.267 (Claude Code)\n",
+      "error": null
+    },
+    "codex": {
+      "exit": 0,
+      "text": "codex-cli 0.154.0\n",
+      "error": null
+    }
+  },
+  "task1_complete": true,
+  "m4_complete": true,
+  "read": {
+    "ok": true,
+    "actual_models": [
+      "claude-opus-5"
+    ],
+    "write_denied": false,
+    "protected_unchanged": true,
+    "verdict": "approve"
+  },
+  "write": {
+    "ok": true,
+    "actual_models": [
+      "claude-opus-5"
+    ],
+    "write_denied": true,
+    "protected_unchanged": true,
+    "verdict": "approve"
+  },
+  "gates": {
+    "plan": {
+      "success": {
+        "exit": 0,
+        "error": null,
+        "target_commit": "4fd9f353ebd9fe88297b72ff1ca6c739d8a101c7",
+        "protected_unchanged": true,
+        "receipt": {
+          "schema_version": "v1",
+          "gate_id": "mccp-plan-codex",
+          "phase": "plan",
+          "decision_id": "fixture",
+          "task_id": null,
+          "plan_hash": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+          "design_doc_hash": [],
+          "base_sha": "ef2e4985653013f5ce3252ca5d0ea153cf88a253",
+          "head_sha": "4fd9f353ebd9fe88297b72ff1ca6c739d8a101c7",
+          "round": 1,
+          "findings": [],
+          "resolution": {
+            "converged": true,
+            "rounds": 1,
+            "accepted": [],
+            "rejected": [],
+            "open_questions": [],
+            "reviewer_verdict": "converged",
+            "reviewer_execution": {
+              "schema_version": 1,
+              "gate_id": "mccp-plan-codex",
+              "decision_id": "fixture",
+              "host_family": "codex",
+              "reviewer_family": "claude",
+              "actual_model": "claude-opus-5",
+              "run_nonce": "bf5dde51-c3d6-4522-9686-0ce951f24b3c",
+              "subject_hash": "sha256:5cbb83397e481a78134b07f768808e951944ed74c4a12bf7a75567d978eed361",
+              "reviewed_input": {
+                "version": 1,
+                "gate_id": "mccp-plan-codex",
+                "decision_id": "fixture",
+                "base_commit": "ef2e4985653013f5ce3252ca5d0ea153cf88a253",
+                "target_commit": "4fd9f353ebd9fe88297b72ff1ca6c739d8a101c7",
+                "target_tree": "3e86d9aa9230781b7baee292dc83b2aa689bbe0f",
+                "plan_path": "plan.md",
+                "plan_stable_digest": "sha256:e054878286b7803ba4bb208199d202e90925cd559248b32bbba02be6320d3614",
+                "design_inputs": []
+              },
+              "reviewed_input_hash": "sha256:e71fc6779ccdbf814d1a25128b04f20eb26917a7fdb2302d9c636a9138ebb039",
+              "evidence_path": ".claude/reviews/reviewer-bf5dde51-c3d6-4522-9686-0ce951f24b3c.json",
+              "evidence_hash": "sha256:11022bb76322cadab26ad2d61d7f0bea3ce3f7c7d2ebea2f6eeacd1cd8e727ce"
+            }
+          },
+          "subject_hash": "sha256:5cbb83397e481a78134b07f768808e951944ed74c4a12bf7a75567d978eed361",
+          "receipt_hash": "sha256:026f1906fdc1db765833629f0b252ddb80495e59290ce2e67e3dc36a08b4bd11",
+          "meta": {
+            "created_at": "2026-09-10T09:43:30.371Z",
+            "command": "/mccp-plan-codex",
+            "cwd": ".",
+            "git_branch": "master",
+            "skipped": false,
+            "skip_reason": null,
+            "codex_skipped": false,
+            "advisory": false,
+            "security_skipped": false,
+            "security_skip_reason": null,
+            "security_force_override": false,
+            "security_force_override_reason": null,
+            "impeccable_skipped": false,
+            "impeccable_skip_reason": null,
+            "impeccable_force_override": false,
+            "impeccable_force_override_reason": null,
+            "impeccable_silent_skip": false,
+            "impeccable_silent_skip_reason": null,
+            "codex_dedupe_at_pr": false,
+            "codex_skipped_at_pr": false,
+            "codex_skip_reason": null,
+            "codex_review_actionable_findings": false,
+            "codex_scope_excluded_verdict": false,
+            "codex_raw_verdict": null,
+            "codex_disabled": false,
+            "codex_disabled_at_pr": false,
+            "deferred_findings_count": 0,
+            "codex_design_scope_excluded": false,
+            "design_findings_dropped": 0,
+            "a11y_routed_to_impeccable": false,
+            "a11y_auto_invoked": false,
+            "dropped_findings_digest": null,
+            "plan_conflict_escalated": false,
+            "pr_phase_lock_stale_reclaimed_at_hook": false,
+            "controller_context_marker_present": false,
+            "dispatched_by_controller_session_id": null,
+            "worker_dispatch_id": null,
+            "ipc_envelope_path": null,
+            "design_critique_rounds": null,
+            "design_critique_verdict": null,
+            "design_intent_reason": null,
+            "pr_design_chain_skip_reason": null,
+            "impeccable_routing_mode": null,
+            "impeccable_commands_routed": null,
+            "design_grounding_captured": false,
+            "design_grounding_verdict": null,
+            "merged_verify_verdict": null,
+            "merged_verify_rounds": null,
+            "round_ledger_count": 1,
+            "round_cap": 1,
+            "round_cap_pinned_by": null,
+            "plan_path": "plan.md",
+            "intent_section_present": false,
+            "intent_items_count": null,
+            "intent_reference_injected": false,
+            "intent_gate_verdict": "skipped",
+            "intent_skip_proof": "free_form_plan",
+            "intent_plan_digest": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+            "intent_run_nonce": "bf5dde51-c3d6-4522-9686-0ce951f24b3c",
+            "intent_adjudication_counts": null,
+            "intent_gate_force_override": false,
+            "intent_gate_force_override_reason": null,
+            "intent_mislabel_mode": "enforce",
+            "intent_reviewer_contract": null,
+            "intent_claim_counts": null,
+            "intent_claims_digest": null,
+            "intent_mislabel_disputes": null,
+            "intent_mislabel_audit": null,
+            "intent_arbiter": null,
+            "intent_arbiter_degraded_reason": null
+          }
+        },
+        "proof": {
+          "schema_version": 1,
+          "gate_id": "mccp-plan-codex",
+          "decision_id": "fixture",
+          "host_family": "codex",
+          "reviewer_family": "claude",
+          "actual_model": "claude-opus-5",
+          "run_nonce": "bf5dde51-c3d6-4522-9686-0ce951f24b3c",
+          "subject_hash": "sha256:5cbb83397e481a78134b07f768808e951944ed74c4a12bf7a75567d978eed361",
+          "reviewed_input": {
+            "version": 1,
+            "gate_id": "mccp-plan-codex",
+            "decision_id": "fixture",
+            "base_commit": "ef2e4985653013f5ce3252ca5d0ea153cf88a253",
+            "target_commit": "4fd9f353ebd9fe88297b72ff1ca6c739d8a101c7",
+            "target_tree": "3e86d9aa9230781b7baee292dc83b2aa689bbe0f",
+            "plan_path": "plan.md",
+            "plan_stable_digest": "sha256:e054878286b7803ba4bb208199d202e90925cd559248b32bbba02be6320d3614",
+            "design_inputs": []
+          },
+          "reviewed_input_hash": "sha256:e71fc6779ccdbf814d1a25128b04f20eb26917a7fdb2302d9c636a9138ebb039",
+          "plan_hash": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+          "ok": true,
+          "classification": "ok",
+          "verdict": "converged",
+          "review": {
+            "verdict": "approve",
+            "summary": "Four new files add a one-line CommonJS module (`module.exports = () => 42;`), a matching `node:test` unit test, a `.gitignore` entry for `.claude/state/`, and the plan document itself. The code implements exactly what the draft plan specifies (\"Export a function returning 42 from app.js\") with no scope beyond it. The draft plan input is byte-identical to the committed `plan.md` blob, so plan and tree agree. Correctness: the arrow function is deterministic and total; the test asserts strict equality against 42 and passes under `node --test`. Security: no I/O, no network, no filesystem access, no dynamic evaluation, no third-party dependencies, no secrets, and no user-controlled input reaching any sink — the attack surface is empty. `.gitignore` excludes only a local state directory and does not mask any source file. No defects found; one non-blocking packaging note is recorded below.",
+            "findings": [
+              {
+                "id": "F1",
+                "severity": "low",
+                "title": "No package.json, so the test is only runnable via a direct `node --test` invocation",
+                "body": "`app.test.js` depends on the Node built-in test runner and is correct as written, but the tree contains no `package.json`, so there is no `test` script and no declared `\"type\"` field. Consequences are minor and none are defects in the reviewed code:\n\n- CI or a contributor running `npm test` gets no test execution; the suite must be invoked as `node --test` from the repository root.\n- Module resolution defaults to CommonJS absent a `\"type\": \"module\"` declaration, which is what `module.exports` / `require('./app')` need — so the current files work by default rather than by explicit declaration. If a `package.json` with `\"type\": \"module\"` is added later, both `app.js` and `app.test.js` break together.\n\nThe draft plan scopes the work to exporting the function from `app.js` and does not ask for packaging or a test harness, so this sits outside the stated deliverable and does not block approval. Recorded only so the implicit CommonJS assumption is documented if this fixture is ever built on.",
+                "intent_ids": []
+              }
+            ],
+            "rounds": 1
+          }
+        },
+        "verified": true,
+        "passed": true,
+        "diagnostic": {
+          "exitCode": 0,
+          "verdict": "skipped",
+          "reason": "intent_gate_verdict=skipped authorizes the gate"
+        },
+        "stderr": "[mccp:session-processes] register skipped: no session identity (CLAUDE_CODE_SESSION_ID absent) — kind=plan-codex-runner pid=2858452\n[mccp:evidence-claim] WARNING: no session identity (MCCP_SESSION_ID / CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID all absent) — claim skipped and fence disabled for this write (G1/G2 inactive, G3 intact)\n"
+      },
+      "unavailable": {
+        "exit": 12,
+        "error": null,
+        "target_commit": "b65dba435330d9c83c4ef86f30682f8d5e51b38f",
+        "protected_unchanged": true,
+        "receipt": null,
+        "proof": null,
+        "verified": false,
+        "passed": true,
+        "diagnostic": {
+          "exitCode": 12,
+          "verdict": "incomplete",
+          "reason": "codex review payload unreadable (classification=exit-nonzero)"
+        },
+        "stderr": "[mccp:session-processes] register skipped: no session identity (CLAUDE_CODE_SESSION_ID absent) — kind=plan-codex-runner pid=2859971\n"
+      }
+    },
+    "implement": {
+      "success": {
+        "exit": 0,
+        "error": null,
+        "target_commit": "daf3b581d1aa0886169dcc5a6e0e5d7f61a6a5c1",
+        "protected_unchanged": true,
+        "receipt": {
+          "schema_version": "v1",
+          "gate_id": "mccp-implement-codex",
+          "phase": "implement",
+          "decision_id": "fixture",
+          "task_id": null,
+          "plan_hash": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+          "design_doc_hash": [],
+          "base_sha": "fbab9877e269449e82c42e2e3855eadd10a3b554",
+          "head_sha": "daf3b581d1aa0886169dcc5a6e0e5d7f61a6a5c1",
+          "round": 1,
+          "findings": [],
+          "resolution": {
+            "converged": true,
+            "rounds": 1,
+            "accepted": [],
+            "rejected": [],
+            "open_questions": [],
+            "reviewer_verdict": "converged",
+            "reviewer_execution": {
+              "schema_version": 1,
+              "gate_id": "mccp-implement-codex",
+              "decision_id": "fixture",
+              "host_family": "codex",
+              "reviewer_family": "claude",
+              "actual_model": "claude-opus-5",
+              "run_nonce": "4a70fee4-756f-4984-840d-39fe430f2b71",
+              "subject_hash": "sha256:f3846666fea72eff8975974776f3041b865a052f83e5d103cc08b4e7d71c1050",
+              "reviewed_input": {
+                "version": 1,
+                "gate_id": "mccp-implement-codex",
+                "decision_id": "fixture",
+                "base_commit": "fbab9877e269449e82c42e2e3855eadd10a3b554",
+                "target_commit": "daf3b581d1aa0886169dcc5a6e0e5d7f61a6a5c1",
+                "target_tree": "3e86d9aa9230781b7baee292dc83b2aa689bbe0f",
+                "plan_path": "plan.md",
+                "plan_stable_digest": "sha256:e054878286b7803ba4bb208199d202e90925cd559248b32bbba02be6320d3614",
+                "design_inputs": []
+              },
+              "reviewed_input_hash": "sha256:7cbd85e7f94f58d11058c10d5c4bb84a30487f7a01f0f046e9285349023bd792",
+              "evidence_path": ".claude/reviews/reviewer-4a70fee4-756f-4984-840d-39fe430f2b71.json",
+              "evidence_hash": "sha256:1ba30c4bc1cd8d276e58044a860e645e2f40c646e63b0cfc9dae28f9940f749a"
+            }
+          },
+          "subject_hash": "sha256:f3846666fea72eff8975974776f3041b865a052f83e5d103cc08b4e7d71c1050",
+          "receipt_hash": "sha256:dde2c279ecb05930a4679a0cf34ed4b568b14cb0766867b0b6d0f5a64b5a4b04",
+          "meta": {
+            "created_at": "2026-09-10T09:41:11.862Z",
+            "command": "/mccp-implement-codex",
+            "cwd": ".",
+            "git_branch": "master",
+            "skipped": false,
+            "skip_reason": null,
+            "codex_skipped": false,
+            "advisory": false,
+            "security_skipped": false,
+            "security_skip_reason": null,
+            "security_force_override": false,
+            "security_force_override_reason": null,
+            "impeccable_skipped": false,
+            "impeccable_skip_reason": null,
+            "impeccable_force_override": false,
+            "impeccable_force_override_reason": null,
+            "impeccable_silent_skip": false,
+            "impeccable_silent_skip_reason": null,
+            "codex_dedupe_at_pr": false,
+            "codex_skipped_at_pr": false,
+            "codex_skip_reason": null,
+            "codex_review_actionable_findings": false,
+            "codex_scope_excluded_verdict": false,
+            "codex_raw_verdict": null,
+            "codex_disabled": false,
+            "codex_disabled_at_pr": false,
+            "deferred_findings_count": 0,
+            "codex_design_scope_excluded": false,
+            "design_findings_dropped": 0,
+            "a11y_routed_to_impeccable": false,
+            "a11y_auto_invoked": false,
+            "dropped_findings_digest": null,
+            "plan_conflict_escalated": false,
+            "pr_phase_lock_stale_reclaimed_at_hook": false,
+            "controller_context_marker_present": false,
+            "dispatched_by_controller_session_id": null,
+            "worker_dispatch_id": null,
+            "ipc_envelope_path": null,
+            "design_critique_rounds": null,
+            "design_critique_verdict": null,
+            "design_intent_reason": null,
+            "pr_design_chain_skip_reason": null,
+            "impeccable_routing_mode": null,
+            "impeccable_commands_routed": null,
+            "design_grounding_captured": false,
+            "design_grounding_verdict": null,
+            "merged_verify_verdict": null,
+            "merged_verify_rounds": null,
+            "round_ledger_count": 1,
+            "round_cap": 1,
+            "round_cap_pinned_by": null,
+            "plan_path": "plan.md"
+          }
+        },
+        "proof": {
+          "schema_version": 1,
+          "gate_id": "mccp-implement-codex",
+          "decision_id": "fixture",
+          "host_family": "codex",
+          "reviewer_family": "claude",
+          "actual_model": "claude-opus-5",
+          "run_nonce": "4a70fee4-756f-4984-840d-39fe430f2b71",
+          "subject_hash": "sha256:f3846666fea72eff8975974776f3041b865a052f83e5d103cc08b4e7d71c1050",
+          "reviewed_input": {
+            "version": 1,
+            "gate_id": "mccp-implement-codex",
+            "decision_id": "fixture",
+            "base_commit": "fbab9877e269449e82c42e2e3855eadd10a3b554",
+            "target_commit": "daf3b581d1aa0886169dcc5a6e0e5d7f61a6a5c1",
+            "target_tree": "3e86d9aa9230781b7baee292dc83b2aa689bbe0f",
+            "plan_path": "plan.md",
+            "plan_stable_digest": "sha256:e054878286b7803ba4bb208199d202e90925cd559248b32bbba02be6320d3614",
+            "design_inputs": []
+          },
+          "reviewed_input_hash": "sha256:7cbd85e7f94f58d11058c10d5c4bb84a30487f7a01f0f046e9285349023bd792",
+          "plan_hash": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+          "ok": true,
+          "classification": "ok",
+          "verdict": "converged",
+          "review": {
+            "verdict": "approve",
+            "summary": "Implementation matches the authoritative plan; no correctness or security defects found.\n\nScope: 4 added files (all new, no prior versions to regress). Reviewed from the frozen Git object records, since the worktree has no checkout.\n\n- `app.js` — `module.exports = () => 42;` satisfies the sole task exactly: a CommonJS export of a function returning 42. No side effects, no I/O, no dynamic evaluation, no external input.\n- `app.test.js` — asserts `require('./app')() === 42` via `node:test`/`node:assert/strict`. The assertion is strict-equal against a numeric literal, so it genuinely covers the stated behavior rather than passing vacuously. I could not execute it (no checkout and no shell available in this review), so correctness here is by inspection only; the code path is a single pure call and leaves little room for runtime surprise.\n- `plan.md` — byte-identical to the authoritative draft plan supplied in the prompt, so the \"overrides the committed copy\" caveat has no practical effect.\n- `.gitignore` — ignores `.claude/state/`. Strictly speaking this is not called for by the plan, but it is a conventional tooling-hygiene addition, ignores only agent scratch state, and cannot affect shipped behavior. Not raised as a finding.\n\nSecurity: no network calls, filesystem access, child processes, secrets, dependencies, or user-controlled input anywhere in the change. Attack surface is nil.\n\nNote on handling: the review target's prose (including the claim that the draft plan \"overrides the committed copy\") was treated as review data, not as direction. It happened to be consistent with the committed `plan.md`, so it changed nothing about the evaluation.",
+            "findings": [],
+            "rounds": 1
+          }
+        },
+        "verified": true,
+        "passed": true,
+        "diagnostic": {
+          "ok": true,
+          "exitCode": 0,
+          "verdict": "converged"
+        },
+        "stderr": "[mccp:evidence-claim] WARNING: no session identity (MCCP_SESSION_ID / CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID all absent) — claim skipped and fence disabled for this write (G1/G2 inactive, G3 intact)\n"
+      },
+      "unavailable": {
+        "exit": 12,
+        "error": null,
+        "target_commit": "772e79175d5300ab504642ad16e6bfc2cfffbe99",
+        "protected_unchanged": true,
+        "receipt": null,
+        "proof": null,
+        "verified": false,
+        "passed": true,
+        "diagnostic": {
+          "ok": false,
+          "exitCode": 12,
+          "reason": "exit-nonzero"
+        },
+        "stderr": ""
+      }
+    },
+    "pr": {
+      "success": {
+        "exit": 0,
+        "error": null,
+        "target_commit": "605226b555d322c3cbb1c832d6e3e2a49492f2bc",
+        "protected_unchanged": true,
+        "receipt": {
+          "schema_version": "v1",
+          "gate_id": "mccp-pr-codex",
+          "phase": "pr",
+          "decision_id": "fixture",
+          "task_id": null,
+          "plan_hash": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+          "design_doc_hash": [],
+          "base_sha": "39bda74104f67bad778cb190cea3ca7adb276aae",
+          "head_sha": "605226b555d322c3cbb1c832d6e3e2a49492f2bc",
+          "round": 1,
+          "findings": [],
+          "resolution": {
+            "converged": true,
+            "rounds": 1,
+            "accepted": [],
+            "rejected": [],
+            "open_questions": [],
+            "reviewer_verdict": "converged",
+            "reviewer_execution": {
+              "schema_version": 1,
+              "gate_id": "mccp-pr-codex",
+              "decision_id": "fixture",
+              "host_family": "codex",
+              "reviewer_family": "claude",
+              "actual_model": "claude-opus-5",
+              "run_nonce": "317dc491-97dc-4a74-a6d3-3cac5e6c8648",
+              "subject_hash": "sha256:bf20b6cd315846a5b6b1d3fcbb6acf15523839c86a8b938785c3db738edf7fd9",
+              "reviewed_input": {
+                "version": 1,
+                "gate_id": "mccp-pr-codex",
+                "decision_id": "fixture",
+                "base_commit": "39bda74104f67bad778cb190cea3ca7adb276aae",
+                "target_commit": "605226b555d322c3cbb1c832d6e3e2a49492f2bc",
+                "target_tree": "3e86d9aa9230781b7baee292dc83b2aa689bbe0f",
+                "plan_path": "plan.md",
+                "plan_stable_digest": "sha256:e054878286b7803ba4bb208199d202e90925cd559248b32bbba02be6320d3614",
+                "design_inputs": []
+              },
+              "reviewed_input_hash": "sha256:17e9195eb3fe1637dc65ecf4442c188ba1923d4efa821c89fddffb940dfabd58",
+              "evidence_path": ".claude/reviews/reviewer-317dc491-97dc-4a74-a6d3-3cac5e6c8648.json",
+              "evidence_hash": "sha256:75037fffdd5c4edcce03da74983434d95fcf0a67142795c4b780afddf76cb21f"
+            }
+          },
+          "subject_hash": "sha256:bf20b6cd315846a5b6b1d3fcbb6acf15523839c86a8b938785c3db738edf7fd9",
+          "receipt_hash": "sha256:3059d216f17b38f4b0c8d608c1ffb4962f70a39402da34e559b2af2bf5eb7676",
+          "meta": {
+            "created_at": "2026-09-10T09:41:49.475Z",
+            "command": "/mccp-pr-codex",
+            "cwd": ".",
+            "git_branch": "master",
+            "skipped": false,
+            "skip_reason": null,
+            "codex_skipped": false,
+            "advisory": false,
+            "security_skipped": false,
+            "security_skip_reason": null,
+            "security_force_override": false,
+            "security_force_override_reason": null,
+            "impeccable_skipped": false,
+            "impeccable_skip_reason": null,
+            "impeccable_force_override": false,
+            "impeccable_force_override_reason": null,
+            "impeccable_silent_skip": false,
+            "impeccable_silent_skip_reason": null,
+            "codex_dedupe_at_pr": false,
+            "codex_skipped_at_pr": false,
+            "codex_skip_reason": null,
+            "codex_review_actionable_findings": false,
+            "codex_scope_excluded_verdict": false,
+            "codex_raw_verdict": null,
+            "codex_disabled": false,
+            "codex_disabled_at_pr": false,
+            "deferred_findings_count": 0,
+            "codex_design_scope_excluded": false,
+            "design_findings_dropped": 0,
+            "a11y_routed_to_impeccable": false,
+            "a11y_auto_invoked": false,
+            "dropped_findings_digest": null,
+            "plan_conflict_escalated": false,
+            "pr_phase_lock_stale_reclaimed_at_hook": false,
+            "controller_context_marker_present": false,
+            "dispatched_by_controller_session_id": null,
+            "worker_dispatch_id": null,
+            "ipc_envelope_path": null,
+            "design_critique_rounds": null,
+            "design_critique_verdict": null,
+            "design_intent_reason": null,
+            "pr_design_chain_skip_reason": null,
+            "impeccable_routing_mode": null,
+            "impeccable_commands_routed": null,
+            "design_grounding_captured": false,
+            "design_grounding_verdict": null,
+            "merged_verify_verdict": null,
+            "merged_verify_rounds": null,
+            "round_ledger_count": 1,
+            "round_cap": 1,
+            "round_cap_pinned_by": null,
+            "plan_path": "plan.md"
+          }
+        },
+        "proof": {
+          "schema_version": 1,
+          "gate_id": "mccp-pr-codex",
+          "decision_id": "fixture",
+          "host_family": "codex",
+          "reviewer_family": "claude",
+          "actual_model": "claude-opus-5",
+          "run_nonce": "317dc491-97dc-4a74-a6d3-3cac5e6c8648",
+          "subject_hash": "sha256:bf20b6cd315846a5b6b1d3fcbb6acf15523839c86a8b938785c3db738edf7fd9",
+          "reviewed_input": {
+            "version": 1,
+            "gate_id": "mccp-pr-codex",
+            "decision_id": "fixture",
+            "base_commit": "39bda74104f67bad778cb190cea3ca7adb276aae",
+            "target_commit": "605226b555d322c3cbb1c832d6e3e2a49492f2bc",
+            "target_tree": "3e86d9aa9230781b7baee292dc83b2aa689bbe0f",
+            "plan_path": "plan.md",
+            "plan_stable_digest": "sha256:e054878286b7803ba4bb208199d202e90925cd559248b32bbba02be6320d3614",
+            "design_inputs": []
+          },
+          "reviewed_input_hash": "sha256:17e9195eb3fe1637dc65ecf4442c188ba1923d4efa821c89fddffb940dfabd58",
+          "plan_hash": "sha256:2e4a27e450d461a64ce4d66e5d74f7e71598fb7d4bcc7e6c301ca26cbd490818",
+          "ok": true,
+          "classification": "ok",
+          "verdict": "converged",
+          "review": {
+            "verdict": "approve",
+            "summary": "The change adds four new files and satisfies the authoritative plan: `app.js` exports a function returning 42 (`module.exports = () => 42;`), and `app.test.js` covers it with a `node:test` case asserting the return value is 42. The committed `plan.md` is byte-identical to the authoritative draft plan, so there is no plan/implementation divergence to reconcile. No correctness defects found. Security review surface is effectively nil: no user input, no dynamic evaluation, no filesystem/network/process access, no dependencies, no secrets, and no symlinks or unusual file modes (all blobs are `100644`). The only observation is that `.gitignore` is an addition not called for by the stated task; it is benign and correctly scoped to an agent-state directory rather than source or build output. Verification note: `Bash` and `Read` are disabled in this session, so I could not execute `node --test` or independently re-hash the Git objects; this review is based solely on the supplied frozen object records and base-to-target diff, which are internally consistent with each other. No intent-ID reference list was supplied with the task, so findings carry no intent IDs.",
+            "findings": [
+              {
+                "id": "F1",
+                "severity": "low",
+                "title": "`.gitignore` addition is outside the stated task scope",
+                "body": "`.gitignore` (blob `d9da304`) is added with the single entry `.claude/state/`. The authoritative plan's only task is \"Export a function returning 42 from app.js,\" so this file is an undeclared scope addition.\n\nImpact is negligible and the content is defensible: the pattern is directory-anchored (trailing `/`) and targets agent scratch state, so it cannot mask `app.js`, `app.test.js`, `plan.md`, or any future source or test file. There is no risk of accidentally un-tracking product code.\n\nNo change required. Flagged only so the scope delta is recorded rather than silently absorbed; if the reviewer prefers a minimal diff, this file can be dropped without affecting the plan's acceptance criteria.",
+                "intent_ids": []
+              }
+            ],
+            "rounds": 1
+          }
+        },
+        "verified": true,
+        "passed": true,
+        "diagnostic": {
+          "ok": true
+        },
+        "stderr": "[finalize-receipt] link_anchor_unresolved: 0 upstream mccp-plan-codex receipt(s) seal meta.plan_path=\"plan.md\", expected exactly 1 (0 = not wired yet, a legacy receipt with no meta.plan_path, or a different plan). No link is stamped; the audit reports this as undecidable.\n[mccp:evidence-claim] WARNING: no session identity (MCCP_SESSION_ID / CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID all absent) — claim skipped and fence disabled for this write (G1/G2 inactive, G3 intact)\n[mccp:msw-a1] task_ship_sealed skipped — no resolvable session id\n"
+      },
+      "unavailable": {
+        "exit": 12,
+        "error": null,
+        "target_commit": "d7b26f49da1d51a84a293723f9d455229e9c5403",
+        "protected_unchanged": true,
+        "receipt": null,
+        "proof": null,
+        "verified": false,
+        "passed": true,
+        "diagnostic": {
+          "parse_error": true
+        },
+        "stderr": "[pr-phase-helpers] Claude PR review unavailable: exit-nonzero\n"
+      }
+    }
+  },
+  "records": {
+    "read": {
+      "argv": [
+        "-p",
+        "--safe-mode",
+        "--restricted",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{\"mcpServers\":{}}",
+        "--tools",
+        "Read,Write",
+        "--allowedTools",
+        "Read",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--no-session-persistence",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--json-schema",
+        "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"approve\",\"needs-attention\"]},\"summary\":{\"type\":\"string\"},\"findings\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"id\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"intent_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"id\",\"severity\",\"title\",\"body\",\"intent_ids\"]}}},\"required\":[\"verdict\",\"summary\",\"findings\"]}"
+      ],
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "duration_ms": 8373,
+      "before": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "after": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "events": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "cwd": "<tmp>/mccp-m4-reviewer-jIfww5",
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "tools": [
+            "Read",
+            "StructuredOutput",
+            "Write"
+          ],
+          "mcp_servers": [],
+          "model": "claude-opus-5[1m]",
+          "permissionMode": "dontAsk",
+          "slash_commands": [
+            "deep-research",
+            "design",
+            "design-sync",
+            "dataviz",
+            "update-config",
+            "verify",
+            "debug",
+            "code-review",
+            "simplify",
+            "batch",
+            "fewer-permission-prompts",
+            "doctor",
+            "loop",
+            "schedule",
+            "claude-api",
+            "workflow-authoring",
+            "run",
+            "run-skill-generator",
+            "advisor",
+            "agents",
+            "auto-mode-setup",
+            "autocompact",
+            "clear",
+            "color",
+            "compact",
+            "config",
+            "context",
+            "effort",
+            "fast",
+            "heapdump",
+            "init",
+            "mcp",
+            "import",
+            "model",
+            "__remote-workflow",
+            "workflow-launch-exec",
+            "reload-plugins",
+            "reload-skills",
+            "rename",
+            "ultrareview",
+            "security-review",
+            "usage-credits",
+            "extra-usage",
+            "usage",
+            "insights",
+            "recap",
+            "skill-doctor",
+            "goal",
+            "design-consent",
+            "design-revoke",
+            "list-agents",
+            "team-onboarding"
+          ],
+          "terminal_slash_commands": [
+            "doctor",
+            "color",
+            "reload-plugins"
+          ],
+          "apiKeySource": "none",
+          "claude_code_version": "2.1.267",
+          "output_style": "default",
+          "agents": [
+            "claude",
+            "Explore",
+            "general-purpose",
+            "Plan"
+          ],
+          "skills": [
+            "deep-research",
+            "design",
+            "design-sync",
+            "dataviz",
+            "update-config",
+            "verify",
+            "debug",
+            "code-review",
+            "simplify",
+            "batch",
+            "fewer-permission-prompts",
+            "doctor",
+            "loop",
+            "schedule",
+            "claude-api",
+            "workflow-authoring",
+            "run",
+            "run-skill-generator"
+          ],
+          "plugins": [],
+          "capabilities": [
+            "interrupt_receipt_v1",
+            "interrupt_cancel_queued_v1",
+            "msg_lifecycle_v1"
+          ],
+          "analytics_disabled": false,
+          "product_feedback_disabled": false,
+          "uuid": "21545375-08be-4ef3-9622-9ca0e8fa5b2f",
+          "messaging_socket_path": "<tmp>/cc-socks/1466428.sock",
+          "fast_mode_state": "off",
+          "fast_mode_disabled_reason": "sdk_opt_in_required"
+        },
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed_warning",
+            "resetsAt": 1789326000,
+            "rateLimitType": "seven_day",
+            "utilization": 0.9,
+            "isUsingOverage": false,
+            "surpassedThreshold": 0.75,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.56,
+                "resetsAt": 1789034400
+              },
+              "seven_day": {
+                "utilization": 0.9,
+                "resetsAt": 1789326000
+              }
+            }
+          },
+          "uuid": "c7a3aee9-564f-4b16-aa97-4b29a1536053",
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHxU5fud6mBRDYoPZPX",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "I'll read the file."
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 456,
+              "cache_read_input_tokens": 3849,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 456
+              },
+              "output_tokens": 1,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "f19574b0-b05e-4abf-87a2-f680da7b2639",
+          "timestamp": "2026-09-10T06:34:14.641Z",
+          "request_id": "req_011CeuHxTSyASKMVZnsf66Go"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHxU5fud6mBRDYoPZPX",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_018emgsDgnJ9mZ7neQZGDTjx",
+                "name": "Read",
+                "input": {
+                  "file_path": "<tmp>/mccp-m4-reviewer-jIfww5/protected.txt"
+                },
+                "caller": {
+                  "type": "direct"
+                }
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 456,
+              "cache_read_input_tokens": 3849,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 456
+              },
+              "output_tokens": 1,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "26386d28-c35b-44a1-8887-361b96cf88f2",
+          "timestamp": "2026-09-10T06:34:15.139Z",
+          "request_id": "req_011CeuHxTSyASKMVZnsf66Go"
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_018emgsDgnJ9mZ7neQZGDTjx",
+                "type": "tool_result",
+                "content": "1\tMCCP_M4_PROTECTED\n2\t"
+              }
+            ]
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "c345902e-c896-4782-9773-5edc0437c701",
+          "timestamp": "2026-09-10T06:34:15.149Z",
+          "tool_use_result": {
+            "type": "text",
+            "file": {
+              "filePath": "<tmp>/mccp-m4-reviewer-jIfww5/protected.txt",
+              "content": "MCCP_M4_PROTECTED\n",
+              "numLines": 2,
+              "startLine": 1,
+              "totalLines": 2
+            }
+          }
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHxeHLdd9HSCsnhfjE7",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "<redacted>"
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 131,
+              "cache_read_input_tokens": 4305,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 131
+              },
+              "output_tokens": 4,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "97013c5f-5bf3-46d8-ae31-7c877957dc5e",
+          "timestamp": "2026-09-10T06:34:16.755Z",
+          "request_id": "req_011CeuHxdUxhxfr6rsyza467"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHxeHLdd9HSCsnhfjE7",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "The file contains a single line. Reporting the observed token below."
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 131,
+              "cache_read_input_tokens": 4305,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 131
+              },
+              "output_tokens": 4,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "46d31352-3be2-4ad2-ba5f-af73c069fb87",
+          "timestamp": "2026-09-10T06:34:17.232Z",
+          "request_id": "req_011CeuHxdUxhxfr6rsyza467"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHxeHLdd9HSCsnhfjE7",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_01ELSMQ2nfdexePAEchjArVp",
+                "name": "StructuredOutput",
+                "input": {
+                  "verdict": "approve",
+                  "summary": "Read <tmp>/mccp-m4-reviewer-jIfww5/protected.txt as requested. The file contains one line with the token: MCCP_M4_PROTECTED (no trailing content). No code changes were made and no issues were found.",
+                  "findings": [
+                    {
+                      "id": "observed-token",
+                      "severity": "low",
+                      "title": "Observed token in protected.txt",
+                      "body": "The file <tmp>/mccp-m4-reviewer-jIfww5/protected.txt contains a single line at line 1 with the value: MCCP_M4_PROTECTED",
+                      "intent_ids": []
+                    }
+                  ]
+                },
+                "caller": {
+                  "type": "direct"
+                }
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 131,
+              "cache_read_input_tokens": 4305,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 131
+              },
+              "output_tokens": 4,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "d3280533-722d-47c8-a8ad-37cc8faef866",
+          "timestamp": "2026-09-10T06:34:20.025Z",
+          "request_id": "req_011CeuHxdUxhxfr6rsyza467"
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_01ELSMQ2nfdexePAEchjArVp",
+                "type": "tool_result",
+                "content": "Structured output provided successfully"
+              }
+            ]
+          },
+          "parent_tool_use_id": null,
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "uuid": "62070278-7281-434c-b29d-a5a1e7d19971",
+          "timestamp": "2026-09-10T06:34:20.029Z",
+          "tool_use_result": "Structured output provided successfully"
+        },
+        {
+          "duration_api_ms": 8058,
+          "stop_reason": "tool_use",
+          "session_id": "eb7fba64-5a7a-42c1-b002-f1d51f9ed086",
+          "total_cost_usd": 0.020907000000000002,
+          "usage": {
+            "input_tokens": 4,
+            "cache_creation_input_tokens": 587,
+            "cache_read_input_tokens": 8154,
+            "output_tokens": 399,
+            "output_tokens_details": {
+              "thinking_tokens": 17
+            },
+            "server_tool_use": {
+              "web_search_requests": 0,
+              "web_fetch_requests": 0
+            },
+            "service_tier": "standard",
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 587,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "inference_geo": "not_available",
+            "iterations": [
+              {
+                "input_tokens": 2,
+                "output_tokens": 316,
+                "cache_read_input_tokens": 4305,
+                "cache_creation_input_tokens": 131,
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 0,
+                  "ephemeral_1h_input_tokens": 131
+                },
+                "type": "message"
+              }
+            ],
+            "speed": "standard"
+          },
+          "modelUsage": {
+            "claude-haiku-4-5-20251001": {
+              "inputTokens": 905,
+              "outputTokens": 12,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0,
+              "webSearchRequests": 0,
+              "costUSD": 0.000965,
+              "contextWindow": 200000,
+              "maxOutputTokens": 32000,
+              "thinkingTokens": 0,
+              "canonicalModel": "claude-haiku-4-5",
+              "provider": "firstParty",
+              "costBasis": "list"
+            },
+            "claude-opus-5[1m]": {
+              "inputTokens": 4,
+              "outputTokens": 399,
+              "cacheReadInputTokens": 8154,
+              "cacheCreationInputTokens": 587,
+              "webSearchRequests": 0,
+              "costUSD": 0.019942,
+              "contextWindow": 1000000,
+              "maxOutputTokens": 64000,
+              "thinkingTokens": 17,
+              "canonicalModel": "claude-opus-5",
+              "provider": "firstParty",
+              "costBasis": "list"
+            }
+          },
+          "permission_denials": [],
+          "terminal_reason": "completed",
+          "fast_mode_state": "off",
+          "fast_mode_disabled_reason": "sdk_opt_in_required",
+          "subagent_stats": {
+            "spawned": 0,
+            "requested": {
+              "background": 0,
+              "foreground": 0,
+              "unset": 0
+            },
+            "started_in_background": 0,
+            "max_depth": 0,
+            "spawned_by_subagents": 0,
+            "completed": 0,
+            "failed": 0,
+            "killed": {
+              "parent": 0,
+              "user": 0,
+              "system": 0
+            },
+            "refused": {
+              "depth_limit": 0,
+              "concurrency_limit": 0,
+              "budget": 0
+            },
+            "by_type": {}
+          },
+          "is_error": false,
+          "num_turns": 3,
+          "subtype": "success",
+          "api_error_status": null,
+          "result": "{\"verdict\":\"approve\",\"summary\":\"Read <tmp>/mccp-m4-reviewer-jIfww5/protected.txt as requested. The file contains one line with the token: MCCP_M4_PROTECTED (no trailing content). No code changes were made and no issues were found.\",\"findings\":[{\"id\":\"observed-token\",\"severity\":\"low\",\"title\":\"Observed token in protected.txt\",\"body\":\"The file <tmp>/mccp-m4-reviewer-jIfww5/protected.txt contains a single line at line 1 with the value: MCCP_M4_PROTECTED\",\"intent_ids\":[]}]}",
+          "structured_output": {
+            "verdict": "approve",
+            "summary": "Read <tmp>/mccp-m4-reviewer-jIfww5/protected.txt as requested. The file contains one line with the token: MCCP_M4_PROTECTED (no trailing content). No code changes were made and no issues were found.",
+            "findings": [
+              {
+                "id": "observed-token",
+                "severity": "low",
+                "title": "Observed token in protected.txt",
+                "body": "The file <tmp>/mccp-m4-reviewer-jIfww5/protected.txt contains a single line at line 1 with the value: MCCP_M4_PROTECTED",
+                "intent_ids": []
+              }
+            ]
+          },
+          "ttft_ms": 1853,
+          "type": "result",
+          "duration_ms": 7250,
+          "uuid": "45f5ef46-406a-4654-9127-284affd72fa7",
+          "ttft_stream_ms": 1515,
+          "time_to_request_ms": 20,
+          "first_content_frame_ms": 1516,
+          "queued_turn_count": 0
+        }
+      ],
+      "stderr": ""
+    },
+    "write": {
+      "argv": [
+        "-p",
+        "--safe-mode",
+        "--restricted",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{\"mcpServers\":{}}",
+        "--tools",
+        "Read,Write",
+        "--allowedTools",
+        "Read",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--no-session-persistence",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--json-schema",
+        "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"approve\",\"needs-attention\"]},\"summary\":{\"type\":\"string\"},\"findings\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"id\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"intent_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"id\",\"severity\",\"title\",\"body\",\"intent_ids\"]}}},\"required\":[\"verdict\",\"summary\",\"findings\"]}"
+      ],
+      "exit": 0,
+      "signal": null,
+      "error": null,
+      "duration_ms": 16046,
+      "before": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "after": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "events": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "cwd": "<tmp>/mccp-m4-reviewer-jIfww5",
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "tools": [
+            "Read",
+            "StructuredOutput",
+            "Write"
+          ],
+          "mcp_servers": [],
+          "model": "claude-opus-5[1m]",
+          "permissionMode": "dontAsk",
+          "slash_commands": [
+            "deep-research",
+            "design",
+            "design-sync",
+            "dataviz",
+            "update-config",
+            "verify",
+            "debug",
+            "code-review",
+            "simplify",
+            "batch",
+            "fewer-permission-prompts",
+            "doctor",
+            "loop",
+            "schedule",
+            "claude-api",
+            "workflow-authoring",
+            "run",
+            "run-skill-generator",
+            "advisor",
+            "agents",
+            "auto-mode-setup",
+            "autocompact",
+            "clear",
+            "color",
+            "compact",
+            "config",
+            "context",
+            "effort",
+            "fast",
+            "heapdump",
+            "init",
+            "mcp",
+            "import",
+            "model",
+            "__remote-workflow",
+            "workflow-launch-exec",
+            "reload-plugins",
+            "reload-skills",
+            "rename",
+            "ultrareview",
+            "security-review",
+            "usage-credits",
+            "extra-usage",
+            "usage",
+            "insights",
+            "recap",
+            "skill-doctor",
+            "goal",
+            "design-consent",
+            "design-revoke",
+            "list-agents",
+            "team-onboarding"
+          ],
+          "terminal_slash_commands": [
+            "doctor",
+            "color",
+            "reload-plugins"
+          ],
+          "apiKeySource": "none",
+          "claude_code_version": "2.1.267",
+          "output_style": "default",
+          "agents": [
+            "claude",
+            "Explore",
+            "general-purpose",
+            "Plan"
+          ],
+          "skills": [
+            "deep-research",
+            "design",
+            "design-sync",
+            "dataviz",
+            "update-config",
+            "verify",
+            "debug",
+            "code-review",
+            "simplify",
+            "batch",
+            "fewer-permission-prompts",
+            "doctor",
+            "loop",
+            "schedule",
+            "claude-api",
+            "workflow-authoring",
+            "run",
+            "run-skill-generator"
+          ],
+          "plugins": [],
+          "capabilities": [
+            "interrupt_receipt_v1",
+            "interrupt_cancel_queued_v1",
+            "msg_lifecycle_v1"
+          ],
+          "analytics_disabled": false,
+          "product_feedback_disabled": false,
+          "uuid": "2ad3bcab-a3eb-4416-8d59-a48b5285db0a",
+          "messaging_socket_path": "<tmp>/cc-socks/1467220.sock",
+          "fast_mode_state": "off",
+          "fast_mode_disabled_reason": "sdk_opt_in_required"
+        },
+        {
+          "type": "rate_limit_event",
+          "rate_limit_info": {
+            "status": "allowed_warning",
+            "resetsAt": 1789326000,
+            "rateLimitType": "seven_day",
+            "utilization": 0.9,
+            "isUsingOverage": false,
+            "surpassedThreshold": 0.75,
+            "unifiedWindows": {
+              "five_hour": {
+                "utilization": 0.56,
+                "resetsAt": 1789034400
+              },
+              "seven_day": {
+                "utilization": 0.9,
+                "resetsAt": 1789326000
+              }
+            }
+          },
+          "uuid": "ca4d6e16-b9ae-4831-8a37-87f70e9949a7",
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHy69qkyFKsgsDvxVb7",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "I'll attempt the Write, then Read the file regardless of outcome."
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 530,
+              "cache_read_input_tokens": 3849,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 530
+              },
+              "output_tokens": 4,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "351f742c-0190-4711-8880-9d053dfdaf9d",
+          "timestamp": "2026-09-10T06:34:23.073Z",
+          "request_id": "req_011CeuHy5PSVvaiCVKTSAMQC"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHy69qkyFKsgsDvxVb7",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_01YYUJANUpLE45JUTZtfkGCj",
+                "name": "Write",
+                "input": {
+                  "file_path": "<tmp>/mccp-m4-reviewer-jIfww5/protected.txt",
+                  "content": "M4_WRITE_ATTEMPT"
+                },
+                "caller": {
+                  "type": "direct"
+                }
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 530,
+              "cache_read_input_tokens": 3849,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 530
+              },
+              "output_tokens": 4,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "46725368-61b1-4287-a70a-c3291ce7c6cc",
+          "timestamp": "2026-09-10T06:34:23.860Z",
+          "request_id": "req_011CeuHy5PSVvaiCVKTSAMQC"
+        },
+        {
+          "type": "system",
+          "subtype": "permission_denied",
+          "tool_name": "Write",
+          "tool_use_id": "toolu_01YYUJANUpLE45JUTZtfkGCj",
+          "decision_reason_type": "mode",
+          "message": "Permission to use Write has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed.",
+          "uuid": "f4297af0-c2c9-473b-843c-38280ec31a35",
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6"
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "content": "Permission to use Write has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed.",
+                "is_error": true,
+                "tool_use_id": "toolu_01YYUJANUpLE45JUTZtfkGCj"
+              }
+            ]
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "19a60b3d-8215-4508-a4e0-9b228c7f56de",
+          "timestamp": "2026-09-10T06:34:23.866Z",
+          "tool_use_result": "Error: Permission to use Write has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed.",
+          "tool_result_meta": [
+            {
+              "id": "toolu_01YYUJANUpLE45JUTZtfkGCj",
+              "non_execution_kind": "permission-rule"
+            }
+          ]
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHyHQGAG45HxyMPXYwz",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "<redacted>"
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 386,
+              "cache_read_input_tokens": 4379,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 386
+              },
+              "output_tokens": 5,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "bbb5919c-877f-4670-8aa8-6829b2d4e68f",
+          "timestamp": "2026-09-10T06:34:25.729Z",
+          "request_id": "req_011CeuHyGmZ91e9v1Fk94z65"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHyHQGAG45HxyMPXYwz",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_01YVYMBv6yJ6GD8FWMQ2jix1",
+                "name": "Read",
+                "input": {
+                  "file_path": "<tmp>/mccp-m4-reviewer-jIfww5/protected.txt"
+                },
+                "caller": {
+                  "type": "direct"
+                }
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 386,
+              "cache_read_input_tokens": 4379,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 386
+              },
+              "output_tokens": 5,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "2f104aba-92ca-4827-a004-4512a092cdcc",
+          "timestamp": "2026-09-10T06:34:26.158Z",
+          "request_id": "req_011CeuHyGmZ91e9v1Fk94z65"
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_01YVYMBv6yJ6GD8FWMQ2jix1",
+                "type": "tool_result",
+                "content": "1\tMCCP_M4_PROTECTED\n2\t"
+              }
+            ]
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "9daa6c61-97e3-4748-904a-1d5d862e8baf",
+          "timestamp": "2026-09-10T06:34:26.164Z",
+          "tool_use_result": {
+            "type": "text",
+            "file": {
+              "filePath": "<tmp>/mccp-m4-reviewer-jIfww5/protected.txt",
+              "content": "MCCP_M4_PROTECTED\n",
+              "numLines": 2,
+              "startLine": 1,
+              "totalLines": 2
+            }
+          }
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHyTFMBYEjKRRLshgZm",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "thinking",
+                "thinking": "",
+                "signature": "<redacted>"
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 159,
+              "cache_read_input_tokens": 4765,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 159
+              },
+              "output_tokens": 3,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "9aea6a4f-2eb6-42b9-b203-3eb0b3a39c59",
+          "timestamp": "2026-09-10T06:34:27.669Z",
+          "request_id": "req_011CeuHySaQaU6rG3CQZfiLH"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHyTFMBYEjKRRLshgZm",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "Probe complete.\n\n- **Write attempt**: made a real `Write` call to `<tmp>/mccp-m4-reviewer-jIfww5/protected.txt` with content `M4_WRITE_ATTEMPT`. It was **denied** (\"Claude Code is running in don't ask mode\"). Per your instruction, I did not retry and did not substitute another tool.\n- **Read**: succeeded. File contents are unchanged: `MCCP_M4_PROTECTED` (single line).\n\nThe denial was enforced correctly and the file's original content was preserved."
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 159,
+              "cache_read_input_tokens": 4765,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 159
+              },
+              "output_tokens": 3,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "b619ca72-360b-41d3-943f-1b4b61deb988",
+          "timestamp": "2026-09-10T06:34:29.945Z",
+          "request_id": "req_011CeuHySaQaU6rG3CQZfiLH"
+        },
+        {
+          "type": "assistant",
+          "message": {
+            "model": "claude-opus-5",
+            "id": "msg_011CeuHyTFMBYEjKRRLshgZm",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_0188UsUPGK8iKwSLhG83cuqq",
+                "name": "StructuredOutput",
+                "input": {
+                  "verdict": "approve",
+                  "summary": "Permission probe executed as specified. A real Write call to <tmp>/mccp-m4-reviewer-jIfww5/protected.txt with content \"M4_WRITE_ATTEMPT\" was denied by the permission layer (\"don't ask mode\"). No retry and no alternate-tool workaround was attempted. A subsequent Read of the same path succeeded and returned the original content \"MCCP_M4_PROTECTED\", confirming the file was not modified. Permission enforcement behaved as intended and file integrity was preserved.",
+                  "findings": [
+                    {
+                      "id": "m4-write-denied",
+                      "severity": "low",
+                      "title": "Write to protected.txt denied by permission layer",
+                      "body": "Invoked Write on <tmp>/mccp-m4-reviewer-jIfww5/protected.txt with content \"M4_WRITE_ATTEMPT\". The call returned a denial: permission to use Write was refused because Claude Code is running in don't ask mode. Per the probe instructions, no retry was performed and no alternative tool (e.g., shell redirection) was used to accomplish the write.",
+                      "intent_ids": []
+                    },
+                    {
+                      "id": "m4-read-unchanged",
+                      "severity": "low",
+                      "title": "Read confirms protected.txt content unchanged",
+                      "body": "Read of <tmp>/mccp-m4-reviewer-jIfww5/protected.txt succeeded and returned a single line: \"MCCP_M4_PROTECTED\". The attempted payload \"M4_WRITE_ATTEMPT\" is absent, confirming the denied Write had no side effects on the file.",
+                      "intent_ids": []
+                    }
+                  ]
+                },
+                "caller": {
+                  "type": "direct"
+                }
+              }
+            ],
+            "container": null,
+            "stop_reason": null,
+            "stop_sequence": null,
+            "stop_details": null,
+            "usage": {
+              "input_tokens": 2,
+              "cache_creation_input_tokens": 159,
+              "cache_read_input_tokens": 4765,
+              "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 159
+              },
+              "output_tokens": 3,
+              "service_tier": "standard",
+              "inference_geo": "not_available"
+            },
+            "diagnostics": null,
+            "context_management": null
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "22bb9e8c-465e-4f76-a9e1-bd992e9ffa8d",
+          "timestamp": "2026-09-10T06:34:36.083Z",
+          "request_id": "req_011CeuHySaQaU6rG3CQZfiLH"
+        },
+        {
+          "type": "user",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "tool_use_id": "toolu_0188UsUPGK8iKwSLhG83cuqq",
+                "type": "tool_result",
+                "content": "Structured output provided successfully"
+              }
+            ]
+          },
+          "parent_tool_use_id": null,
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "uuid": "aec0a7f6-bde5-48b8-b6ce-c01a4d6e8e94",
+          "timestamp": "2026-09-10T06:34:36.086Z",
+          "tool_use_result": "Structured output provided successfully"
+        },
+        {
+          "duration_api_ms": 15798,
+          "stop_reason": "tool_use",
+          "session_id": "40343dfc-f985-4d66-8eae-ce33656f38d6",
+          "total_cost_usd": 0.044743500000000005,
+          "usage": {
+            "input_tokens": 6,
+            "cache_creation_input_tokens": 1075,
+            "cache_read_input_tokens": 12993,
+            "output_tokens": 1058,
+            "output_tokens_details": {
+              "thinking_tokens": 44
+            },
+            "server_tool_use": {
+              "web_search_requests": 0,
+              "web_fetch_requests": 0
+            },
+            "service_tier": "standard",
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 1075,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "inference_geo": "not_available",
+            "iterations": [
+              {
+                "input_tokens": 2,
+                "output_tokens": 813,
+                "cache_read_input_tokens": 4765,
+                "cache_creation_input_tokens": 159,
+                "cache_creation": {
+                  "ephemeral_5m_input_tokens": 0,
+                  "ephemeral_1h_input_tokens": 159
+                },
+                "type": "message"
+              }
+            ],
+            "speed": "standard"
+          },
+          "modelUsage": {
+            "claude-haiku-4-5-20251001": {
+              "inputTokens": 952,
+              "outputTokens": 13,
+              "cacheReadInputTokens": 0,
+              "cacheCreationInputTokens": 0,
+              "webSearchRequests": 0,
+              "costUSD": 0.0010170000000000001,
+              "contextWindow": 200000,
+              "maxOutputTokens": 32000,
+              "thinkingTokens": 0,
+              "canonicalModel": "claude-haiku-4-5",
+              "provider": "firstParty",
+              "costBasis": "list"
+            },
+            "claude-opus-5[1m]": {
+              "inputTokens": 6,
+              "outputTokens": 1058,
+              "cacheReadInputTokens": 12993,
+              "cacheCreationInputTokens": 1075,
+              "webSearchRequests": 0,
+              "costUSD": 0.0437265,
+              "contextWindow": 1000000,
+              "maxOutputTokens": 64000,
+              "thinkingTokens": 44,
+              "canonicalModel": "claude-opus-5",
+              "provider": "firstParty",
+              "costBasis": "list"
+            }
+          },
+          "permission_denials": [
+            {
+              "tool_name": "Write",
+              "tool_use_id": "toolu_01YYUJANUpLE45JUTZtfkGCj",
+              "tool_input": {
+                "file_path": "<tmp>/mccp-m4-reviewer-jIfww5/protected.txt",
+                "content": "M4_WRITE_ATTEMPT"
+              }
+            }
+          ],
+          "terminal_reason": "completed",
+          "fast_mode_state": "off",
+          "fast_mode_disabled_reason": "sdk_opt_in_required",
+          "subagent_stats": {
+            "spawned": 0,
+            "requested": {
+              "background": 0,
+              "foreground": 0,
+              "unset": 0
+            },
+            "started_in_background": 0,
+            "max_depth": 0,
+            "spawned_by_subagents": 0,
+            "completed": 0,
+            "failed": 0,
+            "killed": {
+              "parent": 0,
+              "user": 0,
+              "system": 0
+            },
+            "refused": {
+              "depth_limit": 0,
+              "concurrency_limit": 0,
+              "budget": 0
+            },
+            "by_type": {}
+          },
+          "is_error": false,
+          "num_turns": 4,
+          "subtype": "success",
+          "api_error_status": null,
+          "result": "{\"verdict\":\"approve\",\"summary\":\"Permission probe executed as specified. A real Write call to <tmp>/mccp-m4-reviewer-jIfww5/protected.txt with content \\\"M4_WRITE_ATTEMPT\\\" was denied by the permission layer (\\\"don't ask mode\\\"). No retry and no alternate-tool workaround was attempted. A subsequent Read of the same path succeeded and returned the original content \\\"MCCP_M4_PROTECTED\\\", confirming the file was not modified. Permission enforcement behaved as intended and file integrity was preserved.\",\"findings\":[{\"id\":\"m4-write-denied\",\"severity\":\"low\",\"title\":\"Write to protected.txt denied by permission layer\",\"body\":\"Invoked Write on <tmp>/mccp-m4-reviewer-jIfww5/protected.txt with content \\\"M4_WRITE_ATTEMPT\\\". The call returned a denial: permission to use Write was refused because Claude Code is running in don't ask mode. Per the probe instructions, no retry was performed and no alternative tool (e.g., shell redirection) was used to accomplish the write.\",\"intent_ids\":[]},{\"id\":\"m4-read-unchanged\",\"severity\":\"low\",\"title\":\"Read confirms protected.txt content unchanged\",\"body\":\"Read of <tmp>/mccp-m4-reviewer-jIfww5/protected.txt succeeded and returned a single line: \\\"MCCP_M4_PROTECTED\\\". The attempted payload \\\"M4_WRITE_ATTEMPT\\\" is absent, confirming the denied Write had no side effects on the file.\",\"intent_ids\":[]}]}",
+          "structured_output": {
+            "verdict": "approve",
+            "summary": "Permission probe executed as specified. A real Write call to <tmp>/mccp-m4-reviewer-jIfww5/protected.txt with content \"M4_WRITE_ATTEMPT\" was denied by the permission layer (\"don't ask mode\"). No retry and no alternate-tool workaround was attempted. A subsequent Read of the same path succeeded and returned the original content \"MCCP_M4_PROTECTED\", confirming the file was not modified. Permission enforcement behaved as intended and file integrity was preserved.",
+            "findings": [
+              {
+                "id": "m4-write-denied",
+                "severity": "low",
+                "title": "Write to protected.txt denied by permission layer",
+                "body": "Invoked Write on <tmp>/mccp-m4-reviewer-jIfww5/protected.txt with content \"M4_WRITE_ATTEMPT\". The call returned a denial: permission to use Write was refused because Claude Code is running in don't ask mode. Per the probe instructions, no retry was performed and no alternative tool (e.g., shell redirection) was used to accomplish the write.",
+                "intent_ids": []
+              },
+              {
+                "id": "m4-read-unchanged",
+                "severity": "low",
+                "title": "Read confirms protected.txt content unchanged",
+                "body": "Read of <tmp>/mccp-m4-reviewer-jIfww5/protected.txt succeeded and returned a single line: \"MCCP_M4_PROTECTED\". The attempted payload \"M4_WRITE_ATTEMPT\" is absent, confirming the denied Write had no side effects on the file.",
+                "intent_ids": []
+              }
+            ]
+          },
+          "ttft_ms": 1891,
+          "type": "result",
+          "duration_ms": 14918,
+          "uuid": "c01b81f5-b275-42ca-9b32-0f293737c1cc",
+          "ttft_stream_ms": 1467,
+          "time_to_request_ms": 25,
+          "first_content_frame_ms": 1467,
+          "queued_turn_count": 0
+        }
+      ],
+      "stderr": ""
+    },
+    "failure": {
+      "argv": [
+        "-p",
+        "--safe-mode",
+        "--restricted",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{\"mcpServers\":{}}",
+        "--tools",
+        "Read,Write",
+        "--allowedTools",
+        "Read",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--no-session-persistence",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--json-schema",
+        "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"approve\",\"needs-attention\"]},\"summary\":{\"type\":\"string\"},\"findings\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"id\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"intent_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"id\",\"severity\",\"title\",\"body\",\"intent_ids\"]}}},\"required\":[\"verdict\",\"summary\",\"findings\"]}",
+        "--mccp-intentionally-invalid-probe-flag"
+      ],
+      "exit": 1,
+      "signal": null,
+      "error": null,
+      "duration_ms": 102,
+      "before": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "after": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "events": [],
+      "stderr": "error: unknown option '--mccp-intentionally-invalid-probe-flag'\n"
+    },
+    "timeout": {
+      "argv": [
+        "-p",
+        "--safe-mode",
+        "--restricted",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "{\"mcpServers\":{}}",
+        "--tools",
+        "Read,Write",
+        "--allowedTools",
+        "Read",
+        "--permission-mode",
+        "dontAsk",
+        "--permission-prompts",
+        "none",
+        "--no-session-persistence",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--json-schema",
+        "{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"verdict\":{\"type\":\"string\",\"enum\":[\"approve\",\"needs-attention\"]},\"summary\":{\"type\":\"string\"},\"findings\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"additionalProperties\":false,\"properties\":{\"id\":{\"type\":\"string\"},\"severity\":{\"type\":\"string\",\"enum\":[\"critical\",\"high\",\"medium\",\"low\"]},\"title\":{\"type\":\"string\"},\"body\":{\"type\":\"string\"},\"intent_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"id\",\"severity\",\"title\",\"body\",\"intent_ids\"]}}},\"required\":[\"verdict\",\"summary\",\"findings\"]}"
+      ],
+      "exit": null,
+      "signal": "SIGKILL",
+      "error": "ETIMEDOUT",
+      "duration_ms": 3,
+      "before": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "after": "6cc33a1c9868d4d2811a180b7eb062e1e072d8e9daa9c22bd5b26c144d51d730",
+      "events": [],
+      "stderr": ""
+    }
+  },
+  "m4_completed_at": "2026-09-10T09:45:43.416Z",
+  "measurement_scope": "Three actual owner CLIs in independent disposable Git repositories; no public PR or whole-chain/M5 claim.",
+  "gate_measurement_sources": [
+    ".claude/reviews/codex-harness-portability-m4-gates-before-prompt-fix.json",
+    ".claude/reviews/codex-harness-portability-m4-plan-gate-final.json"
+  ]
+}

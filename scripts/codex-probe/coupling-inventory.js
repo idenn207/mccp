@@ -28,7 +28,7 @@ const COUPLING_INVENTORY = [
     axis: 'reviewer invocation',
     disposition: 'additive',
     owner_milestone: 4,
-    note: '~/.claude/plugins/installed_plugins.json으로 codex plugin을 해소한다. M4의 리뷰어 반전은 방향이 반대라 재사용이 아니다',
+    note: 'Claude host의 기존 Codex plugin 해소는 유지한다. M4는 reviewer-invoke facade로 Codex host를 claude-review-invoke에 연결했고 plan/implement/PR owner가 실제 모델과 실행 증거를 봉인한다',
   },
   {
     name: 'plugin-install-detection',
@@ -219,7 +219,7 @@ const COUPLING_INVENTORY = [
     // 반전이 어차피 같은 agent 표면을 다시 여는 M4에서 하는 것이 싸다.
     // `owner_milestone`만 옮기므로 항목 수는 불변이고 ceiling 상수는 건드리지 않는다.
     owner_milestone: 4,
-    note: 'Claude 하네스 도구명(Read/Grep/Glob/Bash…)을 선언한다. M3는 도달만 주장하므로(DD8) 이 축을 열지 않고, 리뷰어 반전이 같은 agent 표면을 여는 M4로 재배정한다',
+    note: '세 gate reviewer는 Claude CLI와 owner runner로 연결했다. Task/Workflow 기반 부가 security/intent 단계는 일반 이식 대상이 아니며 미지원 호출은 unavailable로 종료한다. 호스트 출처·세션 연속성은 M5이며 현재 gate 실측과 구분한다',
   },
 ];
 

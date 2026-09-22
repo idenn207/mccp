@@ -53,7 +53,7 @@ const STATE_SUBDIR = 'review-rounds';
 const IS_WINDOWS = process.platform === 'win32';
 
 // 채널은 강제 chokepoint와 1:1이다(DD5). 새 값을 늘리려면 새 chokepoint가 있어야 한다.
-const CHANNELS = Object.freeze(['codex', 'panel']);
+const CHANNELS = Object.freeze(['codex', 'panel', 'claude']);
 
 class ReviewRoundsLedgerError extends Error {
   constructor(code, message) {

@@ -79,6 +79,17 @@ mccp의 차별점은 **Claude(Opus) ↔ Codex(GPT-5.4 계열) cross-model advers
   - **dedupe 발화 전제 — plan `Files to Change`는 repo-root full 경로로 작성**: `receipt/dedupe.js`의 planned matcher는 plan 표의 첫 열을 git diff 경로와 **리터럴/glob 매칭**한다(경로 prefix를 유추하지 않음). plan이 축약 경로(`receipt/schema.js`)를 쓰고 실제 diff가 full 경로(`plugins/mccp/scripts/receipt/schema.js`)면 매칭 실패 → 모든 파일이 residual로 떨어져 `skip_safe=false`가 된다(양쪽 게이트가 converged여도). 즉 dedupe 최적화가 조용히 불발하고 PR-Codex가 (이미 수렴한 planned 파일에 대해) 다시 돈다 — 이는 fail-closed라 안전하지만 비효율이다. **plan의 `Files to Change` 표는 항상 repo-root 상대 full 경로**로 작성하라(P1 PR #86 회고: 축약 경로 탓에 dedupe 불발 → `MCCP_PR_SKIP_CODEX_REVIEW` audited escape로 우회).
 - Codex 미설치 사용자는 `/codex:setup`로 인증 권장.
 
+**M4: 호스트와 실제 리뷰어 구분.**
+
+Codex 호스트의 plan·implement·PR은 `reviewer-invoke` → Claude CLI를 사용한다.
+기존 `mccp-*-codex` gate ID는 유지하지만 실제 판정은 `reviewer_verdict`와
+`reviewer_execution`에 봉인한다. `codex_verdict`로 Claude 승인을 표현하지 않는다.
+`review-target`은 committed tree와 별도 plan/design 입력을 고정하며 제품 dirty,
+unknown host, CLI 실패 및 손상된 증거는 차단한다. 미지원 필수 Task/Workflow
+호출도 unavailable이다. PR evidence commit 이후에는 `review-ship-target`이 모든
+후속 commit을 검사하고, 반환된 정확한 shipCommit OID만 push 대상으로 사용한다.
+구 receipt를 재봉인하지 않으며 M5 provenance/세션 연속성은 별도 범위다.
+
 ### 1.3 자동화 파이프라인 (v0.1 receipt chain)
 
 PRD부터 PR까지 전 라이프사이클을 단일 namespace(`/mccp:*`)로 자동화합니다. v0.3.1+ 부터는 **`/mccp:work <feature>` 단일 entry**로 전체 chain을 자동 orchestration할 수 있습니다 — trivial 변경은 plan/implement를 건너뛰고 commit + pr로 직행, 새 기능은 full chain.

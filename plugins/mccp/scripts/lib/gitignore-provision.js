@@ -93,6 +93,32 @@ const MCCP_IGNORE_BLOCK = [
   '# leadtime distribution.json IS tracked; only its atomic-write tmp is local.',
   '.claude/state/leadtime/*.tmp',
   '',
+  // Same category as the two entries above, and the same reason — the target is
+  // tracked and only its write-time siblings are local — but reached by no
+  // existing pattern, so they were being committed. The two human-gate commands
+  // that rewrite tracked PRD/plan files IN PLACE each write through a sibling
+  // tmp under a sibling advisory lock:
+  //   /mccp:archive-complete  archive-complete/apply.js  <target>.archive-tmp / .archive-lock
+  //   /mccp:dashboard-audit   stale-audit/apply.js       <target>.audit-tmp   / .audit-lock
+  // The siblings land NEXT TO the file being rewritten, i.e. in .claude/prds/,
+  // .claude/plans/, .claude/PRPs/plans/ and .claude/state/archive-journal/ —
+  // all tracked. `.claude/state/*.lock` is single-level and rooted at state/, so
+  // it reaches none of them, and neither suffix ends in `.lock` or `.tmp`, so no
+  // glob above matches either. A crash between write and rename therefore leaves
+  // a partial PRD or plan body sitting beside the real one, where
+  // /mccp:prp-commit's natural-language targeting can sweep it into a commit —
+  // the exact failure the leadtime entry above was added to prevent. Global
+  // patterns rather than path-scoped ones because the writers build the name as
+  // `<target> + suffix` and the targets span four directories; this mirrors
+  // `*.delegations.jsonl` below.
+  '# /mccp:archive-complete and /mccp:dashboard-audit rewrite TRACKED PRD/plan files',
+  '# in place, through a sibling tmp held under a sibling advisory lock. The targets',
+  '# stay tracked; only these write-time siblings are local, and they survive a crash.',
+  '*.archive-tmp',
+  '*.archive-lock',
+  '*.audit-tmp',
+  '*.audit-lock',
+  '',
   '# Per-session runtime state — never committed.',
   '.claude/state/evidence-claims/',
   '.claude/state/dispatches/',

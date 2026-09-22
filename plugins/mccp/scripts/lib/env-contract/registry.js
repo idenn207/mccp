@@ -122,7 +122,7 @@ const RAW = [
   ['MCCP_PROBE_HOOKS_LIST_TIMEOUT_MS', 'int', null, '45000', null, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-hooks-list.js:21', '프로브 hooks/list 왕복 상한(ms).'],
   ['MCCP_PLUGIN_ROOT_HINT', 'string', null, null, null, 'active', 'gates', 'plugins/mccp/scripts/lib/command-reach.js:266', 'command-reach의 root 후보 힌트 — 캐시 후보보다 먼저 평가된다.'],
   ['MCCP_CODEX_DISABLED', 'bypass-flag', BY, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/codex-bridge.js:135', 'Codex 호출 영구 skip.'],
-  ['MCCP_CODEX_DESIGN_SCOPE_HONOR', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js:275', 'Codex design-scope preamble.'],
+  ['MCCP_CODEX_DESIGN_SCOPE_HONOR', 'bool', B, 'on', ON, 'active', 'gates', 'plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js:297', 'Codex design-scope preamble.'],
   ['MCCP_STOP_LOOP', 'enum', ['off', 'observe', 'enforce'], 'observe', null, 'active', 'gates', 'plugins/mccp/scripts/hooks/stop-review-loop.js:54', 'Stop-loop 게이트 모드.', 'plugins/mccp/scripts/hooks/stop-review-loop.js#STOP_LOOP_VALUES'],
   ['MCCP_STOP_LOOP_CODEX', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/hooks/stop-review-loop.js:59', 'Stop-loop에 Codex 병행.'],
   ['MCCP_AUTO_CHAIN_DISABLE', 'bool', B, 'off', OFF, 'active', 'gates', 'plugins/mccp/scripts/lib/auto-chain.js:141', 'auto-chain 자동 진행 중단.'],

@@ -164,11 +164,24 @@ function computeRenderingSurface(base, cwd) {
   }
 }
 
+// Reads up to the first newline, not to EOF. The parent writes the token and
+// then blocks in spawnSync(codex-invoke), so the pipe's EOF only arrives after
+// the review ends — waiting for it held every beat back past the 60s lease.
 function readTokenFromStdinSync() {
+  const buf = Buffer.alloc(4096);
+  let s = '';
   try {
-    const buf = fs.readFileSync(0);
-    return buf.toString('utf8').replace(/\r?\n$/, '').trim();
+    while (s.indexOf('\n') < 0) {
+      let n;
+      try { n = fs.readSync(0, buf, 0, buf.length, null); } catch (err) {
+        if (err.code === 'EAGAIN') continue;
+        throw err;
+      }
+      if (n === 0) break;
+      s += buf.toString('utf8', 0, n);
+    }
   } catch (_) { return ''; }
+  return s.split('\n')[0].trim();
 }
 
 // --mode heartbeat (forked child). One-shot stdin read for the token, then
@@ -194,11 +207,19 @@ function runHeartbeat(args) {
 
   const t = setInterval(function () {
     if (!fs.existsSync(lockPath)) { shutdown(); return; }
-    const r = spawnAndPipeToken(
-      [NODE, lockCli, 'heartbeat', '--run-id', runId,
-        '--ownership-token-stdin', '--cwd', cwd],
-      tok,
-      { captureStderr: true, timeoutMs: 5000 });
+    let r;
+    try {
+      r = spawnAndPipeToken(
+        [NODE, lockCli, 'heartbeat', '--run-id', runId,
+          '--ownership-token-stdin', '--cwd', cwd],
+        tok,
+        { captureStderr: true, timeoutMs: 5000 });
+    } catch (err) {
+      // A spawn timeout throws; uncaught it would kill this child exactly like
+      // the entry-point exit did. A missed beat is retried on the next tick.
+      process.stderr.write('codex-runner heartbeat: beat skipped: ' + err.message + '\n');
+      return;
+    }
     if (r.exitCode !== 0) {
       // Heartbeat refused — stop loop. Lock may have been reclaimed.
       shutdown();
@@ -507,7 +528,11 @@ function main(argv) {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  const code = main(process.argv.slice(2));
+  // Heartbeat mode returns nothing: its setInterval has to outlive this line.
+  // Exiting on undefined killed the child before its first beat, so every
+  // Codex review longer than the 60s lease lost its lock to a stale reclaim.
+  if (code !== undefined) process.exit(code);
 }
 
 module.exports = {

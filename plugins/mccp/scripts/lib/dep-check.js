@@ -151,18 +151,163 @@ function checkImpeccableCli(options) {
   };
 }
 
-// Strict superset: the four pre-existing keys keep their exact meaning and a
-// fifth is added. `options` is forwarded verbatim so resolveImpeccable's own
-// default (process.cwd()) applies when no repoRoot is supplied — this module
-// does not invent a second default for the same question.
+// Same shape resolveInstallSkew returns, for the same reason impeccableSentinel
+// exists: a load failure must be structurally indistinguishable from a genuine
+// "cannot tell" so callers need no second branch.
+//
+// It fails to `unknown`, NOT to `current`. Folding an unreadable oracle to
+// `current` would turn a broken require into a silent "your install is fine" —
+// the diagnostic would switch itself off exactly when it stopped working
+// (install-skew.js header, DD4).
+function installSkewSentinel(reason) {
+  return {
+    state: 'unknown',
+    installed_version: null,
+    installed_sha: null,
+    head_sha: null,
+    commits_behind: null,
+    plugin_dir_override: false,
+    reason: reason,
+  };
+}
+
+// review-record-linkage M5 (Task 2). Lazy require + try/catch, mirroring
+// checkImpeccable above. There is no require cycle to dodge here — the guard is
+// this module's "never throws" contract, and the second half of the double
+// defence the implement-gate security review asked for: install-skew.js wraps
+// every injected effect internally, and this wraps install-skew.js. Neither
+// side trusts the other's promise alone.
+function checkInstallSkew(options) {
+  let mod;
+  try {
+    mod = require('./install-skew');
+  } catch (_err) {
+    return installSkewSentinel('oracle_unavailable');
+  }
+  if (!mod || typeof mod.resolveInstallSkew !== 'function') {
+    return installSkewSentinel('oracle_unavailable');
+  }
+  try {
+    return mod.resolveInstallSkew(options || {});
+  } catch (_err) {
+    return installSkewSentinel('oracle_unavailable');
+  }
+}
+
+// Strict superset: the five pre-existing keys keep their exact meaning and a
+// sixth is added (M5 mirrors what v1.31.2 did when it appended `impeccable`).
+// `options` is forwarded verbatim so resolveImpeccable's own default
+// (process.cwd()) applies when no repoRoot is supplied — this module does not
+// invent a second default for the same question.
 function checkAll(options) {
   return {
     codex_plugin: checkCodexPlugin(options),
     impeccable_cli: checkImpeccableCli(options),
     impeccable: checkImpeccable(options),
     codex_disabled: envValue.parseBool(process.env, 'MCCP_CODEX_DISABLED'),
+    install_skew: checkInstallSkew(options),
     checked_at: new Date().toISOString(),
   };
+}
+
+// One informational sentence for the SessionStart banner, or '' when there is
+// nothing to say. Lives here for the same reason impeccableEclipsedNotice does:
+// this module has tests and the hook does not, and the sentence is derived
+// purely from a result already in hand.
+//
+// `behind`/`diverged` speak; `current` and `unknown` stay silent. `unknown` is
+// silent on purpose — it means the oracle could not judge, and a banner that
+// fires on "I don't know" is noise on every machine without git, on every
+// non-repo cwd, and under every plugin-dir override we declined to judge.
+// The state is still in `dep-check --json` for anyone who asks.
+//
+// installed_version comes from a file outside this repo, so it goes through
+// safeLabel for the reason stated at that function: it reaches a terminal, and
+// a value carrying ANSI escapes would render as terminal control, not text.
+function installSkewNotice(skew) {
+  if (!skew) return '';
+  if (skew.state === 'behind') {
+    const n = skew.commits_behind;
+    const behind = (typeof n === 'number' && n > 0) ? n + ' commit(s) behind' : 'behind';
+    return '[mccp] the mccp build that actually runs is ' + behind
+      + ' this worktree (installed v' + safeLabel(skew.installed_version)
+      + '). Command bodies from this branch are NOT the ones executing.'
+      + ' See docs/dogfood-install.md for the --plugin-dir path.';
+  }
+  if (skew.state === 'diverged') {
+    return '[mccp] the mccp build that actually runs (v' + safeLabel(skew.installed_version)
+      + ') is not an ancestor of this worktree HEAD — it carries commits this branch does not.'
+      + ' See docs/dogfood-install.md for the --plugin-dir path.';
+  }
+  return '';
+}
+
+// The UTC day of a moment, or null when the argument is not one.
+function utcDay(when) {
+  const d = (when instanceof Date) ? when : new Date(when);
+  return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+}
+
+// The dedupe key for the skew banner, on its own axis. It carries the UTC DAY,
+// and that is what makes the throttle work at all.
+//
+// ── why a rolling clock cannot do this job (local code-review HIGH-1) ────────
+//
+// The obvious design was tried first and is broken: stamp install_skew_at every
+// session, suppress the banner while that stamp is under 24h old. It is
+// defeated by the write-skip in state-writer.js. install_skew_at is in
+// HASH_EXCLUDE_FRONTMATTER_KEYS, so a session in which only that timestamp
+// moved produces an identical content hash and applyLocked returns `existing`
+// WITHOUT touching the disk. While the skew state is stable nothing else in the
+// frontmatter moves either, so the stamp freezes at its first value forever and
+// the age check is permanently true-then-permanently-false. Measured: quiet for
+// 24h, then fired on EVERY boot from day two onward — on every standard install,
+// since `behind` is the permanent default once marketplace.json pinned the
+// plugin source to `ref: release`.
+//
+// Taking the field out of the exclusion set is not the fix. That exclusion is
+// what keeps STATE.md out of `git status` on every boot, and re-introducing that
+// churn to power a throttle trades a louder banner for a dirtier working tree.
+//
+// So the window moves into the key, which IS hashed and therefore IS persisted:
+// the key changes when the day changes, the write happens BECAUSE the hash
+// changed, and the next session reads a key that no longer matches. One
+// comparison now answers both questions — a new day fires, and so does a state
+// change within the same day. STATE.md is rewritten at most once per day while
+// the install stays stale, which is the honest cost of a daily reminder.
+//
+// commits_behind is still deliberately NOT in the key. It is a monotonic
+// counter, so folding it in makes every single commit a new key: the banner
+// re-fires each session and STATE.md is rewritten on every commit. A day bucket
+// has exactly the cardinality of the throttle period; a commit counter has the
+// cardinality of the work. State plus day carries everything the banner asserts
+// — that the running build is not this worktree — and that sentence is equally
+// true at 180 commits and at 181. The live count still reaches the operator:
+// the banner text is recomputed from the fresh result every time it fires, so
+// the number shown is never the stale keyed one.
+function installSkewKey(skew, when) {
+  if (!skew) return null;
+  if (skew.state !== 'behind' && skew.state !== 'diverged') return null;
+  // Never fall back to a bare state. A key with no day in it IS the frozen
+  // window described above, and it would reappear only on the branch where the
+  // caller passed something unparsable — the hardest branch to notice.
+  const day = utcDay(when) || utcDay(new Date());
+  return skew.state + ':' + day;
+}
+
+// One table row. `unknown` prints its reason enum — the enum is a closed set by
+// contract (install-skew.js REASONS), so nothing host-specific can ride in on it.
+function installSkewLabel(skew) {
+  if (!skew) return '?';
+  const v = safeLabel(skew.installed_version);
+  const where = skew.plugin_dir_override ? ' [plugin-dir override]' : '';
+  if (skew.state === 'current') return 'current (running v' + v + ')' + where;
+  if (skew.state === 'behind') {
+    const n = (typeof skew.commits_behind === 'number') ? skew.commits_behind : '?';
+    return 'BEHIND by ' + n + ' commit(s) (running v' + v + ')' + where;
+  }
+  if (skew.state === 'diverged') return 'DIVERGED (running v' + v + ')' + where;
+  return 'unknown (' + safeLabel(skew.reason) + ')' + where;
 }
 
 function impeccableLabel(impeccable) {
@@ -270,6 +415,10 @@ module.exports = {
   checkCodexPlugin,
   checkImpeccable,
   checkImpeccableCli,
+  checkInstallSkew,
+  installSkewNotice,
+  installSkewKey,
+  installSkewLabel,
   checkAll,
   impeccableLabel,
   impeccableEclipsedNotice,
@@ -299,6 +448,11 @@ if (require.main === module) {
       ? 'installed (' + (result.impeccable_cli.path || '?') + ')'
       : 'missing') + '  [telemetry only — no gate reads this]',
     '  codex disabled  : ' + (result.codex_disabled ? 'yes (MCCP_CODEX_DISABLED=1)' : 'no'),
+    // review-record-linkage M5 — which build actually runs. Reachability, not a
+    // version-string compare: since branches stopped declaring plugin.json
+    // versions (CLAUDE.md §3.7), two equal numbers over different content is the
+    // NORMAL state, so the number cannot answer this question.
+    '  install skew    : ' + installSkewLabel(result.install_skew),
   ];
   // Eclipsed rows are printed under the skill row, one per line. Version and
   // invocation come from a SKILL.md the user installed, so they pass safeLabel;

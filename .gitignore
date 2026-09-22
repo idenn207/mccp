@@ -76,6 +76,24 @@ build/
 # 크래시는 tracked 디렉토리에 부분 JSON 고아를 남기고, `/mccp:prp-commit` 의
 # 자연어 타겟팅이 그것을 커밋에 쓸어 담을 수 있다.
 .claude/state/leadtime/*.tmp
+# 위 두 항목과 같은 부류이고 같은 이유다 — 대상은 tracked이고 write 시점의 형제만
+# 로컬이다 — 그런데 기존 어떤 패턴에도 닿지 않아 실제로 커밋되고 있었다. tracked PRD/plan을
+# **제자리에서** 다시 쓰는 human-gate 명령 둘이 각각 형제 tmp를 형제 advisory lock 아래에서
+# 쓴다:
+#   /mccp:archive-complete  archive-complete/apply.js  <target>.archive-tmp / .archive-lock
+#   /mccp:dashboard-audit   stale-audit/apply.js       <target>.audit-tmp   / .audit-lock
+# 형제는 다시 쓰이는 파일 **옆에** 떨어지므로 `.claude/prds/` · `.claude/plans/` ·
+# `.claude/PRPs/plans/` · `.claude/state/archive-journal/` — 전부 tracked다. 위의
+# `.claude/state/*.lock` 은 단일 레벨이고 state/ 에 뿌리박혀 있어 어디에도 닿지 않고,
+# 두 suffix 모두 `.lock`/`.tmp` 로 끝나지 않아 다른 glob도 잡지 못한다. 그래서 write~rename
+# 사이의 크래시가 진짜 파일 옆에 부분 PRD·plan 본문을 남기고, `/mccp:prp-commit` 의 자연어
+# 타겟팅이 그것을 커밋에 쓸어 담을 수 있다 — leadtime 항목이 막으려던 바로 그 실패다.
+# 경로 한정이 아니라 전역 패턴인 이유는 writer가 이름을 `<target> + suffix` 로 만들고 대상이
+# 네 디렉토리에 걸치기 때문이다(아래 `*.delegations.jsonl` 과 같은 형태).
+*.archive-tmp
+*.archive-lock
+*.audit-tmp
+*.audit-lock
 # multi-session-work-loop M3 — work-unit occupancy registry (evidence-claim.js).
 # Session-local by construction: a claim binds {session_id, host, session_pid} of
 # a LIVE session, so committing one would resurrect a dead holder in every clone

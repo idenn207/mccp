@@ -348,3 +348,103 @@ cwd 에서 재생성하면 그 0 들이 이 문서에 커밋되고 바이트 tes
 }
 ```
 <!-- END linkage-audit.js --frozen-only (verbatim) -->
+
+## 라이브 파티션 — M5 실측 (2026-09-04)
+
+> 이 절은 **동결 블록 밖**이고, 위 블록의 바이트를 한 글자도 건드리지 않는다. 동결은
+> 트리로 정해지고 값이 움직이지 않는 것 자체가 계약이다 — 여기 적는 수치는 그 계약의
+> 반대편, 즉 **움직이도록 되어 있는** 라이브 파티션의 관측이다.
+
+M5는 `undecidable` 사유를 라이브 파티션에서만 두 갈래로 갈랐다(DD5). 동결 파티션은
+봉인된 문자열을 그대로 쓴다 — 초안은 "바이트가 움직이면 문서를 함께 갱신한다"고 했으나
+그 처방은 no-retro 불변식을 block에서 warn으로 강등하는 것이었고, 그래서 처방을 뒤집어
+적용 범위를 라이브로 좁혔다.
+
+| 축 | 값 | 읽는 법 |
+|---|---|---|
+| `post_baseline.state` | `ok` | 코퍼스를 전부 읽었다 |
+| HEAD ship / record | 88 / 73 | |
+| `ship_eligibility.counts` | eligible 0 · not_eligible 0 · undecidable 88 | 아직 어떤 ship도 자격을 명시하지 않았다 |
+| `ship_eligibility.by_reason` | `producer_absent_in_build`: 88 | **M5의 신규 관측.** 88건 전부가 M3 키를 하나도 갖지 않는다 — 배선 결함이 아니라 그 receipt들을 발행한 빌드에 생산자가 없었다는 뜻이다 |
+| `linkage` | receipt→review 0 · review→receipt 0 · bidirectional 0 | |
+| `linkage.denominator` | `null` | 0 이 아니다. "리뷰 대상이 없다"가 아니라 **"판정 수단이 없다"** 는 관측이다 |
+| `rounds_fidelity` | agree 8 · ledger_zero 5 · disagree 0 · unreadable 75 | 판정하지 않고 대조만 한다(DD6). 해석은 C4 소유 |
+
+### 이 수치가 말하는 것과 말하지 않는 것
+
+`producer_absent_in_build: 88`은 **M5 진단의 첫 산출물**이다. M4까지는 같은 88건이
+"상류 plan receipt가 git-tracked된 적 없다"는 단일 사유로 접혀 있었고, 그 문장은 M3
+이후로 사실이 아니었다(생산자는 실재한다). 이제 코퍼스가 스스로 말한다 — **문제는
+배선이 아니라 그 배선을 모르는 빌드가 receipt를 발행했다는 것**이다.
+
+같은 사실을 skew 오라클이 독립적으로 확인한다:
+
+```
+$ node plugins/mccp/scripts/lib/install-skew.js
+{ "state": "behind", "installed_version": "1.33.6",
+  "installed_sha": "647dfecb…", "head_sha": "e0d05f70…",
+  "commits_behind": 179, "plugin_dir_override": false, "reason": null }
+```
+
+즉 이 저장소의 게이트를 실행한 본문은 179 커밋 뒤처진 판본의 것이다. `bidirectional`이
+`0`인 것은 **이 상태에서는 예상된 값**이지 링크 배선의 결함이 아니다. 그 구분을 세우는
+것이 M5의 일이고, `0`을 `>= 1`로 바꾸는 것은 그 다음 — `--plugin-dir` 아래에서 완주하는
+경로다([docs/dogfood-install.md](../dogfood-install.md)).
+
+**아직 주장하지 않는 것**: 이 표의 `bidirectional: 0`은 M5의 acceptance를 만족시키지
+않는다. acceptance는 `>= 1`이고, 그 값은 라이브 완주가 산출해야 한다. 부분 착지로
+끝난다면 M5의 outcome 문장에서 라이브 실값 주장을 **빼야 한다** — 주장을 남긴 채
+acceptance만 무르게 하는 것이 M2가 dropped된 이유다.
+
+
+## 라이브 파티션 — M7 관측 (2026-09-08)
+
+> M5 절과 같은 자리, 같은 계약이다 — **동결 블록 밖**이고 그 바이트를 건드리지 않는다.
+> M5 절은 지우지 않는다: 두 관측 사이에 무엇이 움직였는지가 함께 남아야 한다.
+
+M7 이 더한 것은 새 수치가 아니라 **강제 뷰**다. 그 전까지 이 문서의 라이브 표는 전역
+집계뿐이었고, 전역 집계는 acceptance 가 될 수 없다 — `bidirectional` 은 자격 ship **집합**
+위에서 세므로 전역값 `>= 1` 을 통과 조건으로 쓰면 **다른 ship 의 링크**로 통과한다.
+
+```
+node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage [--decision <slug>] [--json]
+```
+
+네 검사가 전부 **고정된 HEAD 커밋 OID 하나**에서 읽고(작업 트리 미판독) **지목한 ship
+하나**에 대해 판정한다: (1) receipt 가 `meta.review_record_path` 를 봉인했는가 · (2) 그
+레코드가 `measurement.receipt_hash` 로 그 receipt 를 되짚는가(해시 **동등**, 존재가 아니다) ·
+(3) 그 ship 이 `bidirectional` 을 **자기가** 충족하는가 · (4) `classifyShipEligibility` 가
+`eligible` 인가. 종료코드는 `0 ok · 1 violations · 2 degraded · 3 unresolved` 이고
+**비영점 셋은 전부 동등하게 미통과**다.
+
+### 전역 집계 (M5 이후 이동분)
+
+| 축 | M5 (2026-09-04) | M7 (2026-09-08) |
+|---|---|---|
+| `post_baseline.state` | `ok` | `ok` |
+| HEAD ship / record | 88 / 73 | 88 / 78 |
+| `ship_eligibility.counts` | eligible 0 · not_eligible 0 · undecidable 88 | eligible 0 · not_eligible 0 · undecidable 88 |
+| `ship_eligibility.by_reason` | `producer_absent_in_build`: 88 | `producer_absent_in_build`: 88 |
+| `linkage` | 0 · 0 · 0 | 0 · 0 · 0 |
+| `linkage.denominator` | `null` | `None` |
+
+### 강제 뷰의 현재 판정 — 그리고 그것이 왜 결함이 아닌가
+
+```
+$ node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage \
+    --decision review-record-linkage-m7b
+live-linkage check — state=unresolved scope=named_ship tree=<HEAD OID>
+  checked=0 failures=0 unreadable=0
+[mccp:linkage-audit] UNRESOLVED — named_ship_absent_from_tree.
+exit 3
+```
+
+`3` 은 **결함이 아니라 부트스트랩**이다. 지목한 ship receipt 를 만드는 것은
+`/mccp:pr` 이고, 이 마일스톤은 그것을 `--plugin-dir` 세션에서 돌리는 것을 남은 과제로
+갖는다. 이 도구는 그 상태를 `ok` 로 접지 않는 것이 요점이다 — 접으면 "아직 측정하지
+않았다" 와 "측정했고 통과했다" 가 같은 신호를 낸다.
+
+**아직 주장하지 않는 것**: 위 전역 표의 `bidirectional` 값은 M7 의 acceptance 가 **아니다**.
+acceptance 는 강제 뷰의 `exit 0` 단독이고, 그 값은 아직 산출되지 않았다. 그래서 M7 은
+complete 로 선언되지 않았다 — 주장을 남긴 채 acceptance 만 무르게 하는 것이 M2 가
+dropped 된 이유이고, 그 규칙은 이 마일스톤 자신에게도 적용된다.

@@ -19,6 +19,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 
+- **`codex-runner.js` heartbeat 자식이 한 번도 박동하지 않던 결함** (review-record-linkage m7c).
+  진입부 `process.exit(main(argv))`가 heartbeat 모드의 `undefined` 반환에 즉시 exit했고, 살아남아도 token을
+  EOF까지 읽느라 부모가 `spawnSync(codex)`로 막힌 동안 박동하지 못해,
+  60s lease를 넘는 모든 PR-Codex 리뷰가 살아 있는 runner의 lock을 `same-host-stale-imposter`로
+  잃었다(backlog 4행 + 1). `undefined`면 exit하지 않고, token은 첫 줄바꿈까지 읽으며, spawn timeout throw는 틱 단위로 흡수한다.
+- **`linkage-audit.js --check-live-linkage`가 ship receipt 봉인을 검증하지 않던 결함** (m7c PR-Codex F1).
+  저장된 hash 문자열끼리만 비교해, 봉인 뒤 자격 필드를 고친 receipt가 옛 hash·backlink로 통과했다.
+  `judgeShipLinkage`가 자격 판정 전에 digest를 재계산한다(`check:'seal'`).
+  같은 뷰가 ship을 파일명으로만 골라, 링크된 receipt를 다른 이름으로 복사하면 그 이름이 ship한 것으로
+  판정되던 경로도 닫는다(`check:'identity'` — 봉인된 `decision_id`·`gate_id` 대조, m7c PR-Codex R2).
 - **closure-accounting M5 — M1~M4가 남긴 계기 결함 다섯과 CI 기록 공백.** (1) 수락 마커가
   **여러 줄 inline code span 안에서도 승인으로 수락**됐다(M4 PR-Codex F1) — stripper가 span을
   줄마다 짝지었기 때문이다. 짝짓기를 버리고, backtick이 하나라도 있는 문단(빈 줄 = CommonMark 정의,
@@ -223,6 +233,73 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Added
 
+- `linkage-audit.js --check-live-linkage [--decision <slug>]` — 층간 링크의 **강제 뷰**
+  (review-record-linkage M7). 그 전까지 이 도구는 전역 집계만 냈고 전역 집계는
+  acceptance 가 될 수 없었다: `bidirectional` 은 자격 ship **집합** 위에서 세므로
+  전역값 `>= 1` 을 통과 조건으로 쓰면 **다른 ship 의 링크**로 통과한다(과다승인).
+  새 뷰는 네 검사를 **지목한 ship 하나**에 대해 판정한다 — (1) receipt 가
+  `meta.review_record_path` 를 봉인했는가 · (2) 그 레코드가 `measurement.receipt_hash`
+  로 그 receipt 를 되짚는가(해시 **동등**이지 존재가 아니다) · (3) 그 ship 이
+  `bidirectional` 을 자기가 충족하는가 · (4) `classifyShipEligibility` 가 `eligible` 인가.
+
+  **읽기 원천은 고정된 HEAD 커밋 OID 하나**다. 작업 트리는 읽지 않고, HEAD 는 시작 시
+  full OID 로 **1회** 고정해 모든 `ls-tree`·`git show` 에 그 OID 를 넘긴다 — 판독마다
+  HEAD 를 재해소하면 그 사이 커밋·체크아웃이 옛 receipt 와 새 레코드를 짝지을 수 있고,
+  작업 트리를 섞으면 evidence commit 이 실패했거나 `MCCP_PR_SKIP_LINK_EVIDENCE` 를 쓴
+  경우에도 back-patch 된 레코드가 남아 검사 1·2 를 통과시킨다. OID 해소 실패는
+  fail-closed(`unresolved`)이며 심볼릭 `HEAD` 로 되돌아가지 않는다.
+
+  종료코드는 `STATE_EXIT_CODES`·`CHECK_EXIT_CODES` 와 **또 분리된 세 번째 표**다
+  (`0 ok · 1 violations · 2 degraded · 3 unresolved`). **호출자 계약: 비영점 셋을 전부**
+  **동등하게 미통과로 취급한다.** `degraded` 가 `violations` 를 이기고(판정 부재를 위반
+  개수로 갈음하면 위반 하나에 파손이 가려진다), 자격 ship 0 건은 `ok` 가 아니라
+  `unresolved` 다(진공 통과 금지). 실패 사유는 닫힌 enum 이고 파일시스템 경로를 싣지
+  않는다 — 식별자로는 슬러그만 싣는다.
+
+  `--decision` 슬러그는 경로로 조립되기 **전에** `REF_SHAPE` 와 같은 강도로 검증한다
+  (선두 영숫자 강제 · 255 자 상한 · `..` 명시 거부). 봉인된
+  `meta.review_record_path` 는 receipt 생산자가 통제하는 값이므로 **파일을 여는 데
+  쓰지 않고** 메모리 맵 조회에만 쓴다 — traversal 이든 절대경로든 조회 실패 = 링크 부재로
+  접힌다. 회귀 19 건이 이 여섯 축을 각각 반증 가능하게 고정한다(각 축의 구현을 되돌리면
+  대응 fixture 가 red 가 되는 것을 실측했다).
+
+### Changed
+
+- `docs/dogfood-install.md` — **링크를 봉인하는 마일스톤은 ship 이 아니라 plan 게이트부터**
+  `--plugin-dir` 경로여야 한다는 절을 더했다 (review-record-linkage M7). 근거는 코드다:
+  ship receipt 의 링크 필드에는 재생성 분기가 없고 `finalize-receipt.js:308-330` 의
+  상류 carry-forward 가 유일 경로이며, 그 필드를 찍는 것은 `commands/plan.md` 다. 실측으로
+  캐시 판본 `1.33.6` 에는 그 줄이 **0 건**이라, ship 만 그 경로에서 돌리면 carry-forward 할
+  값이 없어 게이트가 정상 종료하면서 링크만 미봉인으로 남는다. 그리고 라운드 캡 때문에
+  "ship 을 먼저 돌려 보고 안 되면 plan 을 다시 돌린다" 는 경로가 **존재하지 않는다**.
+
+- `docs/review-record-linkage/frozen-baseline.md` — 라이브 절에 M7 관측을 더했다.
+  **동결 블록은 바이트 불변**이고 그것이 계약이다(M5 DD5) — 검증으로 확인했다.
+
+- `plugins/mccp/scripts/lib/install-skew.js` — **실행 중인 mccp 빌드가 이 워크트리에서
+  얼마나 뒤처졌는지**를 판정하는 read-only 오라클 (review-record-linkage M5). 판정은
+  version 문자열 비교가 아니라 **커밋 도달성**이다 — 우산 결정 1 이후 자식 브랜치가
+  `plugin.json` version 을 선언하지 않으므로 두 번호가 같으면서 내용이 다른 상태가
+  정상이고, 그래서 번호는 이 질문에 답할 수 없다. 4상태(`current`/`behind`/`diverged`/
+  `unknown`)이고 `unknown`은 **절대 `current`로 접히지 않는다**: 판정 못 한 것을 "정상"
+  으로 보고하면 진단이 고장난 그 순간 스스로 꺼진다. 실패 사유는 **닫힌 enum 7종**이며
+  `err.message`를 싣지 않는다(M4 H1 선례 — 호스트 절대경로 유출). `CLAUDE_PLUGIN_ROOT`
+  는 **어떤 fs/git 접촉보다 먼저** 로컬·절대·비-UNC로 검증한다 — repo-tracked
+  `.claude/settings.json`의 `env` 블록이 그 값을 UNC 로 세팅할 수 있고 SessionStart 는
+  무상호작용 자동 실행이라, 접촉 자체가 Windows 에서 SMB/NTLM 자격증명 유출이 된다.
+  `--end-of-options`는 `rev-list`에만 붙는다(`merge-base`에 붙이면 `--is-ancestor`가
+  rev 로 해석돼 상시 실패한다 — 실측).
+- `plugins/mccp/scripts/lib/tests/install-skew.test.js` ·
+  `plugins/mccp/scripts/lib/tests/install-skew-wiring.test.js` — 오라클 단위 회귀와
+  **배선 부재를 보는 정적 단언**. 후자가 존재하는 이유는 이 PRD 의 지배적 실패 모드
+  자체다: 오라클이 완벽히 동작하면서 아무도 호출하지 않을 수 있고, 단위 test 는 그것을
+  구조적으로 못 잡는다. DD4a 회귀 가드는 문자열 근접이 아니라 **중괄호 정합**으로
+  `MCCP_CODEX_DISABLED` 가드 블록의 범위를 실제로 계산해, 배너가 그 안으로 되돌아가면
+  붉어진다.
+- `docs/review-record-linkage/deferred-triage.md` — 이 PRD 의 backlog 103행을 (a) 이미
+  해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류. 누락 0. 분류
+  없이 "다음 마일스톤"이라고 적는 것은 이연이 아니라 유실이므로, M5 는 **닫지 않되
+  남김없이 센다**.
 - `plugins/mccp/scripts/lib/msw-metrics/reseal.js` — 봉인 분모의 **승계**. 옛 판정을
   제자리에서 고쳐 쓰지 않고(원장은 append-only라 그것은 재키잉이 아니라 로그 개작이다)
   항목마다 새 digest에 결속된 줄을 덧붙인다. 판정 내용은 그대로 복사되고 새로 만들어지지
@@ -493,6 +570,46 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Changed
 
+- **review-record-linkage M5의 범위를 진단으로 좁히고 라이브 발화를 M7로 분리했다**
+  (2026-09-08). M5는 판본 격차를 *말하는* 표면(install-skew 오라클 · `dep-check` 행 ·
+  SessionStart 배너)과 사유 이분화·triage·문서를 ship하고, `linkage.bidirectional >= 1`
+  실값 산출은 새 마일스톤 `live-firing-execution`이 갖는다. 분리 사유는 기계적이다 —
+  링크 필드는 `finalize-receipt.js`가 **상류 `mccp-plan-codex` receipt에서** 파생하는데
+  그 receipt는 working-tree only라 소실됐고(§3.12), 구현이 끝난 뒤에는 plan 게이트를
+  다시 돌려 제조할 수 없다(L1 `C3_CREATE_EXISTS`). 근거는
+  `.claude/prds/review-record-linkage.prd.md`의 분리 주와 M5 리포트 D3.
+
+- `dep-check.js` — `checkAll`에 `install_skew` 키를 얹는 **엄격한 상위집합**(기존 5키
+  불변, v1.31.2 가 `impeccable` 을 붙인 것과 같은 형태). `checkInstallSkew`는 지연
+  require + try/catch 로 감싸 `dep-check` 헤더의 "Never throws" 계약을 지키며, 오라클
+  자신도 주입된 effect 를 내부에서 감싼다 — 어느 쪽도 상대의 약속에만 기대지 않는다.
+  `install skew` 행이 CLI 표에 추가됐고 `installed_version`은 기존 `safeLabel`을 거친다
+  (같은 파일의 같은 필드에 대해 이미 세워 둔 분업).
+- `session-start.js` — 설치 skew 배너를 **`MCCP_CODEX_DISABLED` 가드 밖의 자기 블록**
+  으로 추가 (review-record-linkage M5, DD4a). 판본 격차와 Codex 가용성은 무관한 축이고,
+  CLAUDE.md §3.12 가 `MCCP_CODEX_DISABLED=1` 을 **표준 설치**라 부르므로 그 가드 안에
+  두면 이 진단은 표준 머신에서 한 번도 발화하지 않는다 — 통로를 만들고 부르지 않는 것,
+  이 마일스톤이 닫으려는 실패 그 자체다. throttle 도 공유하지 않는다: `dep_check_at`은
+  매 세션 재스탬프되므로 그 시계만으로는 배너가 한 번 뜨고 다시는 뜨지 않는다.
+- `state-writer.js` — present-only frontmatter `install_skew_at` · `install_skew_state`
+  추가 (`dep_check_eclipsed` 선례). 전자만 `HASH_EXCLUDE_FRONTMATTER_KEYS`에 든다 —
+  타임스탬프는 self-bump 이고 상태 문자열은 의미 payload 다.
+- `plan-review/linkage-defs.js` — `classifyShipEligibility`에 **추가 필드** `code`
+  (기존 `verdict`·`reason`의 의미 불변)와 라이브 전용 `refineLiveUndecidableReason`.
+  `undecidable` 사유를 `producer_absent_in_build` / `producer_present_but_unstamped`
+  로 가르되 **`no_explicit_field` 갈래에만** 적용한다 — 나머지 두 갈래는 M3 키를 물을
+  수 없거나 이미 다른 축의 결함이라, 같은 규칙을 적용하면 없는 사실을 만든다.
+- `linkage-audit.js` — 위 정련을 **라이브 파티션에서만** 호출한다. 동결 사유 문자열은
+  `docs/review-record-linkage/frozen-baseline.md`에 축자 커밋된 `by_reason` 키이고,
+  움직이지 않는 것 자체가 no-retro 불변식의 계약이다. 공용 경로에 넣으면 75건의 키가
+  전부 바뀌어 그 불변식이 block 에서 warn 으로 강등된다. 함께 `post_baseline`에
+  `rounds_fidelity`(`agree`/`ledger_zero`/`disagree`/`unreadable`) 추가 — **임계도
+  종료코드도 없다.** 붙이는 순간 `resolution.rounds` 대 `meta.round_ledger_count`의
+  해석을 M5 가 선점하게 되고, 그 해석은 C4 소유다.
+- `setup.md` · `docs/dogfood-install.md` · `docs/review-record-linkage/frozen-baseline.md`
+  — skew 행의 읽는 법, **배선 마일스톤의 라이브 acceptance 는 `--plugin-dir` 아래에서만
+  성립한다**는 절차, 라이브 파티션의 M5 실측(동결 블록 밖). 동결 블록 바이트는 불변이고
+  `linkage-frozen-baseline.test.js`가 그것을 확인한다.
 - **`.github/workflows/test-suite-baseline.yml` — 트리거 하나, OS 축 둘 (ci-full-suite M3)**.
   `pull_request`를 뗀다(DD1) — 두 트리거를 둔 사유가 만료됐고, 남기면 같은 PR에서
   측정과 강제가 나란히 돌아 무엇이 머지를 막는지가 흐려진다. 대신 `matrix.os`에
@@ -620,6 +737,23 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   `grep -vxF`로 리터럴 매칭하며, 두 번째 `.claude/reviews/*.md`가 staged면 여전히 HALT한다.
 
 ### Fixed
+
+- install-skew 배너의 dedupe 키에서 `commits_behind`를 뺐다. 그 값은 단조 증가 카운터라
+  키에 넣으면 **커밋 하나마다** 키가 새것이 되고, `install_skew_state`는 content hash에
+  포함되므로 배너가 매 세션 재발화하면서 STATE.md 가 매 커밋 재작성된다 — `dep_check_at`
+  을 해시에서 뺀 사유(“Including it in the hash dirtied STATE.md in `git status` every
+  session”)가 timestamp 축이 아니라 **값 축**으로 되살아난 형태다. 상태 이름만으로도
+  배너가 주장하는 명제(실행 중인 빌드가 이 워크트리가 아니다)는 180커밋에서나
+  181커밋에서나 똑같이 참이고, 실제 숫자는 배너 문구가 매번 새로 계산하므로 운영자에게
+  그대로 도달한다. 상태 전이(`behind`↔`diverged`↔해소)는 여전히 재발화한다.
+
+- `.claude/reviews/plan-review-review-record-linkage.md` — M1 패널 레코드(finding 16건 +
+  file:line evidence)를 복원했다. M5 의 **halt 한 첫 시도**가 plan hash 를 해소하지 못해
+  `-m5` 접미 없이 PRD 슬러그로 떨어지면서 그 파일을 “findings: None recorded”로 덮었고,
+  `codex-findings-backlog.md` 가 `원문 …/plan-review-review-record-linkage.md` 로 거는
+  참조 여러 건이 dangling 이 됐다. 이 위험은 M3 시점에 R1 으로 이미 기록돼 있었고
+  mitigation(“명시 슬러그 `-mN` 을 쓴다”)이 **정상 경로만** 덮은 것이 실현 원인이다.
+  halt 레코드는 유실 없이 `plan-review-review-record-linkage-m5-halt.md` 로 보존한다.
 
 - 투영의 zero-join 계열이 `{n:0, p50:null}`이 아니라 `null`이다 — 빈 분포를 실으면
   "관측했더니 0"과 "관측이 없음"이 구분되지 않는다(부재 규칙 (a)의 투영 층 대우).

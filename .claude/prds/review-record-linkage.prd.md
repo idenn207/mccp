@@ -79,7 +79,7 @@ We'll know we're right when **C1 착지 후 발행된 ship receipt가 실제 라
 
 ## Scope
 
-**MVP** — **M1 단독** (원래 M1 + M2 였으나 M2가 상류 선점으로 dropped — Delivery Milestones 표 아래 주 참조). 계측 정의를 파서로 고정해 과거를 동결 보고하고(M1), `resolution.rounds`에 게이트용 통로를 만들어 세 게이트가 실값을 넣게 한다(M2). M2의 outcome은 `env-contract-integrity M3`가 상류에서 이미 출시했으므로, M1만으로 지표 1·4가 `null`을 벗어나고 C4의 차단이 풀린다. M3(링크)·M4(내용층 형식)는 같은 사이클에 이어지되 MVP 판정에는 포함되지 않는다.
+**MVP** — **M1 단독** (원래 M1 + M2 였으나 M2가 상류 선점으로 dropped — Delivery Milestones 표 아래 주 참조). 계측 정의를 파서로 고정해 과거를 동결 보고하고(M1), `resolution.rounds`에 게이트용 통로를 만들어 세 게이트가 실값을 넣게 한다(M2). M2의 outcome은 `env-contract-integrity M3`가 상류에서 이미 출시했으므로, M1만으로 지표 1·4가 `null`을 벗어나고 C4의 차단이 풀린다. M3(링크)·M4(내용층 형식)·M5(발화)·M6(원장 종결)는 같은 사이클에 이어지되 MVP 판정에는 포함되지 않는다.
 
 M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 분모 위에 서기 때문**이다. 정의 없이 착수하면 45.2%와 같은 재현 불가능한 숫자를 하나 더 만든다.
 
@@ -111,6 +111,109 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 | 2 | rounds-channel | `resolution.rounds`에 게이트용 입력 통로가 생기고 세 게이트가 실값을 넘긴다. **acceptance는 producer가 아니라 산출된 실값** — 배선 부재를 보는 test가 없으면 완료가 아니다 | dropped | 검증 산출물: [review-record-linkage-m2-upstream-verification.md](../PRPs/reports/review-record-linkage-m2-upstream-verification.md) |
 | 3 | bidirectional-link | receipt가 리뷰 경로를, 리뷰가 receipt 식별자를 갖는다. 필드는 present-only(`makeSkeleton` 미포함)라 과거 receipt의 hash가 불변이다 | complete | [.claude/plans/review-record-linkage-m3.plan.md](../plans/review-record-linkage-m3.plan.md) |
 | 4 | review-round-structure | `record.js`가 M1의 파서 정의를 만족하는 형식으로만 기록하고, 착지 후 리뷰의 커버리지가 100%가 된다 | complete | [.claude/plans/review-record-linkage-m4.plan.md](../plans/review-record-linkage-m4.plan.md) |
+| 5 | live-firing-diagnostic | 배선이 발화하지 못하는 원인(**판본 격차**)을 말하는 입이 생긴다 — `install-skew.js` 오라클 · `dep-check`의 `install skew` 행 · SessionStart 배너. `undecidable` 사유가 라이브 파티션에서 이분화되고(`producer_absent_in_build`), 라이브 acceptance 절차가 `--plugin-dir`로 문서에 못박힌다([dogfood-install.md](../../docs/dogfood-install.md)). backlog 103행 기계 분류 · fix-task escalation 종결 포함. **라이브 실값 산출 자체는 M7이 갖는다** — 아래 분리 주 참조 | complete | [.claude/plans/review-record-linkage-m5.plan.md](../plans/review-record-linkage-m5.plan.md) |
+| 6 | deferred-ledger-closure | 이 PRD가 남긴 backlog **73행**(M5가 분류를 마쳤고 판정만 남았다 — [deferred-triage.md](../../docs/review-record-linkage/deferred-triage.md)) · `FAIL` 버킷 14행(§3.14 해제 조건 대기, 일괄) · Open Questions 5건 · fix-task escalation 1건이 각각 해소/이연/무효 중 하나로 **명시 판정**되고 판정 근거가 파일에 남는다. 코드 변경은 §3.14 임계(HIGH/CRITICAL) 흡수분에 한정한다 | pending | — |
+| 7 | live-firing-execution | `--plugin-dir` 아래에서 게이트를 완주해 **실제로 발화시킨다** — 발행되는 ship receipt가 `meta.review_record_path`·`meta.plan_review_expected`를 봉인하고 `linkage.bidirectional >= 1` · `denominator != null`이 된다. 상류 `mccp-plan-codex` receipt가 링크의 발원지이므로 그 receipt가 실재하는 상태에서 수행해야 한다(아래 분리 주 D2) | in-progress | [.claude/plans/review-record-linkage-m7.plan.md](../plans/review-record-linkage-m7.plan.md) |
+
+> **M5에서 Task 6(라이브 실값)을 분리해 M7로 열었다 (2026-09-08).** 분리는 편의가 아니라
+> 기계적 사실의 귀결이다. 근거 셋을 값으로 적는다.
+>
+> **D1 — 링크의 발원지는 상류 plan receipt다.** `finalize-receipt.js:306-325`가
+> `meta.review_record_path`(검사 1)와 `--plan-review-expected`(검사 4)를 **상류
+> `mccp-plan-codex` receipt에서 파생**한다. 상류가 0건이면 `link_anchor_unresolved`로
+> 접히고 "No link is stamped; the audit reports this as undecidable"가 된다. 즉 plan
+> receipt 없이 ship하면 Task 6의 네 검사가 전부 실패한다 — 우회로 얻을 수 있는 값이 아니다.
+>
+> **D2 — 그 receipt는 working-tree only라 소실됐다.** §3.12대로 plan/implement receipt는
+> 세션 진단용이라 git-tracked가 아니다. M5의 것은 워크트리 재체크아웃과 함께 사라졌고,
+> `mccp-pr-codex`(git-tracked)만 남았다.
+>
+> **D3 — 구현이 끝난 뒤에는 plan 게이트를 다시 돌려 그것을 제조할 수 없다.** 2026-09-08
+> 실측: `/mccp:plan`이 L1에서 `C3_CREATE_EXISTS` 5건으로 차단됐다 — 플랜이 CREATE로 적은
+> 5개 파일이 구현 착지로 이미 실재하기 때문이다. C3는 `fs.existsSync` 판정이라 `--plugin-dir`
+> 로도 사라지지 않는다. `MCCP_REVIEW_SINGLE_PASS`도 열지 못한다 — §3.15가 L1 실패를 완화
+> 대상에서 명시적으로 제외한다. 같은 실행에서 `C6_UNRESOLVED_CITATION` 1건이 함께 났는데,
+> 그것은 캐시 `1.33.6`의 `CITATION_RE`에 선행 `\.?`가 없어 `.claude-plugin/…`의 점을 잘라
+> 잡은 것이고 워크트리 판본에는 이미 고쳐져 있다 — **이 PRD의 명제가 자기 게이트에서**
+> **재현된 사례**다.
+>
+> 따라서 M7은 새 슬러그로 **구현 전에** 게이트를 돌아야 한다. 그 순서에서만 C3가 발생하지
+> 않고, plan receipt가 정상 발행되며, `--plugin-dir` ship이 링크를 봉인할 수 있다.
+>
+> M5의 outcome 문장에서 라이브 실값 주장을 뺀 것은 플랜 자신의 Acceptance 주석이 지시한
+> 처리다 — "주장을 남긴 채 acceptance만 무르게 하는 것이 M2가 dropped된 이유이자 이 PRD의
+> 지배적 실패 모드다".
+
+> **M7 1차 사이클은 미완료로 종료됐다 (2026-09-08). status는 `in-progress` 유지 —**
+> **dropped도 complete도 아니다.** 목표는 여전히 유효하고 구현에 착수하지 않았다.
+> 전체 기록·handoff: [review-record-linkage-m7-report.md](../PRPs/reports/review-record-linkage-m7-report.md).
+>
+> **차단 사유는 슬러그의 라운드 예산이 종료적으로 소진된 것이다.** plan 게이트를 세 라운드
+> 돌았고(R0 · R1 크래시 · R1-retry) 전부 `divergent`로 끝났다. 원장
+> `mccp-plan-codex__review-record-linkage-m7`이 `rounds_so_far:3`이고
+> `review-single-pass.js:45`의 `MAX_ROUND_CAP`이 3이므로, `MCCP_GATE_ROUND_CAP`의 **어떤**
+> **값으로도** 이 슬러그로는 라운드가 더 열리지 않는다(`counter.js:56`). §3.16이 원장 삭제를
+> 금지하므로 복구 경로도 없다 — **예산을 다시 얻는 유일한 정당한 방법은 다른 decision slug다.**
+>
+> 그런데 슬러그 변경은 M7 plan의 UI2(브랜치 이름 = ship 슬러그) · UI4(plan 경로) · DD7
+> (`/mccp:pr` 2.5.9의 체인 조회가 슬러그로 이뤄진다)과 정면으로 걸린다. **다음 사이클은**
+> **게이트에 진입하기 전에 그 셋을 먼저 정해야 한다** — 정하지 않고 들어가면 예산만 태운다.
+>
+> **D4 — "어느 본문이 실행 중인가"는 두 라운드가 연속으로 관측 불가라고 결론 냈다.**
+> M7 plan의 초판(Task 0 축 1)과 그 대체안(DD10) **둘 다 상수-참**이었다. 대체안의 실측:
+> 캐시 `1.33.6`의 `commands/plan.md`는 `$REVIEW_DIR/plan-path`를 쓰지도 purge하지도
+> 않으므로(purge 목록 `:960-965`가 `l3-findings.json`에서 끝난다) 이전 실행의 잔여 파일이
+> 살아남아 통과하고, 워크트리 본문은 purge(`:965`)와 write(`:977`)가 같은 블록이라
+> 동어반복이다. 다음 사이클의 선택지는 (i) 진짜 관측 가능한 신호를 찾거나 (ii) 그 축을 접고
+> 사후 증거(`--check-live-linkage`)에만 의존하는 것이다. 그대로 옮기는 것은 선택지가 아니다.
+>
+> **부수 발견 — 이 PRD 밖.** 크래시한 패널 dispatch가 복구 불가능하게 라운드 예산을
+> 소모한다. 원장은 dispatch 시점에 `classification:"emitted"`만 적고 반환 여부를 추적하지
+> 않으므로, R1처럼 산출 0으로 죽은 라운드도 영구 차감된다. 이 사이클이 3라운드를 쓴 것 중
+> 1회가 그것이다. 소유 축 미정 — backlog 2026-09-08 HIGH 행 참조.
+
+> **M7 2차 사이클 — 결정 정체성이 확정됐고 코드가 착지했다. status는 여전히**
+> **`in-progress` (2026-09-08).** 바로 위 note 가 "다음 사이클은 게이트에 진입하기 전에
+> 그 셋을 먼저 정해야 한다" 고 적은 그 셋이 정해졌고, D4 도 선택지 (ii) 로 닫혔다.
+>
+> **정체성**: 결정 슬러그는 `review-record-linkage-m7b` 다. `-m7` 은 3/3 소진이라
+> 그 슬러그로 plan receipt 를 얻을 경로가 없으므로 신선한 슬러그가 유일한 정당한 수단이었다
+> (바로 위 note 의 결론). 브랜치도 `review-record-linkage-m7b` 로 맞춰 `/mccp:pr` 2.5.8·2.5.9
+> 의 슬러그 키 체인 조회가 봉인된 receipt 를 찾는다. **plan 파일명은 `-m7` 로 남는다** —
+> `finalize-receipt.js:289-303` 의 앵커가 receipt 가 봉인한 `meta.plan_path` 와 **문자열
+> 동등**으로 매칭하므로 파일을 리네임하면 매칭이 0 건이 되어 링크가 통째로 미봉인된다(측정됨).
+> 그 간극은 ship 진입 시 `PR_PLAN_PATH` 가 잇는다(`pr.md:928` 이 operator 채널이라 명시).
+> `-m7` 슬러그로 receipt 를 수동 발행하는 복구안도 같은 이유로 배제됐다 — 같은
+> `meta.plan_path` 를 선언하는 receipt 가 둘이 되어 앵커가 ambiguous 해진다.
+>
+> **D4 는 선택지 (ii) 로 닫혔다.** 진입 전 관측 가능한 신호를 찾지 못했으므로 그 축을 접고
+> **사후 증거**에 의존한다: 캐시 판본에는 `meta.review_record_path` 를 찍는 줄이 아예 없으므로
+> (F3), plan receipt 에 그 필드가 봉인돼 있다는 사실 자체가 워크트리 본문이 돌았다는 증거다.
+> 이번 사이클의 receipt 가 그것을 실제로 갖는다. DD10 의 대체 게이트는 본문에서 **철회**됐고
+> `commands/plan.md` 는 착지 파일 목록에 들어가지 않는다 — 구현할 코드가 없기 때문이다.
+>
+> **착지한 것**: `--check-live-linkage` 강제 뷰(`linkage-audit.js`) + 회귀 19 건. 네 검사가
+> 전부 **고정된 HEAD OID 하나**에서 읽고 **지목한 ship 하나**에 대해 판정한다. 흡수된 지적
+> 6 축(Codex F1 자격 오라클 · F2 트리 고정 · security S1 미봉인 해시 · S2 traversal ·
+> S4 슬러그 가드 · S6 파손 receipt)은 각각 변이를 되돌리면 red 가 되는 fixture 를 갖는다.
+>
+> **왜 아직 complete 가 아닌가**: acceptance 는 `--check-live-linkage --decision
+> review-record-linkage-m7b` 의 **exit 0** 단독인데(DD9), 현재는 `unresolved`(3) —
+> 사유 `named_ship_absent_from_tree` 다. ship receipt 는 `/mccp:pr` 이 만들고 그것은 UI7 대로
+> `--plugin-dir` 세션의 몫이다. 즉 남은 것은 Task 4 하나이고, 그때까지 M7 은 complete 가 아니다.
+>
+> **이 사이클이 치른 비용 (감춤 없이)**: R2 지적 흡수가 plan 본문을 고쳤고 그래서
+> `plan_hash` 가 바뀌어 상류 plan receipt 는 `prp-implement`·`pr` 양쪽에서 **stale** 이다.
+> 재봉인 경로는 없다(`-m7b` 도 1/1 소진, 새 슬러그로 재리뷰는 §3.16 IV1 이 금지한 패턴).
+> **링크 자체는 영향받지 않는다** — carry-forward 는 `meta.plan_path` 만 보고 `plan_hash` 를
+> 보지 않으므로 봉인될 값은 진짜다. 우회가 여는 것은 *체인 검증*이지 *링크 산출*이 아니다.
+> 상세는 plan 의 Task 0.5 와 보고서.
+
+> **M6 행의 "79행"을 정정했다 (M5 Task 7, 2026-09-04).** 실측은 `Source plan` 열 기준
+> 이 PRD 103행이고 그중 M5 자신의 사이클이 16행이다. M5 이전 누적은 87행이며, M5가
+> (a) 이미 해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류를
+> 마쳤다(합계 103, 누락 0). 79는 어느 세는 규칙으로도 재현되지 않는다 — 근거 없는
+> 수치가 관측표에 남아 있던 것이고, 그 정정 자체가 이 PRD가 닫으려는 결함이다.
 
 > **M2 dropped 사유 (2026-09-01, 기계 확인).** `env-contract-integrity M3`(origin/main
 > v1.33.6)가 이 마일스톤의 outcome을 그대로 출시했다 — 통로(`write.js`의 ledger 파생) ·
@@ -139,9 +242,40 @@ M1이 먼저인 이유는 **M2·M3·M4의 목표치가 전부 M1이 정하는 �
 > 따라서 **UI9는 폐기가 아니라 충족**으로 읽는다 — MVP가 요구한 상태(M1의 정의 + M2의
 > 통로)에 도달했고, 통로만 상류가 제공한다. 사용자가 2026-09-02에 이 해소 방식을 택했다.
 
-**직렬 강제**: M1 → (M2 병렬 M3) → M4. M2와 M3는 소유 파일이 다르나(`receipt/write.js`+`cli.js` 대 `plan-review/record.js`) 둘 다 M1의 정의를 소비하므로 M1이 선행이다. M4는 M3의 링크 필드를 형식 계약에 포함하므로 M3 뒤다.
+> **M5·M6 추가 사유 (2026-09-04, 사용자 지시 + 기계 확인).** M1~M4가 전부 `complete`인데
+> **이 PRD의 지표 2가 라이브에서 `0`이고 분모가 `null`이다.** 실측:
+> `node plugins/mccp/scripts/lib/linkage-audit.js --json` → `post_baseline`의
+> `linkage.{receipt_to_review, review_to_receipt, bidirectional}` 전부 `0`(HEAD 트리 ship
+> 88 · 레코드 72), `ship_eligibility.counts.undecidable = 88`, `linkage.denominator = null`.
+> M3·M4 **자신의** ship receipt에도 `meta.review_record_path`·`meta.plan_review_expected`가
+> 부재다.
+>
+> 원인은 코드가 아니다. 배선은 워크트리에 실재하고(`commands/plan.md:2884-2892` ·
+> `commands/pr.md:1049-1085` · `finalize-receipt.js:309-315`), 게이트가 실행하는 명령
+> 본문이 **설치 캐시 `1.33.6`**(commit `647dfecb`)의 것이라 그 판본에 M3·M4 배선이 없다.
+> `marketplace.json`이 `ref: release`를 가리키므로 `claude plugin update`로도 좁혀지지
+> 않는다 — **캐시가 뒤처지는 것은 릴리스 채널 분리 이후의 항구적 기본 상태**다.
+> M4 completion-ledger의 R10이 이미 이 사실을 등재했고, M3 보고서의 Next Steps가
+> "다음 사이클에서 라이브 링크 완주 확인"을 이연했다. **그 이연이 M5다.**
+>
+> 이것은 이 PRD가 Risks 표 첫 행에 적은 **"새 통로를 만들었는데 게이트가 안 부른다"의
+> 실현**이다. 완화로 적었던 "acceptance를 산출된 실값으로 둔다"는 단위 test와 워크트리
+> 실행까지만 덮었고, **게이트가 어느 판본을 실행하는가**는 덮지 못했다.
+>
+> M6는 그 사이 쌓인 이연 원장을 닫는다 — backlog 79행(m1 29 · m3 25 · m4 12 · 출처 미상
+> 24 중 이 PRD 귀속분), 미체크 Open Question 5건, `fix-task-applied.md`의 미해소
+> escalation 1건. 분리 근거는 M5 plan의 DD8이다: 둘을 한 마일스톤에 넣으면 acceptance가
+> "판정 79건"이 되어 라이브 실값 축이 그 안에 묻힌다.
+
+**직렬 강제**: M1 → (M2 병렬 M3) → M4 → M5 → M6. M2와 M3는 소유 파일이 다르나(`receipt/write.js`+`cli.js` 대 `plan-review/record.js`) 둘 다 M1의 정의를 소비하므로 M1이 선행이다. M4는 M3의 링크 필드를 형식 계약에 포함하므로 M3 뒤다. M5는 M1~M4의 배선 전부가 착지한 뒤에만 "발화 여부"를 물을 수 있으므로 M4 뒤다. M6는 M5가 Task 7에서 backlog를 분류한 결과 위에 서므로 M5 뒤다.
 
 ## Open Questions
+
+> **종결 소유자는 M6다** (2026-09-04). 다섯 항목 모두 미체크로 남아 있고, 그중 3번은
+> 산출물이 실재하므로(`docs/review-record-linkage/frozen-baseline.md`) 사실상 답이 있는데
+> 체크만 안 된 상태다. 5번은 M3가 `meta.plan_review_expected`로 답했으나 그 생산자가
+> 라이브에서 한 번도 발화하지 않아(위 M5 사유 참조) **답이 반증 불가 상태로 남아 있다**.
+> M6는 다섯 항목 각각을 해소 / 이연 / 무효 중 하나로 명시 판정하고 근거를 파일에 남긴다.
 
 - [ ] **`rounds`가 세는 것이 무엇인가 — 게이트마다 라운드 개념이 다르다.** `/mccp:plan`은 L1/L2/L3 층이 있고, `/mccp:prp-implement`는 Codex R1/R2이며, `/mccp:pr`은 dedupe 여부로 갈린다. 하나의 정수로 접을 수 있는지, 아니면 게이트별 의미를 receipt가 함께 밝혀야 하는지. **M2 착수 전에 답해야 한다** — 답이 없으면 세 게이트가 서로 다른 것을 세면서 같은 필드에 넣는다.
 - [ ] **`meta.*_rounds` 5종과 `resolution.rounds`의 관계.** 중복이면 결정층이 정본이고 meta는 상세인지, 아니면 애초에 다른 축을 세는지. 중복 판정이 나면 통합은 out of scope이나 **문서에 관계를 명시할 의무**는 남는다.

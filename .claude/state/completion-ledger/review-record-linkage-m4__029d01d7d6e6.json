@@ -1,0 +1,29 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "review-record-linkage-m4",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.34.4",
+    "completed_at": "2026-09-04T04:37:37.980Z",
+    "commit_sha": "9fd6f7b8d71a115a6e8208a5457fe43e659f7026",
+    "plan_basename": "review-record-linkage-m4.plan.md",
+    "plan_file_hash": "sha256:e217578809d3913a34ca6a1206b5d67e3fc8a200878c8b5478cfee54fc92fb0b",
+    "risks_closed": [
+      "**R1 — 슬러그 충돌이 M1의 git-tracked 레코드를 덮어쓴다.** PRD 경로에서 파생되는 슬러그는 `review-record-linkage`이고 M1이 그 이름으로 커밋했다",
+      "**R2 — 캡을 강제한 원장과 레코드가 읽는 원장이 어긋난다.** R1의 완화가 슬러그를 override하는 순간 구조적으로 열린다",
+      "**R3 — `ci-full-suite-m2`가 `plan-review/cli.js`를 공유 소유한다.** 실측: `git diff --name-only origin/main...ci-full-suite-m2`에 그 파일과 `l1-check.js`가 있다. PRD가 적은 `diverse-agent-review-m9`는 이미 머지돼 겹침이 0이다",
+      "**R4 — 계측이 게이트를 죽인다.** \"기록 시점에 거부\"를 문자대로 구현하면 `record.js`의 never-throw 계약이 깨진다",
+      "**R5 — `not_applicable` 자격이 분모 게이밍으로 읽힌다**",
+      "**R6 — 동결 baseline이 움직인다** (M3의 R3와 동형)",
+      "**R7 — 새 필드를 만들었는데 라이브 실값이 0으로 남는다.** 이 저장소의 지배적 실패 모드이고 M2가 그것으로 dropped됐다",
+      "**R8 — 이 게이트 자신이 R1과 R2를 밟는다**",
+      "**R9 — 신규 test가 CI에 없다** (M3의 R9 상속)",
+      "**R10 — 설치된 plugin 캐시가 M3보다 낡아 링크 축의 라이브 실값이 이 사이클에서 관측되지 않는다.** 실측: 이 게이트의 receipt에 `meta.plan_path`·`meta.review_record_path`가 부재하고, 게이트 본문은 캐시 `1.33.6`(M3는 `1.34.5`)에서 돌았다",
+      "**R11 — 흡수가 receipt 봉인 뒤에 일어나 `reviewed_plan_hash`가 흡수 이전 판본을 가리킨다**"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:029d01d7d6e644cfe3dedf09451e6b732a47451dc8241f78ba4d5e3c8a438bd5",
+    "verdict_provenance": "codex-verdict"
+  }
+}

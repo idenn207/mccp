@@ -38,6 +38,9 @@ const COUPLING_INVENTORY = [
       'plugins/mccp/scripts/lib/impeccable-detect.js',
       'plugins/mccp/scripts/lib/impeccable-cleanup.js',
       'plugins/mccp/scripts/lib/resolve-ecc-root.js',
+      // review-record-linkage M5: 판본 격차 오라클. `dep-check`가 부르는 설치 탐지의 일부라
+      // 같은 축이다 — 새 결합이 아니라 이 인벤토리보다 먼저 갈라진 브랜치에서 착지했을 뿐이다.
+      'plugins/mccp/scripts/lib/install-skew.js',
     ],
     axis: 'dependency detection',
     disposition: 'defer',

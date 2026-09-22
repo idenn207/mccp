@@ -407,3 +407,116 @@ test('M4 — a reason never carries the untrusted value itself, only its shape',
   assert.match(defs.classifyRoundStructure({ rounds: 0 }).reason, /\b0\b/);
   assert.match(defs.classifyRoundStructure({ rounds: 1.5 }).reason, /1\.5/);
 });
+
+// ── M5 DD5 — 라이브 사유 정련 ────────────────────────────────────────────────
+
+test('M5 DD5 — the sealed reason strings are UNCHANGED (frozen corpus keys)', function () {
+  // 이 단언이 지키는 것: 정련을 넣으면서 원래 문자열을 "겸사겸사" 고치는 것.
+  // 그 문자열은 `docs/review-record-linkage/frozen-baseline.md` 에 축자 커밋된
+  // `by_reason` 키이고, 움직이지 않는 것 자체가 UI6 의 계약이다.
+  const noField = defs.classifyShipEligibility({ meta: { command: '/x' } });
+  assert.equal(noField.reason,
+    'no explicit meta.plan_review_expected — and nothing else in a ship receipt decides it ' +
+    '(plan_hash and meta.command are present on every receipt; the upstream plan receipt ' +
+    'was never git-tracked)');
+  const unexplained = defs.classifyShipEligibility({ meta: { plan_review_expected: false } });
+  assert.equal(unexplained.reason,
+    'meta.plan_review_expected=false but meta.no_plan_review_reason is absent or empty — ' +
+    'an unexplained exclusion is not a decision');
+  assert.equal(defs.classifyShipEligibility(null).reason, 'receipt has no readable meta object');
+});
+
+test('M5 DD5 — refinement applies to the no_explicit_field branch ONLY', function () {
+  const live = defs.LIVE_UNDECIDABLE_REASONS;
+
+  // 적용 대상 — M3 키가 하나도 없다.
+  const absent = { meta: { command: '/x', plan_path: '.claude/plans/p.md' } };
+  const rAbsent = defs.refineLiveUndecidableReason(absent, defs.classifyShipEligibility(absent));
+  assert.equal(rAbsent.reason, live.producerAbsent);
+  assert.equal(rAbsent.verdict, 'undecidable', 'refinement must not change the verdict');
+
+  // 적용 대상 — M3 키가 있는데 자격 키만 없다.
+  defs.M3_PRODUCER_KEYS.forEach(function (key) {
+    if (key === 'plan_review_expected') return;   // 있으면 다른 갈래로 간다
+    const meta = { command: '/x' };
+    meta[key] = 'whatever';
+    const rec = { meta: meta };
+    const out = defs.refineLiveUndecidableReason(rec, defs.classifyShipEligibility(rec));
+    assert.equal(out.reason, live.producerPresentUnstamped, 'key ' + key + ' proves the producer existed');
+  });
+
+  // 비적용 — 나머지 두 undecidable 갈래는 손대지 않는다 (L2 architect MEDIUM 흡수).
+  // 그 둘은 M3 키를 물을 수 없거나(판독 불가) 이미 다른 축의 결함이므로(무증거
+  // exclusion), 같은 규칙을 적용하면 없는 사실을 만든다.
+  [null, { meta: null }, { meta: 'nope' }].forEach(function (rec) {
+    const base = defs.classifyShipEligibility(rec);
+    const out = defs.refineLiveUndecidableReason(rec, base);
+    assert.equal(out.reason, base.reason, 'the meta-unreadable branch must pass through');
+  });
+  const unexplained = { meta: { plan_review_expected: false } };
+  const uBase = defs.classifyShipEligibility(unexplained);
+  assert.equal(defs.refineLiveUndecidableReason(unexplained, uBase).reason, uBase.reason,
+    'the unexplained-exclusion branch must pass through');
+
+  // 비적용 — 판정된 것들.
+  [{ meta: { plan_review_expected: true } },
+   { meta: { plan_review_expected: false, no_plan_review_reason: 'chore only' } }].forEach(function (rec) {
+    const base = defs.classifyShipEligibility(rec);
+    const out = defs.refineLiveUndecidableReason(rec, base);
+    assert.equal(out.reason, base.reason);
+    assert.notEqual(out.reason, live.producerAbsent);
+    assert.notEqual(out.reason, live.producerPresentUnstamped);
+  });
+});
+
+test('M5 DD5 — a present-but-non-boolean eligibility key still proves the producer ran', function () {
+  // `plan_review_expected: null` 은 `true` 도 `false` 도 아니라 fallthrough 로
+  // 떨어지지만, 키가 있다는 것은 그 빌드에 생산자가 있었다는 뜻이다. 값 검사가
+  // 아니라 **키 존재** 검사여야 하는 이유다.
+  [null, 'yes', 0, []].forEach(function (v) {
+    const rec = { meta: { plan_review_expected: v } };
+    const base = defs.classifyShipEligibility(rec);
+    assert.equal(base.code, defs.ELIGIBILITY_CODES.noExplicitField, 'value ' + JSON.stringify(v));
+    const out = defs.refineLiveUndecidableReason(rec, base);
+    assert.equal(out.reason, defs.LIVE_UNDECIDABLE_REASONS.producerPresentUnstamped);
+  });
+});
+
+test('M5 DD5 — the two live reasons are mutually exclusive for a single receipt', function () {
+  const live = defs.LIVE_UNDECIDABLE_REASONS;
+  const both = { meta: { review_record_path: '.claude/reviews/x.md' } };
+  const out = defs.refineLiveUndecidableReason(both, defs.classifyShipEligibility(both));
+  assert.equal(out.reason, live.producerPresentUnstamped);
+  assert.notEqual(out.reason, live.producerAbsent);
+});
+
+test('M5 DD5 — classification codes are additive; verdict and reason keep their meaning', function () {
+  // `code` 는 하류가 사유 **문자열을 파싱하지 않도록** 주는 필드다. 문자열 파싱은
+  // 동결 코퍼스를 깨뜨리지 않고 분기하는 유일한 대안이었고, 그것은 깨지기 쉽다.
+  const codes = defs.ELIGIBILITY_CODES;
+  const seen = {};
+  [null,
+   { meta: { plan_review_expected: true } },
+   { meta: { plan_review_expected: false, no_plan_review_reason: 'x' } },
+   { meta: { plan_review_expected: false } },
+   { meta: {} }].forEach(function (rec) {
+    const r = defs.classifyShipEligibility(rec);
+    assert.equal(typeof r.verdict, 'string');
+    assert.equal(typeof r.reason, 'string');
+    assert.equal(typeof r.code, 'string');
+    seen[r.code] = true;
+  });
+  Object.keys(codes).forEach(function (k) {
+    assert.ok(seen[codes[k]], 'code ' + codes[k] + ' is unreachable — an enum value no input produces');
+  });
+});
+
+test('M5 DD5 — refineLiveUndecidableReason is total', function () {
+  const hostile = [
+    [undefined, undefined], [null, null], [{}, {}], [{ meta: 1 }, { code: 'nope' }],
+    [{ meta: {} }, null], [{ meta: {} }, { code: defs.ELIGIBILITY_CODES.noExplicitField }],
+  ];
+  hostile.forEach(function (pair, i) {
+    assert.doesNotThrow(function () { defs.refineLiveUndecidableReason(pair[0], pair[1]); }, 'case ' + i);
+  });
+});

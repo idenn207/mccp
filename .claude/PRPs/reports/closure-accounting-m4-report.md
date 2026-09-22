@@ -261,6 +261,12 @@ run URL"을 요구한다. **아직 없다** — PR을 열지 않았기 때문이
 실제로 spawn해 exit 0과 출력 형태를 확인하므로, 미확인으로 남는 것은 **GitHub 러너에서의 실행**
 하나로 좁혀진다.
 
+> **정정 (2026-09-22, closure-accounting M5 MF7)**: 이후 확보됐다. PR #203의 paths 트리거 run
+> [`34932510154`](https://github.com/idenn207/mccp/actions/runs/34932510154)(`pull_request`,
+> `c11-closure-accounting`, success)과 머지 후 run
+> [`34935365492`](https://github.com/idenn207/mccp/actions/runs/34935365492)(`push` main, success) —
+> 두 run 모두 step 전부 success다. 위 문단은 작성 시점의 사실로 남긴다.
+
 ## 로컬 코드 리뷰 흡수 (2026-09-15)
 
 `/mccp:code-review`(Local Review Mode)가 커밋 전 diff에서 HIGH 1 · MEDIUM 1 · LOW 3을 냈다.

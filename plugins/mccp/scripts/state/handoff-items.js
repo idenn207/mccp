@@ -136,6 +136,18 @@ function enumerateOpenFindings(cwd) {
     const all = registry.readAll({ repoRoot: cwd });
     let promotable = all.findings.filter(function (f) { return registry.isPromotable(f); });
 
+    // closure-accounting M5 (DD6, backlog 1845) — a degraded read still promotes
+    // what it could read (instrumentation must not block the handoff), but it is
+    // no longer silent: the list may be short, and the reader is told so. Only the
+    // COUNT goes to stderr — the reasons stay in the return for callers that want
+    // them.
+    const degraded = all.degraded === true;
+    const degradedReasons = Array.isArray(all.degraded_reasons) ? all.degraded_reasons : [];
+    if (degraded) {
+      process.stderr.write('[mccp:handoff-items] findings registry degraded (' +
+        degradedReasons.length + ' reason(s)) — the promotion list may be incomplete\n');
+    }
+
     // M10 — an item this repo has already dealt with stops being re-promoted.
     //
     // The suppression lives HERE, not in `isPromotable`: that predicate is a
@@ -189,11 +201,15 @@ function enumerateOpenFindings(cwd) {
       }),
       truncated: truncated,
       total_open_promotable: promotable.length,
+      degraded: degraded,
+      degraded_reasons: degradedReasons,
     };
   } catch (err) {
     process.stderr.write('[mccp:handoff-items] findings promotion skipped (' +
       ((err && err.message) || err) + ') — the other item types are unaffected\n');
-    return { items: [], truncated: 0, total_open_promotable: 0 };
+    // Same shape as the normal path. A throw is the most degraded read there is.
+    return { items: [], truncated: 0, total_open_promotable: 0, degraded: true,
+      degraded_reasons: ['findings promotion threw'] };
   }
 }
 

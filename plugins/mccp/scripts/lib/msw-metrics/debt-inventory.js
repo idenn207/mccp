@@ -650,6 +650,10 @@ const MAX_SUCCESSOR_SCAN_CHARS = 256 * 1024;
 // refuses. So the rules stay deliberately blunt: fenced blocks, indented code, and
 // blockquotes.
 const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
+// A closing fence may be followed only by spaces or tabs (CommonMark). Reusing the
+// opener pattern closed on "```x", so the fence stayed open to a reader while the
+// marker after it was accepted (PR gate security-reviewer S5).
+const FENCE_CLOSE_RE = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*$/;
 const BLOCKQUOTE_RE = /^[ ]{0,3}>/;
 
 // Indentation is measured in COLUMNS, not characters: a tab advances to the next
@@ -667,7 +671,7 @@ function indentColumns(line) {
   return col;
 }
 
-// Raw-text HTML blocks, and inline code spans.
+// Raw-text HTML blocks.
 //
 // The rules are mirrored from `intent-claims.js` (NOT the function — that one
 // erases HTML comments, and this marker IS an HTML comment), and the mirror keeps
@@ -696,31 +700,12 @@ function blankPreservingLines(match) {
   return '\n'.repeat(match.split('\n').length - 1);
 }
 
-// CommonMark inline code: a run of N backticks is closed by the NEXT run of
-// EXACTLY N. Length matters — a marker wrapped in ``…`` is not closed by a single
-// backtick, so a rule that stopped at the first backtick would leave it exposed.
-// A run with no matching partner is literal text and is kept.
-function stripInlineCode(line) {
-  let out = '';
-  let i = 0;
-  while (i < line.length) {
-    if (line.charAt(i) !== '`') { out += line.charAt(i); i += 1; continue; }
-    let n = 0;
-    while (i + n < line.length && line.charAt(i + n) === '`') n += 1;
-    let j = i + n;
-    let close = -1;
-    while (j < line.length) {
-      if (line.charAt(j) !== '`') { j += 1; continue; }
-      let m = 0;
-      while (j + m < line.length && line.charAt(j + m) === '`') m += 1;
-      if (m === n) { close = j; break; }
-      j += m;
-    }
-    if (close === -1) { out += line.slice(i, i + n); i += n; continue; }
-    i = close + n;
-  }
-  return out;
-}
+// CommonMark's blank line: nothing but spaces and tabs. NOT `trim() === ''` —
+// that also treats a line holding only NBSP (or any Unicode space) as blank, and
+// CommonMark does not, so such a line cannot end a paragraph. Splitting there
+// would leave a backtick-free middle group inside one multi-line code span and
+// expose the marker it holds (Implement gate security-reviewer S1).
+const BLANK_LINE_RE = /^[ \t]*$/;
 
 function stripQuotedForMarker(text) {
   const lines = String(text == null ? '' : text).split(/\r?\n/);
@@ -729,7 +714,7 @@ function stripQuotedForMarker(text) {
   for (const line of lines) {
     if (fence) {
       // A closing fence must be the same character and at least as long.
-      const close = line.match(FENCE_OPEN_RE);
+      const close = line.match(FENCE_CLOSE_RE);
       if (close && close[1].charAt(0) === fence.charAt(0) && close[1].length >= fence.length) {
         fence = null;
       }
@@ -760,7 +745,29 @@ function stripQuotedForMarker(text) {
     // Balanced blocks are already gone, so an opener still standing here is
     // unterminated by definition.
     if (RAW_TEXT_OPEN_RE.test(line)) { rawTextOpen = true; out.push(''); continue; }
-    out.push(stripInlineCode(line));
+    out.push(line);
+  }
+
+  // Inline code is NOT paired (closure-accounting M5 DD1). A code span cannot
+  // cross a blank line, so a paragraph with no backtick has no character inside
+  // one — and a paragraph that holds a backtick anywhere keeps none of its lines.
+  // Pairing is unsafe in both directions: cutting a paragraph where CommonMark
+  // does not (a 4-column continuation line, which the indent pass above blanked)
+  // splits a span open, and joining paragraphs CommonMark keeps apart lets an
+  // unpaired backtick take the next paragraph's opener. The per-line pairing this
+  // replaced took `Example: \`` / marker / `end\`` as three spanless lines and
+  // accepted the marker (M4 PR-Codex F1).
+  //
+  // Backticks are counted on the ORIGINAL lines, before the passes above blanked
+  // anything. The price is over-removal only: a real marker sharing a paragraph
+  // with inline code is refused, and a refused deferral fails closed.
+  let start = 0;
+  for (let i = 0; i <= lines.length; i++) {
+    if (i < lines.length && !BLANK_LINE_RE.test(lines[i])) continue;
+    let tick = false;
+    for (let k = start; k < i && !tick; k++) tick = lines[k].indexOf('`') !== -1;
+    if (tick) for (let k = start; k < i; k++) out[k] = '';
+    start = i + 1;
   }
   return out.join('\n');
 }

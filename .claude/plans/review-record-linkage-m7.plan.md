@@ -660,8 +660,8 @@ receipt `plan_hash` `952d9c…` = 현재 본문(`202d49b`). 그래서 plan 파�
   오케스트레이터가 `claude -p --plugin-dir` 하위 세션으로 띄울 수 있다(실측 — 후보 notes의 S5~S7).
   아래 산출·Validate는 `-m7b` 기준의 원문이다. 산출:
   1. `mccp-pr-codex/review-record-linkage-m7b.json`이 `meta.review_record_path` 봉인 (F5 carry-forward).
-     진입 시 `PR_PLAN_PATH=.claude/plans/review-record-linkage-m7.plan.md`를 export한다 — 기본값
-     `.claude/plans/<slug>.plan.md`는 실재하지 않아 `plugins/mccp/commands/pr.md:931`이 HALT한다 (R2)
+     (`-m7b`판은 여기서 `PR_PLAN_PATH` export를 지시했다. 2026-09-22 H1 번복으로 ship은 `-m7c`가
+     맡고, 거기서는 슬러그와 plan 파일명이 같으므로 **설정하지 않는다** — `-m7c` plan K1)
   2. `.claude/reviews/plan-review-review-record-linkage-m7b.md`가 `measurement.receipt_hash`로
      그 receipt를 되짚음 (F11 back-patch)
   3. `linkage.bidirectional >= 1`
@@ -760,7 +760,7 @@ git diff --diff-filter=D --name-only origin/main...HEAD
       하는 것은 앵커(F15, 파일명 무관)가 아니라 `/mccp:pr` 2.5.8·2.5.9의 체인 조회가 슬러그
       키를 쓰기 때문이다 (DD7 · R2 정정)
 - [ ] `mccp-pr-codex/review-record-linkage-m7b.json`이 `meta.review_record_path` + `meta.plan_review_expected`를 봉인
-      (진입 시 `PR_PLAN_PATH`를 export — Task 4)
+      (`-m7b` 기준 원문 — ship은 `-m7c`가 `PR_PLAN_PATH` 없이 수행한다)
 - [ ] `installed_plugins.json` sha256이 완주 전후로 불변 (UI8)
 - [ ] 보고서가 **어느 경로에서 완주했는지** 명시 (`docs/dogfood-install.md:113`)
 - [ ] 강제 뷰가 `unresolved`(3)로 끝났다면 그 사유가 보고서에 있고, **M7은 complete로 선언되지 않는다**

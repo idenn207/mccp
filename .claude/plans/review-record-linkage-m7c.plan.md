@@ -61,12 +61,53 @@ M7의 구현(`--check-live-linkage` 강제 뷰 + 회귀 19건)은 `review-record
 
 ## Files to Change
 
+아래 표는 **ship diff 전체**다(`git diff --name-only origin/main...HEAD` + 이 사이클의 산출물). `-m7b` 착지분을
+싣지 않으면 T3의 plan-conflict 검출이 `file-expansion`으로 멈춘다 — M6 B1이 같은 이유로 멈췄다.
+
 | File | Action | Why |
 |---|---|---|
 | `.claude/plans/review-record-linkage-m7c.plan.md` | UPDATE | 이 파일. T2 게이트가 봉인 전에 절을 붙일 수 있다 |
-| `.claude/notes/review-record-linkage-m7c-implement-review.md` | CREATE | T3의 implement 리뷰 착지처 — plan 동결 (K2) |
-| `docs/review-record-linkage/hsr-decisions.jsonl` | UPDATE | 런타임 판정점 `R-PR`·`R-SEC`의 기록 (M7 plan DD11) |
+| `docs/review-record-linkage/hsr-decisions.jsonl` | UPDATE | M6 브랜치에서 운반 · 런타임 판정점 `R-PR`·`R-SEC`의 기록 (M7 plan DD11) |
 | `.claude/plans/codex-findings-backlog.md` | UPDATE | §3.14 이연 채널 — T2 패널 finding을 plan 대신 여기에 |
+| `.claude/plans/review-record-linkage-m6.plan.md` | UPDATE | M6 브랜치에서 운반 — 검사 7의 HSR 재계산 스크립트 (Task 1) |
+| `.claude/plans/review-record-linkage-m7.plan.md` | UPDATE | M6 브랜치판 운반 · Task 4의 `PR_PLAN_PATH` export 지시 제거 (K1) |
+| `.claude/notes/review-record-linkage-m7c-implement-review.md` | CREATE | T3의 implement 리뷰 착지처 — plan 동결 (K2) |
+| `.claude/reviews/plan-review-review-record-linkage-m7c.md` | CREATE | T2 패널 리뷰 레코드 — 링크의 한쪽 끝 |
+| `.claude/state/findings/review-record-linkage-m7c.jsonl` | CREATE | T2 findings 원장 |
+| `.claude/PRPs/reports/review-record-linkage-m7c-report.md` | CREATE | T3 Phase 5 보고서 |
+| `.claude/state/STATE.md` | UPDATE | 게이트 훅의 연속성 기록 |
+| `.claude/PRPs/reports/review-record-linkage-m5-report.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/PRPs/reports/review-record-linkage-m7-report.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/plans/review-record-linkage-m5.plan.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/prds/review-record-linkage.prd.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/reviews/plan-review-review-record-linkage-m5-halt.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/reviews/plan-review-review-record-linkage-m5-r2-halt.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/reviews/plan-review-review-record-linkage-m5.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/reviews/plan-review-review-record-linkage-m7-r0.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/reviews/plan-review-review-record-linkage-m7.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/reviews/plan-review-review-record-linkage-m7b.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/state/completion-ledger/review-record-linkage-m4__029d01d7d6e6.json` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/state/findings/review-record-linkage-m5.jsonl` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/state/findings/review-record-linkage-m7.jsonl` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.claude/state/findings/review-record-linkage-m7b.jsonl` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `.gitignore` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `CHANGELOG.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `docs/dogfood-install.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `docs/review-record-linkage/deferred-triage.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `docs/review-record-linkage/frozen-baseline.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/commands/setup.md` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/hooks/session-start.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/dep-check.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/gitignore-provision.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/install-skew.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/linkage-audit.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/plan-review/linkage-defs.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/tests/install-skew-wiring.test.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/tests/install-skew.test.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/tests/linkage-audit.test.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/lib/tests/linkage-defs.test.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/state/state-writer.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
+| `plugins/mccp/scripts/state/tests/state-writer.test.js` | UPDATE | `-m7b` 착지분 운반 (M5·M7 구현 · UI10) |
 
 ## 결정
 

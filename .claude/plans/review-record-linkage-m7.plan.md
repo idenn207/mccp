@@ -2,7 +2,7 @@
 
 **Source PRD**: `.claude/prds/review-record-linkage.prd.md`
 **Selected Milestone**: M7 — live-firing-execution
-**Decision slug**: `review-record-linkage-m7b` — **R2에서 정정됐다**. `-m7`은 3라운드를 소진해 `review-single-pass.js:45`의 `MAX_ROUND_CAP=3`상 어떤 캡 값으로도 다시 열리지 않으므로, 이 사이클은 신선한 슬러그 `-m7b`로 게이트를 돌았고 plan receipt가 거기에 봉인됐다. 브랜치도 `review-record-linkage-m7b`로 맞췄다(실측: `derive-decision --command mccp:pr --args ""` → `review-record-linkage-m7b`). **plan 파일명은 `-m7`로 남는다** — 봉인된 receipt의 `meta.plan_path`가 그 경로이고 `finalize-receipt.js:289-303`의 앵커는 문자열 동등으로 매칭하므로, 파일을 리네임하면 매칭이 0건이 되어 링크가 통째로 미봉인된다(측정됨). 슬러그와 파일명의 간극은 ship 때 `PR_PLAN_PATH`가 잇는다 — `pr.md:928`이 "operator 채널"이라 명시한 그것이다. 아래 문단은 **진입 인자 규칙**으로 여전히 유효하다: **게이트 진입 인자가 이것을 정한다**. `mccp:plan`은 첫 non-flag 인자에서 슬러그를 뽑고(`receipt/decision.js:77-81`), `mccp:pr`은 브랜치에서 뽑는다. 그래서 이 게이트는 **plan 경로로** 호출한다 — `/mccp:plan .claude/plans/review-record-linkage-m7.plan.md`. PRD 경로로 부르면 슬러그가 `review-record-linkage`가 되어 F8·F13대로 막힌다. 실측: `derive-decision --command mccp:pr --args ""` → `review-record-linkage-m7`이고 `plugins/mccp/commands/pr.md:923`의 `SHIP_PLAN_PATH` 기본값이 `.claude/plans/${DECISION_SLUG}.plan.md`이므로 이 파일명도 같아야 한다
+**Decision slug**: `review-record-linkage-m7b` — **R2에서 정정됐다**. `-m7`은 3라운드를 소진해 `review-single-pass.js:45`의 `MAX_ROUND_CAP=3`상 어떤 캡 값으로도 다시 열리지 않으므로, 이 사이클은 신선한 슬러그 `-m7b`로 게이트를 돌았고 plan receipt가 거기에 봉인됐다. 브랜치도 `review-record-linkage-m7b`로 맞췄다(실측: `derive-decision --command mccp:pr --args ""` → `review-record-linkage-m7b`). **plan 파일명은 `-m7`로 남는다** — 봉인된 receipt의 `meta.plan_path`가 그 경로이고 `finalize-receipt.js:289-303`의 앵커는 문자열 동등으로 매칭하므로, 파일을 리네임하면 매칭이 0건이 되어 링크가 통째로 미봉인된다(측정됨). 슬러그와 파일명의 간극은 ship 때 `PR_PLAN_PATH`가 잇는다 — `plugins/mccp/commands/pr.md:928`이 "operator 채널"이라 명시한 그것이다. 아래 문단은 **진입 인자 규칙**으로 여전히 유효하다: **게이트 진입 인자가 이것을 정한다**. `mccp:plan`은 첫 non-flag 인자에서 슬러그를 뽑고(`receipt/decision.js:77-81`), `mccp:pr`은 브랜치에서 뽑는다. 그래서 이 게이트는 **plan 경로로** 호출한다 — `/mccp:plan .claude/plans/review-record-linkage-m7.plan.md`. PRD 경로로 부르면 슬러그가 `review-record-linkage`가 되어 F8·F13대로 막힌다. 실측: `derive-decision --command mccp:pr --args ""` → `review-record-linkage-m7`이고 `plugins/mccp/commands/pr.md:923`의 `SHIP_PLAN_PATH` 기본값이 `.claude/plans/${DECISION_SLUG}.plan.md`이므로 이 파일명도 같아야 한다
 **Complexity**: Small
 
 ## Summary
@@ -35,6 +35,7 @@ M5의 인계는 ship만 그 경로에서 돌면 된다고 읽혔다. **그것으
 | UI13 | 과거 코퍼스는 소급하지 않는다. 재봉인도 사이드카도 만들지 않는다 | exclusion |
 | UI14 | 게이트 리뷰는 1라운드가 기본이고 이후에는 triage하고 진행한다 | direction |
 | UI15 | 리뷰 finding은 HIGH와 CRITICAL만 흡수하고 나머지는 backlog로 이연한다 | direction |
+| UI16 | 사람이 필요한 답변과 검토는 fable 과 codex 의 이중 리뷰로 대체한다 (2026-09-22) | direction |
 
 ## 관측된 사실 (전부 이 워크트리에서 재현, 2026-09-08)
 
@@ -83,6 +84,7 @@ M5의 인계는 ship만 그 경로에서 돌면 된다고 읽혔다. **그것으
 | `.claude/PRPs/reports/review-record-linkage-m7-report.md` | UPDATE | 구현 보고 (라이브 실값을 명령·출력째로). **CREATE가 아니다** — 직전 사이클이 종료 보고로 이미 만들었고(`11b08ed`), L1 `C3_CREATE_EXISTS`가 그 사실을 잡았다 |
 | `CHANGELOG.md` | UPDATE | `## [Unreleased]` 아래 누적 (UI11 — 번호 미선언) |
 | `.claude/plans/codex-findings-backlog.md` | UPDATE | §3.14 이연 채널 |
+| `docs/review-record-linkage/hsr-decisions.jsonl` | UPDATE | HSR 판정 기록 (DD11). plan 단계의 P0가 만들었으므로 CREATE가 아니다 |
 
 ## Design Decisions
 
@@ -278,6 +280,69 @@ env 주입으로 위조되지 않으며, 예약(5.2b)과 라운드 소모(5.2c) 
 떴다"는 아니다 — 후자는 이 프로세스에서 관측 불가하며, 그것을 통과 조건으로 적는 것이
 초판의 실수였다.
 
+### DD11 — 사람이 필요한 결정은 Fable × Codex 이중 리뷰(HSR)가 대신한다 (UI16 · 2026-09-22)
+
+지난 사이클들을 멈춘 것은 코드가 아니라 **사람 판정 대기**였다 — 캡 상향 두 번 · 크래시 복구
+판정 · A안 선택 · UI14 대 UI15 우선순위. UI16이 그 자리를 두 모델 리뷰로 대체하라고 정한다.
+규칙은 넷이다.
+
+1. **두 리뷰어는 독립이다.** F = `Agent(subagent_type: "mccp:architect", model: "fable")`
+   (도구가 Read/Grep/Glob뿐이라 쓰기 불가), C = `codex exec --sandbox read-only -C "$PWD"
+   -o <out> - < <packet>`(`plugins/mccp/commands/santa-loop.md:532`의 Reviewer B 호출 형태.
+   모델 핀은 두지 않고 사용자 codex 설정의 기본값을 쓰며, 실제 모델명을 기록에 남긴다).
+   둘은 같은 packet을 받고 서로의 출력을 보지 않는다. packet은 질문 · **보수→허용 순으로
+   미리 정렬한** 선택지 · 증거(file:line과 실측 명령·출력) · 적용 제약을 담는다. **답변형
+   packet에는 저자의 권고를 넣지 않는다** — §3.13.2 심판 분리와 같은 이유다.
+2. **판정은 기계적이다.** 답변형: 두 리뷰어가 같은 선택지를 고르면 그것, 다르면 **더 보수적인
+   쪽**. 검토형: 둘 다 `approve`이고 두 출력 어디에도 blocking(CRITICAL/HIGH + `evidence` +
+   `failure_scenario`)이 없을 때만 승인하고, blocking은 §3.14대로 한 번 흡수하되 같은 산출물에
+   HSR을 다시 돌리지 않는다(§3.16). 출력 파손 · 타임아웃 · `MCCP_CODEX_DISABLED=1` · codex
+   부재는 그 리뷰어의 **가장 보수적인 표**로 센다. 한 리뷰어만으로는 진행하지 않는다.
+   **검토형 `object`의 결과는 비대칭이다** (P0 Fable HIGH 흡수 — 없으면 검토형은 고무도장이다):
+   저자가 자기 인증으로 흡수할 수 있는 것은 **보수 방향**(이탈 제거 · 검사 추가 · 범위 축소)
+   뿐이다. **허용 방향**(새 이탈 · 새 메커니즘 · 새 선택지)은 흡수가 아니라 **새 답변형
+   판정점**이어야 하고, 그 판정점은 새 packet으로 묻는다 — 그것은 "같은 산출물"이 아니다.
+3. **권한 상한이 있다.** HSR이 승인할 수 없는 것 — PR merge · receipt나 라운드 원장의
+   삭제·재작성·재봉인 · 어떤 (gate, slug)이든 **3라운드째** · 리뷰어 프롬프트 변경 ·
+   `.claude/settings.json` 변경 · force push. 이 선 밖의 선택지는 packet에 애초에 넣지 않는다.
+   가장 보수적인 선택지는 항상 `halt`이고, `halt`는 `fix-task.md`와 보고서에 기록된 뒤
+   **사람을 기다리는 유일한 경우**다. 아래 판정점 목록에 없는 정지도 HSR 없이 `halt`다
+   — 선택지를 사후에 지어내지 못하게 하는 것이 목록을 미리 못박는 이유다. 헤드리스 하위
+   세션에서는 `--settings`의 `permissions.deny`가 이 상한의 **일부**를 기계로 막는다 —
+   `bypassPermissions`에서도 거부됨을 실측했다(`//` 절대경로 규칙의 Edit 거부). 다만 규칙은 접두
+   매칭이라 `git push origin --force` · `gh api …/merge` · Bash로 파일 쓰기 같은 변형은 통과하고
+   `permission_denials`에도 남지 않는다(P1 Codex · Fable MEDIUM). 나머지는 여전히 산문이고, 권한
+   좁히기는 `headless-delegation` M1c 소유다.
+4. **기록은 한 파일이다.** 판정점마다 `docs/review-record-linkage/hsr-decisions.jsonl`에 한 줄 —
+   **packet 원문**과 그 sha256 · 선택지와 그 순서 · 두 리뷰어의 원문 출력(가공 없이) · 적용
+   규칙 · 결과. packet 원문을 싣는 이유는 sha256만 남기면 "무엇을 물었는가"를 사후에 재구성할
+   수 없기 때문이다(P0 Fable MEDIUM). `.claude/reviews/`에 두지 않는 이유는 그 디렉토리의
+   `plan-review-*` 파일이 M1 파서의 레코드 코퍼스이기 때문이다
+   (`plugins/mccp/scripts/lib/linkage-audit.js:177`). 검증 스크립트는 M6 plan `## Validation`
+   검사 11이 소유한다 — 판정점 목록을 **스크립트 안에 고정**해 두고(기록이 스스로 적은 선택지
+   순서를 믿지 않는다 · P0 Codex HIGH), 필수 판정점의 존재 · 판정점당 한 줄 · packet sha256 ·
+   결과 재계산을 전부 대조한다.
+
+| 판정점 | 형 | 선택지 (보수 → 허용) | 언제 |
+|---|---|---|---|
+| `P0` | 검토 | `object` · `approve` | plan 단계 — 2026-09-22 개정 1차 |
+| `P0-M7CAP` · `P0-M6CAP` | 답변 | `halt` · `regate` | plan 단계 — 같은 슬러그 +1라운드 (둘 다 `halt`로 판정됨) |
+| `P1` | 검토 | `object` · `approve` | plan 단계 — P0 흡수 뒤의 개정 |
+| `P1-M7PATH` | 답변 | `halt` · `fresh-slug` | plan 단계 — `-m7c` ship 구간 분리 |
+| `R-PR` | 답변 | `halt` · `absorb-rerun` · `absorb-rerun-armed` | ship에서 PR-Codex 비승인. `absorb-rerun` = CRITICAL·HIGH를 **코드에서만** 고치고 pr 게이트를 캡 2로 1회 재실행(재실행도 비승인이면 `halt`). `absorb-rerun-armed` = 같되 `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`를 두 리뷰어의 근거로 쓴 사유와 함께 무장(verdict는 봉인 유지) |
+| `R-SEC` | 답변 | `halt` · `absorb-rerun` | ship에서 security reviewer CRITICAL·HIGH 정지. 코드에서만 고치고 pr 게이트 캡 2 |
+| `M6-DISP` · `M6-OQ1`~`M6-OQ5` | 검토 · 답변 | M6 plan DD15 | M6 구현 중 |
+
+`R-PR`·`R-SEC` 어느 경로로든 pr 게이트는 **최대 2라운드**다. 둘이 겹쳐 합이 2를 넘으면 `halt`다.
+
+**이것은 게이트가 아니다** — receipt를 쓰지 않고 어떤 명령 체인도 막지 않으며, 사람이 내리던
+결정만 대신한다. 그래서 PRD의 "새 게이트 추가는 범위 밖"과 충돌하지 않는다.
+
+**주장하지 않는 것**: HSR은 판정이 옳다는 증명이 아니다 — 독립성은 모델 계열(anthropic ×
+openai)의 차이뿐이고 두 리뷰어는 같은 packet을 읽는다. 그리고 이것은 `headless-delegation`
+PRD M4("판정 대행", pending)의 **구현이 아니다** — 코드 0줄의 PRD-국소 절차이고, M4가
+착지하면 그것으로 대체된다. 그 PRD가 그은 선(가역 결정만 · merge는 사람)을 그대로 따른다.
+
 ## Review Rounds
 
 ### R0 — 2026-09-08 · `multi-agent` 패널 · verdict `divergent`
@@ -382,9 +447,11 @@ receipt가 working-tree only · hash 미검증이라 acceptance 오라클의 신
 security#2(보고서 홈 경로 유출을 산문 의무로만 막음) · test MEDIUM 2건 · invariant MEDIUM·LOW.
 
 **이 라운드가 마지막이다.** 흡수로 본문이 바뀌어 `plan_hash`가 달라졌고 상류 receipt는
-`prp-implement`·`pr` 양쪽에서 stale이다(Task 0.5에 실측). 신선한 슬러그로 다시 도는 것은
+`prp-implement`·`pr` 양쪽에서 stale이다(Task 0b에 실측). 신선한 슬러그로 다시 도는 것은
 §3.16 IV1이 이름 붙여 금지한 "고쳐서 재리뷰"이므로 **하지 않는다**. 다음은 재리뷰가 아니라
 진행이고, 막히는 게이트는 문서화된 감사 우회로 사유를 남기며 지난다.
+(2026-09-22: 마지막 문장의 전제 — 지날 감사 우회가 있다 — 는 거짓으로 실측됐다. Task 0b가 이
+문단을 재판정했고, 그 결과 새 슬러그 여부는 HSR `P1-M7PATH`를 거쳐 사람의 판정으로 넘어갔다.)
 
 ## Cycle Outcome — 직전 사이클(`-m7` 슬러그)의 종료 기록
 
@@ -439,7 +506,7 @@ security#2(보고서 홈 경로 유출을 산문 의무로만 막음) · test ME
   | plan 게이트 슬러그 | `review-record-linkage-m7b` | `.claude/receipts/mccp-plan-codex/review-record-linkage-m7b.json` |
   | 브랜치 (= ship 슬러그) | `review-record-linkage-m7b` | `derive-decision --command mccp:pr --args ""` |
   | plan 파일 | `.claude/plans/review-record-linkage-m7.plan.md` | receipt `meta.plan_path`와 문자열 동등 (앵커 키, F15) |
-  | ship plan 경로 | 같은 값을 `PR_PLAN_PATH`로 명시 | `pr.md:923`·`:1136`·`:1210` |
+  | ship plan 경로 | 같은 값을 `PR_PLAN_PATH`로 명시 | `plugins/mccp/commands/pr.md:923`·`:1136`·`:1210` |
 
   **`-m7`으로 돌아가는 경로는 없다.** 그 원장은 3/3이고 `MAX_ROUND_CAP=3`이라 캡 상향으로
   열리지 않으며, 원장 삭제는 §3.16이 정당한 행동 목록에서 뺐다. 신선한 슬러그가 유일한
@@ -450,7 +517,11 @@ security#2(보고서 홈 경로 유출을 산문 의무로만 막음) · test ME
 
 - **Validate**: 위 표 네 줄이 전부 실측과 일치. Validation 1번이 그 명령을 담는다
 
-### Task 0.5: 흡수의 대가 — 상류 receipt는 stale이고, 그것을 감추지 않는다
+### Task 0b: 흡수의 대가 — 상류 receipt는 stale이고, 지날 우회는 없다 (구 Task 0.5 · 2026-09-22 정정)
+
+> 번호가 바뀐 이유: L1의 Task 헤딩 정규식 `Task\s+[0-9]+[a-z]?`(`plugins/mccp/scripts/lib/plan-review/l1-check.js:175`)이
+> "Task 0.5"를 "Task 0"으로 읽어 `C7_DUPLICATE_TASK`·`C4_MISSING_VALIDATE`가 났다. 그 상태로는
+> 이 plan의 재게이트가 L1에서 멈추고, L1 실패는 §3.15 single-pass도 완화하지 않는다.
 
 R2 흡수는 plan 본문을 고치므로 `receipt/hash.js`의 구조적 정규화(checkbox · PR 번호 ·
 표의 status 토큰만 접고 산문은 전부 해시)상 `plan_hash`가 반드시 바뀐다. 실측:
@@ -462,18 +533,45 @@ pr           --decision review-record-linkage-m7b --plan <this>
   → 같은 stale 1건
 ```
 
-**재봉인 경로는 없다**(축 2와 같은 이유). 따라서 §3.16이 정한 순서를 그대로 따른다 —
-게이트가 막으면 라운드를 늘리지 말고 **문서화된 감사 우회를 쓰되 사유를 남긴다**.
+**정정 — 초판의 처방 두 줄은 둘 다 틀렸다.**
 
-- `prp-implement` 진입: `MCCP_SKIP_RECEIPT=1`, 사유는 이 절과 보고서가 소유한다.
-- ship(`/mccp:pr`): 같은 stale이 2.5.8·2.5.9에 도달한다. **다만 링크 자체는 영향받지
-  않는다** — `finalize-receipt.js:281-330`의 carry-forward는 `meta.plan_path` 문자열 동등만
-  보고 `plan_hash`를 보지 않으므로, 봉인되는 `meta.review_record_path`·
-  `meta.plan_review_expected`는 stale과 무관하게 진짜 값이다. 우회가 여는 것은 *체인
-  검증*이지 *링크 산출*이 아니다.
-- **주장하지 않는 것**: 이 우회 아래에서 나온 ship이 "완전한 체인 증거"라고 주장하지
-  않는다. 보고서가 그 델타를 명시하고, 같은 축의 잔여(상류 receipt가 working-tree only ·
-  hash 미검증)는 R2 security MEDIUM이 이미 backlog에 있다.
+1. "`prp-implement` 진입에 `MCCP_SKIP_RECEIPT=1`" — 그 토글은 CLI validator를 움직이지
+   않는다(보고서 §8.4: 우회 유무 모두 exit 2). hook 경로만 소비한다.
+2. "ship에서 같은 stale을 문서화된 감사 우회로 지난다" — **지날 우회가 없다.** 2026-09-22
+   실측: `validate --command mccp:pr --decision review-record-linkage-m7b --plan <this>`가
+   `MCCP_RECEIPT_GATE_MODE`의 `soft`·`hard`·`off` **세 값 모두**에서 `ok:false` · exit 2다.
+   `plugins/mccp/scripts/receipt/validate-cmd.js:871`의 `ok` 산식이 `stale.length === 0`을
+   무조건 요구하고, `plugins/mccp/commands/pr.md` 2.5.9가 그 `ok`로 HALT한다.
+   `MCCP_FORCE_PR_WITHOUT_CODEX_CONVERGENCE`는 verdict 축만 낮추고 stale은 낮추지 않는다.
+   즉 초판대로 `/mccp:pr`에 들어가면 **ship이 구조적으로 불가능**했다.
+
+더 나쁜 사실이 하나 있다 — **두 상류 receipt가 서로 다른 본문에 묶여 있다.** 2026-09-22
+실측: plan receipt `plan_hash` `c27c5a…` = R2 흡수 **이전** 본문(`e2c09a6`), implement
+receipt `plan_hash` `952d9c…` = 현재 본문(`202d49b`). 그래서 plan 파일을 어느 판본으로
+두어도 둘을 동시에 fresh로 만들 수 없다.
+
+**같은 슬러그(`-m7b`)로는 해소할 수 없다 — HSR P0(2026-09-22)의 판정이다.** 이 절의 초판(같은
+날)은 `-m7b`의 plan·implement 게이트를 캡 1→2로 한 라운드씩 더 돌리자고 적었다. 두 리뷰어가
+독립적으로 그것이 no-op임을 코드로 보였고(`P0-M7CAP` = `halt`, 기록은
+`docs/review-record-linkage/hsr-decisions.jsonl`): `MCCP_REVIEW_SINGLE_PASS`가 켜지면
+`plugins/mccp/scripts/lib/review-single-pass.js:117`이 캡을 1로 고정해 원장 1인 슬러그의
+다음 라운드를 5.2c에서 거부하고, single-pass를 빼면 패널이 divergent일 때 receipt가 쓰이지
+않는다(이 PRD의 패널 라운드 통과 0건). 초판이 "`-m7c`로 다시 도는 것도 경로가 아니다"라고
+적은 전제 — 문서화된 감사 우회가 있다 — 가 거짓으로 드러났으므로 그 문장도 함께 다시 판정한다.
+
+**남은 후보 — ship 구간을 새 정체성 `-m7c`로 분리 — 도 HSR이 채택하지 않았다 (`P1-M7PATH` =
+`halt`).** 두 리뷰어가 갈렸다: Fable은 기계적 성립을 코드로 확인하고 조건부 `fresh-slug`, Codex는
+"기록 가시성은 IV1의 재리뷰 예산 우회 자체를 없애지 않는다"며 `halt`. 불일치는 보수 쪽이므로
+결과는 `halt`이고, **M7은 `in-progress`로 남아 사람의 판정을 기다린다** — DD11이 정한 유일한
+대기 경우다. 후보 본문과 두 리뷰어가 단 채택 조건은
+`.claude/notes/review-record-linkage-m7c-candidate.md`에 있다(활성 plan이 아니다).
+
+- **링크 자체는 어느 경로에서도 진짜 값이다** — `finalize-receipt.js:281-330`의 carry-forward는
+  `meta.plan_path` 문자열 동등만 보고 `plan_hash`를 보지 않는다. 막혀 있는 것은 *체인 검증*이다.
+- 구조 결함 자체(2.5.4 주입이 상류 plan receipt를 stale로 만들고 ship에는 우회가 없다)는 이
+  PRD 밖이다 — backlog 2026-08-09 MEDIUM · 2026-08-13 HIGH 행이 이미 소유한다.
+- **Validate**: `docs/review-record-linkage/hsr-decisions.jsonl`에 `P0-M7CAP`와 `P1-M7PATH` 판정이
+  원문과 함께 있고 M6 plan `## Validation` 검사 11이 재계산으로 일치한다
 
 ### Task 1: 상류 앵커 검증 (fail-closed — 미충족이면 즉시 정지)
 
@@ -488,7 +586,7 @@ pr           --decision review-record-linkage-m7b --plan <this>
 - **receipt 파일명**: `review-record-linkage-m7b.json` (R2 정정 — 초판은 `-m7.json`).
   이 파일명이 슬러그와 같아야 하는 이유는 앵커(F15, 파일명 무관)가 아니라 `/mccp:pr`
   2.5.8·2.5.9의 체인 조회가 `--decision ${DECISION_SLUG}`로 **슬러그 키**를 쓰기 때문이다
-  (`pr.md:1136`·`:1213`). 브랜치를 `-m7b`로 맞춘 것이 그 축을 닫는다
+  (`plugins/mccp/commands/pr.md:1136`·`:1213`). 브랜치를 `-m7b`로 맞춘 것이 그 축을 닫는다
 - **Mirror**: `finalize-receipt.js:281-303`의 매칭 규칙을 그대로 읽는다. 특히 **"정확히 1건"** —
   같은 `meta.plan_path`를 선언한 plan receipt가 둘이면 `link_anchor_unresolved`가 되어 링크가
   통째로 미봉인된다. **이것이 `-m7` 슬러그로 receipt를 수동 발행하는 복구안을 배제한 이유다**:
@@ -556,10 +654,14 @@ pr           --decision review-record-linkage-m7b --plan <this>
 > 이 Task는 `prp-implement` 안이 아니라 그 뒤의 `/mccp:pr`에서 일어난다. 여기 적는 이유는
 > M5 Task 6과 같다 — acceptance의 소유자가 plan이어야 하기 때문이다.
 
-- **Action**: `--plugin-dir` 세션에서 `/mccp:prp-commit` → `/mccp:pr`을 완주한다. 산출:
+- **Action**: `--plugin-dir` 세션에서 `/mccp:prp-commit` → `/mccp:pr`을 완주한다. **2026-09-22 —
+  이 Task의 실행은 `-m7b`에서 불가능하고(Task 0b), 대안 `-m7c`는 HSR `P1-M7PATH`가 `halt`로
+  판정했다.** 사람이 경로를 정하기 전까지 이 Task는 대기다. 정해지면 그 세션을 사람이 여는 대신
+  오케스트레이터가 `claude -p --plugin-dir` 하위 세션으로 띄울 수 있다(실측 — 후보 notes의 S5~S7).
+  아래 산출·Validate는 `-m7b` 기준의 원문이다. 산출:
   1. `mccp-pr-codex/review-record-linkage-m7b.json`이 `meta.review_record_path` 봉인 (F5 carry-forward).
      진입 시 `PR_PLAN_PATH=.claude/plans/review-record-linkage-m7.plan.md`를 export한다 — 기본값
-     `.claude/plans/<slug>.plan.md`는 실재하지 않아 `pr.md:931`이 HALT한다 (R2)
+     `.claude/plans/<slug>.plan.md`는 실재하지 않아 `plugins/mccp/commands/pr.md:931`이 HALT한다 (R2)
   2. `.claude/reviews/plan-review-review-record-linkage-m7b.md`가 `measurement.receipt_hash`로
      그 receipt를 되짚음 (F11 back-patch)
   3. `linkage.bidirectional >= 1`
@@ -584,6 +686,11 @@ pr           --decision review-record-linkage-m7b --plan <this>
     같은 PR에 실린다는 사실(UI5)과 M5 status 판정(DD5)을 함께 적는다.
 - **Validate**: `--frozen-only` 출력이 문서의 동결 블록과 바이트 동일(0줄 diff) ·
   `node scripts/version-declaration-guard.js` exit 0
+- **ship 이후 산출물의 운반자** (2026-09-22): 이 Task의 PRD 행 · frozen-baseline 라이브 절 ·
+  보고서 실값은 A6의 exit 0 **뒤에야** 존재하는 값이다. ship 뒤 이 브랜치에 커밋을 올리면
+  ship receipt가 `ship-gate-stale-head`가 되고 tracked receipt는 재봉인할 수 없으므로(§3.12),
+  그 셋은 **M6 브랜치가 운반한다**(M6 plan Task 7). 이 PR의 CHANGELOG 항목은 구현 사이클에서
+  이미 착지했다.
 
 ## Validation
 

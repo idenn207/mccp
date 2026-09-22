@@ -1,41 +1,46 @@
 ---
 state_version: 1
-task_fingerprint: ci-full-suite-m4
+task_fingerprint: closure-accounting-m5
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-15T06:10:32.379Z
+updated_at: 2026-09-22T04:43:56.835Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-15T06:10:32.379Z
+last_event_at: 2026-09-22T04:43:56.835Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
 chain_aborted: false
-last_pr_url: https://github.com/idenn207/mccp/pull/71
-dep_check_at: 2026-09-15T05:21:03.072Z
+last_pr_url: https://github.com/idenn207/mccp/pull/174
+chain_progress: |
+  {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
+dep_check_at: 2026-09-22T04:11:27.739Z
+escalate_pending: true
+escalate_pending_decision_id: closure-accounting-m5
 ---
 ## Goal
-ci-full-suite M4 — enforcement-live-closure. 축 D 원격 왕복까지 완주. 축 C만 권한 부재로 명시 미충족.
+closure-accounting M5 — residual-repair. 구현·Implement 게이트 완료, 로컬 브랜치 리뷰 3건 흡수. PR 미생성.
 
 ## Plan
-- PRD .claude/prds/ci-full-suite.prd.md — M4 행 complete (2026-09-11 정정 서술 포함)
+- PRD: .claude/prds/closure-accounting.prd.md — M5 행 in-progress (머지 시 complete)
+- plan: .claude/plans/closure-accounting-m5.plan.md · 결과 .claude/PRPs/reports/closure-accounting-m5-report.md
+- version: 자식 브랜치는 plugin.json version을 선언하지 않는다(우산 결정 1) — version-declaration-guard 통과
 
 ## Done
-- 축 D 완주(운영자 승인 2026-09-11): PR #193 · green 기준선 34556317904 · 절단 A run 34556517175(stage:1 suite_red) · B run 34566171941(stage:2 deleted_without_allowance) · gate.json 사본 tracked · PR close + 브랜치 삭제
-- ## Validation 전체 통과(VALIDATION REACHED END) — OQ3 오라클 ORACLE OK · 축 C unmet 분기 · version guard 통과
-- origin/main 병합(DIRTY workflow 미발화 해소, 삭제 0건) + main 유입 flaky 1건 de-flake(review-verdict-corpus-hash)
-- 로컬: 4파일 109 pass · 게이트 exit 0 · 98.5112%(397/403)
+- Task 0~11 착지 · Task 12 (a)~(c) 라이브 완주 첨부 — report (d) PR run artifact만 미확보
+- plan·implement receipt 봉인 — 둘 다 codex_verdict divergent 그대로(dedupe 닫힘 → PR-Codex 반드시 발화)
+- 로컬 브랜치 리뷰 흡수 — STATE.md 갱신 · injector가 registry degraded를 Open Findings 블록에 표시 · reseal sameOwner를 DD5대로(한쪽만 nonce면 불일치)
+- 관련 test 384/384 · 새 단언 2건 mutation으로 비공허성 확인
 
 ## In Progress
-없음 — M4 완료. 축 C는 idenn207 소관(권한).
+없음 — PR 생성 대기
 
 ## Next Step
-/mccp:pr — PR-Codex는 반드시 발화한다(implement·plan receipt 모두 divergent, dedupe 닫힘). 축 C는 idenn207이 runbook §2b 수행 후 enforce_admins 값을 m4-live-closure.md에 기록.
+/mccp:pr — PR 연 뒤 closure-report run의 artifact를 report (d) 절에 채운다. escalate_pending(closure-accounting-m5)은 santa-loop 가용 신호다
 
 ## Last Decision
-운영자 승인으로 축 D를 이번 사이클에 수행했다(2026-09-08 유예 → 2026-09-11 승인). PRD M4 status를 complete로 올렸다 — 남은 미충족이 축 C 하나뿐이고 그것은 Acceptance 7의 정규 종착(명시 미충족)이라 반올림이 아니다.
+리뷰 3건을 backlog 이연 대신 전부 흡수했다(사용자 판정 2026-09-22). sameOwner는 plan DD5 원문("구 body끼리")으로 좁혔고, 구 구현을 단언하던 (n2)를 뒤집고 (n4)로 dead-pid 회수 경로를 고정했다.
 
 ## Open Questions
-- 축 C: madsci207 admin:false — branch protection 설정·관측은 idenn207 소관
-- OQ3: 결정됨(matrix)·시행 미완 — 선행조건 backlog ci-full-suite:H5(baseline SHA-pin 패리티), 소유자 후속 사이클
+- M8-B3-SET-EQUALITY 선재 red — 변경 전 HEAD에서도 fail, backlog 소관
 
 ## Last Updated
-2026-09-15T06:10:32.379Z
+2026-09-22T04:43:56.835Z

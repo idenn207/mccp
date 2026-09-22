@@ -82,8 +82,26 @@ jobs:
       - name: Check the json report parses
         run: node -e 'JSON.parse(require("fs").readFileSync("closure-report.json", "utf8"))'
 
+      # The json outlives the run so the gap's growth rate can be rebuilt after the
+      # fact (PRD OQ2 — no target value, but the speed must be recoverable):
+      # `gh run download <run-id> -n closure-report`. Retention is the repository
+      # default on purpose — a value above the repository limit changes behaviour.
+      # A missing file means the instrument did not run, which is exactly what red
+      # already means for this job.
+      - name: Upload the json report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: closure-report
+          path: closure-report.json
+          if-no-files-found: error
+
+      # The fence is one backtick longer than the longest backtick run in the
+      # report (at least 3), so report content can never close it early — the
+      # report quotes backlog and reviewer text. The script READS the file; the
+      # content is never spliced into the command line.
       - name: Publish to the job summary
         run: |
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          FENCE=$(node -e 'const t = require("fs").readFileSync("closure-report.txt", "utf8"); const longest = (t.match(/`+/g) || []).reduce((m, r) => Math.max(m, r.length), 0); process.stdout.write("`".repeat(Math.max(3, longest + 1)));')
+          echo "${FENCE}text" >> "$GITHUB_STEP_SUMMARY"
           cat closure-report.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$FENCE" >> "$GITHUB_STEP_SUMMARY"

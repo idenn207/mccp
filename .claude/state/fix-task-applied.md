@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: ci-full-suite-m4
+task_fingerprint: closure-accounting-m1
 gate_id: stop-review-loop
-decision_id: ci-full-suite-m5
-created_at: 2026-09-14T06:12:47.627Z
-expires_at: 2026-09-21T06:12:47.627Z
+decision_id: closure-accounting-m5
+created_at: 2026-09-22T02:32:43.220Z
+expires_at: 2026-09-29T02:32:43.220Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-implement-codex/ci-full-suite-m5.json
+  - .claude/receipts/mccp-implement-codex/closure-accounting-m5.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-implement-codex/ci-full-suite-m5.json
+- .claude/receipts/mccp-implement-codex/closure-accounting-m5.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/ci-full-suite-m5>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/closure-accounting-m5>'

@@ -164,6 +164,27 @@ Three outcomes, all reported rather than absorbed:
   substituting a different twin would be a machine editing a person's decision.
 - **unjudged** — everything in the new denominator that never had a judgment.
 
+### Editing a backlog row re-keys it
+
+`rowId` hashes all four cells of a row, so correcting a typo in a row gives it a new
+identity: the old item leaves the live pile and a new unjudged one arrives. If the
+old item held a judgment bound to the current seal, that judgment is what the next
+re-seal reports as **dropped**. Changing the identity scheme would unbind every
+judgment ever written (PRD decision 1), so the rule is operational instead: **rows
+are append-only** — a correction is a new row that names the old one.
+
+`closure report` shows the exposure before a re-seal does. The json carries
+`denominator_gap.sealed_not_live` (sealed items no longer live) and
+`sealed_not_live_disposed` (those among them holding a current-seal judgment), and
+the table prints both on one line:
+
+```
+  Sealed not live: 11 (1 with a disposition — dropped at the next re-seal)
+```
+
+Both are `null` — `n/a` in the table — when identities or the disposition axis
+cannot be trusted.
+
 ### Acceptance is a marker, not a substring
 
 A `deferred` disposition needs a successor document that **declares** it accepts
@@ -191,9 +212,22 @@ raw HTML through from anywhere, so `<pre>` opened after a sentence reads as a
 quoted example while an anchored matcher would leave the marker inside it live.
 Only the **unterminated** opener is required to sit at the start of a line, and
 that anchor exists to prevent over-removal — "use the `<code>` tag" mid-sentence is
-inline HTML, not a block. An inline span follows CommonMark: a run of *N* backticks
-is closed only by the next run of exactly *N*, so ``` ``…`` ``` wrapping is not
-defeated by looking for a single backtick.
+inline HTML, not a block.
+
+**Put the marker in a paragraph of its own, with no backtick in it** (M5). Inline
+code is not paired any more: a paragraph — lines between blank lines, where blank
+means only spaces and tabs as CommonMark defines it — that holds a backtick anywhere
+keeps none of its lines, counted on the original text before any other rule blanks
+a line. The per-line pairing this replaced accepted a marker inside a span opened on
+one line and closed two lines down (M4 PR-Codex F1). Pairing cannot be repaired by
+choosing boundaries better, because it fails in both directions: cut a paragraph
+where CommonMark does not — a 4-column continuation line, or a line holding only a
+no-break space — and the span is split open around the marker; join paragraphs that
+CommonMark keeps apart and an unpaired backtick takes the next paragraph's opener as
+its partner. A code span cannot cross a blank line, so a paragraph with no backtick
+has no character inside one. The cost is stated rather than hidden: a genuine marker
+that shares a paragraph with inline code is refused, and `checkSuccessor` names the
+file that carries no accepted marker.
 
 The block match also runs **after** the fence, blockquote and indented-code pass,
 over what that pass kept. Taken first, it can start at an inline `<pre>` on a
@@ -238,6 +272,18 @@ gets no such credit: with no `succeeded_from`, it must name the current seal.
 that preceded it was an artifact of measuring a frozen denominator, which is the
 defect this whole axis exists to remove. Do not widen succession to keep the number
 green.
+
+### The gate cross-checks verify on the seal axis
+
+`m10-coverage-gate.js` recomputes the ancestor split itself rather than taking
+`verifyDispositions` at its word — that independence is the gate's stated rule. Until
+M5 it never looked at the producer's answer on this axis, so two ancestry judgments
+could drift apart without anyone seeing it. The seal axis now compares
+`ancestor_bound_lines` and `binding_mismatch` with its own counts, and on a chain it
+cannot judge it expects `verify` to report `ancestry_depth: null` too. A disagreement
+is `producer_agrees: false` and turns the axis red on its own; an answer that cannot
+be read (a throw, a non-object) is not agreement. This is the shape axis 2 already
+had.
 
 ### `seal_intact` is a narrower claim than it sounds
 
@@ -286,9 +332,15 @@ with `git diff --numstat`.
 
 ### The apply lock, and what it does not cover
 
-`apply` takes `.claude/state/reseal.lock` (`O_EXCL`, body `{pid, host, started_at}`)
-before it reads anything, and releases it in a `finally` — but only if the lock is
-still the one this process wrote. A dead pid **on this host** is reclaimed once,
+`apply` takes `.claude/state/reseal.lock` (`O_EXCL`, body
+`{pid, host, started_at, nonce}`) before it reads anything, and releases it in a
+`finally` — but only if the lock is still the one this process wrote. "The one this
+process wrote" is decided by `nonce` (`crypto.randomUUID()`, M5): pid, host and a
+millisecond timestamp can all repeat, and a reused pid in the same millisecond would
+otherwise pass for the owner. A body written before M5 has no nonce, so when either
+side lacks one the old three-field match decides — that keeps an old dead-pid lock
+reclaimable, and it is a window where ownership is the weaker comparison, the same
+kind of legacy residue CLAUDE.md §3.6 records for `quarantine.lock`. A dead pid **on this host** is reclaimed once,
 and that reclamation is itself serialized behind `.claude/state/reseal-reclaim.lock`,
 because two processes that each saw the same dead owner would otherwise unlink each
 other's replacement. The re-create after the unlink is `O_EXCL` too: "I removed it,
@@ -375,6 +427,24 @@ Two provenance forms make this checkable without reading prose:
   lives elsewhere. When that digest is cited again in the same file, the citation
   **is** the judgment — 111 rows were disposed `superseded` on that trace alone.
 - anything else was written by a person and normally states a judgment inline.
+
+### The json report is a run artifact
+
+The `closure-report` workflow uploads `closure-report.json` as an artifact named
+`closure-report` on every run. There is deliberately **no target value** for the
+out-of-denominator gap (PRD OQ, closed in M5): the gap reopens after every re-seal
+(0 → 454 → 488 → 525 so far), so the question worth asking is its **rate**, and a
+rate needs past values. Rebuild it from the runs:
+
+```
+gh run list --workflow closure-report.yml --json databaseId,createdAt
+gh run download <run-id> -n closure-report
+```
+
+Retention is the repository default — a value above the repository limit changes
+behaviour — so the history reaches back as far as that default and no further. The
+step fails when the file is missing, which is what red already means for this job:
+the instrument did not run.
 
 ## What this does not claim
 

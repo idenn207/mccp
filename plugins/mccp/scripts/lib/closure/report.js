@@ -351,8 +351,9 @@ function buildClosureReport(repoRoot) {
   // pathology this PRD is about. A mocked module without the function is skipped,
   // the same carve-out `inventoryHash` above already uses.
   let dispositionValidity = null;
+  // Hoisted: the ancestry depth below is read from this same answer (M5 DD3).
+  let verified = null;
   if (typeof debtInv.verifyDispositions === 'function') {
-    let verified = null;
     try {
       verified = debtInv.verifyDispositions(repoRoot);
     } catch (err) {
@@ -432,15 +433,14 @@ function buildClosureReport(repoRoot) {
     });
   }
 
-  // Ancestry depth is read through the same oracle the gate uses, so the report
-  // cannot disagree with `verify` about how deep the chain is.
-  let sealAncestryDepth = null;
-  try {
-    const anc = debtInv.sealAncestry(repoRoot, sealDoc);
-    sealAncestryDepth = anc === null ? null : anc.verified.length;
-  } catch (err) {
-    sealAncestryDepth = null;
-  }
+  // Ancestry depth is read from the `verify` answer above rather than from a
+  // second `sealAncestry` call (closure-accounting M5 DD3, backlog 1842), so the
+  // report cannot disagree with `verify` about how deep the chain is — it is the
+  // same number. No verify answer (module without the function, a throw, an
+  // early return that omits the field) is `null`, never 0.
+  const sealAncestryDepth = verified && Number.isInteger(verified.ancestry_depth)
+    ? verified.ancestry_depth
+    : null;
 
   // Check for live inventory degradation (C5)
   if (liveInventory.stats && liveInventory.stats.findings_degraded) {
@@ -491,6 +491,14 @@ function buildClosureReport(repoRoot) {
   const sealedNotLive = identityIncomplete
     ? null
     : sealIdList.filter(function (id) { return !liveIdSet.has(id); }).length;
+  // closure-accounting M5 (MF2 · DD4) — how many of those carry a judgment bound
+  // to the CURRENT seal. Those are the judgments the next re-seal reports as
+  // `dropped`: nothing live is left to attach them to. The usual cause is a
+  // backlog row edited in place (`rowId` hashes every cell). Unknown when either
+  // the identities or the disposition axis cannot be trusted.
+  const sealedNotLiveDisposed = (identityIncomplete || disposalBlocked)
+    ? null
+    : sealIdList.filter(function (id) { return !liveIdSet.has(id) && folded.has(id); }).length;
   const netChange = liveItems - sealItems;
   const gapPct = (gapCount !== null && liveItems > 0)
     ? parseFloat((gapCount * 100 / liveItems).toFixed(2))
@@ -657,7 +665,11 @@ function buildClosureReport(repoRoot) {
       'plans it and writes nothing. It carries the ' + disposedCount + ' existing ' +
       'disposition(s) forward rather than unbinding them, but items that are no ' +
       'longer live, and items whose duplicate_of no longer resolves, are reported ' +
-      'as dropped or blocked instead of carried.'
+      'as dropped or blocked instead of carried.' +
+      (sealedNotLiveDisposed > 0
+        ? ' ' + sealedNotLiveDisposed + ' sealed item(s) that are no longer live still ' +
+          'carry a disposition; the next re-seal reports them as dropped.'
+        : '')
     );
   }
 
@@ -689,6 +701,7 @@ function buildClosureReport(repoRoot) {
       pct: gapPct,
       net_change: netChange,
       sealed_not_live: sealedNotLive,
+      sealed_not_live_disposed: sealedNotLiveDisposed,
     };
 
   const suppressingDispositions = debtInv.SUPPRESSING_DISPOSITIONS;

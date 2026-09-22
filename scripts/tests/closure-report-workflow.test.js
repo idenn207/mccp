@@ -111,3 +111,74 @@ test('(w6) the CLI it names actually runs and emits the report shape', () => {
   }
   assert.ok(Array.isArray(parsed.ledgers) && parsed.ledgers.length > 0);
 });
+
+// ── closure-accounting M5 Task 9 ─────────────────────────────────────────────
+
+// The `run: |` block of a named step, dedented. Empty when the step or its block
+// is missing — callers assert non-empty, so a failed extraction cannot pass.
+function runBlockOf(stepName) {
+  const lines = raw.split(/\r?\n/);
+  const at = lines.findIndex(function (l) { return l.trim() === '- name: ' + stepName; });
+  if (at === -1) return '';
+  let i = at + 1;
+  while (i < lines.length && !/^\s+run: \|\s*$/.test(lines[i])) {
+    if (/^\s+- name: /.test(lines[i])) return '';
+    i += 1;
+  }
+  if (i >= lines.length) return '';
+  const keyIndent = lines[i].match(/^\s*/)[0].length;
+  const body = [];
+  for (i += 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.trim() !== '' && l.match(/^\s*/)[0].length <= keyIndent) break;
+    body.push(l);
+  }
+  const indent = Math.min.apply(null, body.filter(function (l) { return l.trim(); })
+    .map(function (l) { return l.match(/^\s*/)[0].length; }));
+  return body.map(function (l) { return l.slice(indent); }).join('\n').trim() + '\n';
+}
+
+test('(w7) the json report is uploaded as an artifact, after it is proven to parse', () => {
+  // OQ2's substance is the gap's growth RATE, and a rate needs past values. The
+  // job summary is text; the json is what a later reader can recompute from.
+  const parseAt = yml.indexOf('- name: Check the json report parses');
+  const uploadAt = yml.indexOf('- name: Upload the json report');
+  assert.ok(parseAt !== -1 && uploadAt !== -1, 'both steps exist');
+  assert.ok(uploadAt > parseAt, 'upload comes after the parse check');
+  const step = yml.slice(uploadAt).split(/\n\s+- name: /)[0];
+  assert.match(step, /uses: actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(step, /^\s+name: closure-report$/m);
+  assert.match(step, /^\s+path: closure-report\.json$/m);
+  // A missing file means the instrument did not run — red, like everything else here.
+  assert.match(step, /^\s+if-no-files-found: error$/m);
+  assert.ok(!/retention-days/.test(step), 'repository default retention (DD8)');
+});
+
+test('(w8) report content cannot close the job-summary fence early', () => {
+  // backlog 1852 — the report quotes backlog and reviewer text, so a literal
+  // ``` in it would end a fixed-length fence and render the rest as markdown.
+  const script = runBlockOf('Publish to the job summary');
+  assert.ok(script.length > 0, 'the publish step has a run block');
+  assert.ok(script.includes('GITHUB_STEP_SUMMARY'), 'the extracted block is the one that publishes');
+
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mccp-w8-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'closure-report.txt'),
+      'DENOMINATOR GAP\n```\nquoted fence\n````\nend\n', 'utf8');
+    const summary = path.join(dir, 'summary.md');
+    execFileSync('bash', ['-e', '-c', script], {
+      cwd: dir, encoding: 'utf8',
+      env: Object.assign({}, process.env, { GITHUB_STEP_SUMMARY: summary }),
+    });
+    const out = fs.readFileSync(summary, 'utf8').replace(/\n$/, '').split('\n');
+    const open = out[0].match(/^(`+)text$/);
+    assert.ok(open, 'the first line opens a fence: ' + out[0]);
+    assert.ok(open[1].length >= 5, 'longer than the longest run in the report (4): ' + open[1].length);
+    assert.strictEqual(out[out.length - 1], open[1], 'closed with the same fence');
+    const inner = out.slice(1, -1);
+    assert.ok(inner.indexOf('```') !== -1 && inner.indexOf('````') !== -1,
+      'both backtick lines stay inside the fence');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -572,3 +572,10 @@ routing mode: auto (effective at implement stage). At implement the design gate 
 - **왜 진행했나**: 명령 본문은 여기서 멈추라고 하지만, 이 validate에는 문서화된 감사 우회가 없다(`MCCP_SKIP_RECEIPT`는 preflight·hook만 읽는다). §3.16은 재리뷰를 기본 선택지로 두지 않는다. 사용자가 2026-09-22에 "이탈 기록 후 진행"으로 판정했다.
 - **receipt가 덮지 못하는 델타**: 봉인 뒤 plan 편집(L3 HIGH를 흡수한 DD1·Task 1 재작성, MF3·MF9·Task 10 갱신)과 이 절·`## Codex Implementation Review`. 앞의 것은 이번 Implement-Codex R1(branch diff 리뷰)과 security-reviewer가 현재 본문 그대로 읽었다.
 - **남는 비용**: `/mccp:pr`에서도 같은 stale이 걸린다. 그때 사유를 담은 감사 우회로 처리하고 PR 본문 `## Gate Deviation`에 옮겨 적는다.
+
+## Milestone Closure Provenance
+- Milestone : closure-accounting-m5
+- Verdict   : done
+- Closure   : .claude/milestone-closures/closure-accounting-m5.md
+- sha256    : sha256:3ed2c4d644514b1a1e774ae32a1a11cdf2bc31feb168bb01a8a37a7d4a994c8a
+- Stamped at: 2026-09-22T06:29:14.000Z

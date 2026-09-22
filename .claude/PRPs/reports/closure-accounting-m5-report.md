@@ -31,7 +31,7 @@ backlog 이연 넷(1005 소비처 연속성 · 1829 표 test · 1845 handoff deg
 | 8 | R9 | [done] | |
 | 9 | CI artifact · fence | [done] | |
 | 10 | backlog 6행 | [done] | 날짜는 실제 append 일자 `2026-09-22`(plan은 `2026-09-15`로 적음) |
-| 11 | 문서 · PRD · M4 report · CHANGELOG | [done] | PRD M5 행은 `in-progress` 유지 — ship(머지) 시 `complete` |
+| 11 | 문서 · PRD · M4 report · CHANGELOG | [done] | PRD M5 행 `complete` — 머지 전 `/mccp:milestone-close`로 전환(2026-09-22, `.claude/milestone-closures/closure-accounting-m5.md`) |
 | 12 | 라이브 완주 · 보고서 | [partial] | (a)~(c) 첨부. (d) PR run artifact는 PR을 연 뒤 이 절에 채운다 |
 
 ## Validation Results
@@ -170,4 +170,4 @@ Phase 3.6 finish 라우팅과 3.7 grounding은 no-op이다.
 - [ ] `/mccp:code-review`
 - [ ] `/mccp:pr` — `mccp-plan-codex` stale이 terminal 게이트에서도 걸린다. 사유를 담은 감사 우회 + PR 본문 `## Gate Deviation`
 - [ ] PR run의 `closure-report` artifact 이름을 위 (d)에 채우기
-- [ ] 머지 시 PRD M5 행 `complete`
+- [x] PRD M5 행 `complete` — 머지 전 `/mccp:milestone-close`에서 전환 (2026-09-22)

@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: closure-accounting-m1
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-14T08:49:27.869Z
+updated_at: 2026-09-15T07:02:19.155Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-14T08:49:27.869Z
+last_event_at: 2026-09-15T07:02:19.155Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -12,9 +12,9 @@ chain_aborted: false
 last_pr_url: https://github.com/idenn207/mccp/pull/174
 chain_progress: |
   {"steps":[{"step":"implement","status":"halted","receipt_path":null,"ts":"2026-09-03T06:25:42.446Z","halt_site":"3.preflight","reason":"next-step reported HALT before implement","work_unit":"orchestrator-step-wiring-m1"}]}
-dep_check_at: 2026-09-14T08:34:33.250Z
+dep_check_at: 2026-09-15T06:56:13.928Z
 escalate_pending: true
-escalate_pending_decision_id: closure-accounting-m4
+escalate_pending_decision_id: closure-accounting-m5
 ---
 ## Goal
 closure-accounting M1 — closure-report. 구현·PR-Codex 2라운드 흡수 완료. push 직전에서 대기(누락 receipt로 ship-gate aggregate ok=false).
@@ -46,4 +46,4 @@ ship-gate aggregate ok=false의 유일 원인은 누락 receipt 2건이고 MCCP_
 - plan-implement file-expansion — see .claude/state/fix-task.md; implementation is green, the question is scope acceptance
 
 ## Last Updated
-2026-09-14T08:49:27.869Z
+2026-09-15T07:02:19.155Z

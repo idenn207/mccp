@@ -120,6 +120,7 @@ We'll know we're right when **`closure report`가 오늘 `open: 0` 대신
 | 2 | reseal-path | 재봉인이 기존 판정 1115건의 결속을 끊지 않고 수행되는 경로가 생긴다(승계 또는 재키잉). 격차가 실제로 0으로 떨어지는 것이 1회 실측된다 — **1101 carried · 14 dropped · `after.denominator_gap.count === 0` 실측**(PR #194, 2026-09-14 머지) | complete | [.claude/plans/closure-accounting-m2.plan.md](../plans/closure-accounting-m2.plan.md) |
 | 3 | registry-reachability | **이관 + 정직화로 착지했다.** 양자택일 둘 다 기각 — 은퇴의 전제("0건")는 이미 거짓이고(`finding_adjudicated` 3건, `mode=codex` 경로), 패널 판정 producer는 `diverse-agent-review` #1.5 소관이다. 대신 셋을 했다: `accepted`가 부채 분모에서 조용히 빠지던 누수를 닫고(`state !== 'closed'`), `closure report`의 registry 행이 채널별 **producer 도달성**을 함께 싣게 하고(`ledgers[].producers[]` — 1.4%가 "부채 종결률"로 인용되지 못하게), `CLOSURE_FROM_ADJUDICATION` 경유를 소스 대조 test로 강제되는 계약으로 남겼다 | complete | [.claude/plans/closure-accounting-m3.plan.md](../plans/closure-accounting-m3.plan.md) |
 | 4 | instrument-repair | M1·M2 산출물이 스스로 틀린 값을 내는 경로를 닫는다. 재봉인은 전임 봉인의 commit·digest를 복사하지 않고, 검증에 실패한 판정은 종결로 세지 않으며, 재봉인 뒤 m10 게이트는 조상 결속을 불일치로 보고하지 않는다. `closure report`는 CI에서 주기적으로 호출된다. 부채 상환 없음 · 새 임계 없음 · 게이트 없음 | complete | [.claude/plans/closure-accounting-m4.plan.md](../plans/closure-accounting-m4.plan.md) |
+| 5 | residual-repair | M1~M4가 남긴 결함·이연·열린 질문을 닫는다. fix-task(M4 PR-Codex F1 — 여러 줄 code span 안의 수락 마커가 승인이 된다)를 흡수하고, m10 봉인 축은 verify와 어긋나면 스스로 실패하며, 리포트는 다음 재봉인이 떨어뜨릴 판정 수를 표기하고, CI는 json을 run artifact로 남긴다. closure 소유가 아닌 실측 결함(escalation 해제 불가 · 비재발 오라클 · PRD 경로 slug · `rowId` 재키잉)은 증거째 backlog로 넘긴다. 재봉인 없음 · 새 임계 없음 · 게이트 없음 | in-progress | [.claude/plans/closure-accounting-m5.plan.md](../plans/closure-accounting-m5.plan.md) |
 
 **M2 신설**: `plugins/mccp/scripts/lib/msw-metrics/reseal.js` ·
 `plugins/mccp/scripts/lib/tests/msw-reseal.test.js` ·
@@ -162,7 +163,11 @@ M4는 M3와 `report.js`·`cli.js`·`debt-inventory.js`·`findings-registry.js`·
   `deferred` 983건이 옛 sha만 이름 부르는 문제는 successor 문서에 새 sha를 자동으로 찍는 대신
   **검증된 조상 집합을 허용**해 풀었다 — 전자는 `checkSuccessor`가 존재하는 이유를 공허하게
   만든다.
-- [ ] **분모 밖 부채의 목표값이 무엇인가.** 0이 목표인지(모든 부채가 항상 판정 대상),
+- [x] **분모 밖 부채의 목표값이 무엇인가.** — **목표값을 두지 않는다 (M5, 2026-09-15 사용자
+  판정).** 결정 4(리포트는 게이트가 아니다)의 확정이다. 격차는 닫아도 다시 벌어지고
+  (0 → 454 → 488 · 14.71%) 질문의 실질은 그 속도이므로, M5는 CI가 json 리포트를 run artifact로
+  남겨 속도를 사후에 재구성할 수 있게 한다. 우산의 `evidence-audit` exit 4 baseline 질문은
+  이 판정에 묶이지 않는다. 원래 질문: 0이 목표인지(모든 부채가 항상 판정 대상),
   아니면 사이클 경계마다 리셋되는 상수인지. 우산의 같은 질문(`evidence-audit`의 상시 exit 4
   baseline)이 아직 열려 있고 **같은 종류의 결정**이다. 근거 없는 임계를 날조하지 않는다.
   **관측 갱신(2026-09-14, M4)**: 재봉인 직후 0 → 5일 뒤 426 → 6일 뒤 **454(13.81%)**. 즉
@@ -171,6 +176,9 @@ M4는 M3와 `report.js`·`cli.js`·`debt-inventory.js`·`findings-registry.js`·
 - [ ] **`deferred` 983건을 어떻게 볼 것인가.** 판정됐으나 해소되지 않았고, 88.2%가 이 상태다.
   이연이 정당한 판정인지 판정 회피의 완곡어인지는 이 PRD가 답할 수 없다 —
   표본을 읽어야 하고 그것은 조사(`/mccp:meta-research`) 범위다.
+  **분리 (2026-09-15 사용자 판정)**: M5 범위 밖이다. `/mccp:meta-research`가 표본 판독으로
+  답하고, 산출물이 생기면 여기서 가리킨다. 현재 값: M2 승계 후 `deferred` **970**
+  (2026-09-15 `verifyDispositions`).
 - [x] **두 계기를 통합할 것인가.** — **통합하지 않는다 (M3, 2026-09-14).** 두 계기는 같은
   findings를 서로 다른 단위로 세지만(M3 실측: registry 1505 대 sealed 2841), 그 차이는 버그가
   아니라 **무엇을 세는가의 차이**다. 통합하면 봉인 결속(`inventory_sha256`)이 registry 이벤트

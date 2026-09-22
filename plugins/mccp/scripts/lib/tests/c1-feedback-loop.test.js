@@ -599,6 +599,12 @@ test('C1-PROMOTE-DEGRADED: an unreadable registry is reported, not silently empt
     assert.match(warnings[0], /the promotion list may be incomplete/);
     assert.ok(warnings[0].indexOf(root) === -1 && !/\/(tmp|home|Users)\//.test(warnings[0]),
       'the warning carries a count, never a path: ' + warnings[0]);
+    // (p3) the injected block is the surface the next session actually reads —
+    // hook stderr never reaches it. Nothing was promoted, and it still says so.
+    const block = captureStderr(() => injector.buildOpenFindingsBlock(root)).value;
+    assert.ok(block !== null, 'a degraded read with zero items is not silence');
+    assert.ok(block.indexOf('이 목록은 불완전할 수 있습니다') !== -1, block);
+    assert.ok(block.indexOf(root) === -1, 'the reasons (which carry paths) are not injected');
   });
   withTempRepo((root) => {
     // (p2) positive control — a healthy registry is not degraded and warns nothing.
@@ -607,6 +613,7 @@ test('C1-PROMOTE-DEGRADED: an unreadable registry is reported, not silently empt
     assert.strictEqual(r.value.degraded, false);
     assert.strictEqual(r.value.items.length, 1);
     assert.ok(r.err.indexOf('findings registry degraded') === -1, r.err);
+    assert.ok(injector.buildOpenFindingsBlock(root).indexOf('불완전할 수 있습니다') === -1);
   });
 });
 

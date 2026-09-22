@@ -834,11 +834,17 @@ test('release refuses a lock whose nonce differs even when pid, host and time ma
   assert.equal(reseal.releaseLock(root, mine), false, 'not ours — the nonce says so');
   assert.ok(fs.existsSync(lockAbs), 'and it is left in place');
 
-  // (n2) a body written before M5 has no nonce, so the three-field match still
-  // decides; otherwise an old lock could never be released or reclaimed.
+  // (n2) a body without a nonce against one with a nonce is NOT the same owner —
+  // this code always writes one, so the mismatch is the collision itself.
   const legacy = { pid: mine.pid, host: mine.host, started_at: mine.started_at };
   fs.writeFileSync(lockAbs, JSON.stringify(legacy), 'utf8');
-  assert.equal(reseal.releaseLock(root, mine), true);
+  assert.equal(reseal.releaseLock(root, mine), false, 'one-sided nonce is not ours');
+  assert.ok(fs.existsSync(lockAbs));
+
+  // (n4) two nonce-less bodies still decide on the three fields — the shape reclaim
+  // compares (two reads of a pre-M5 lock). The dead-pid reclaim tests above run
+  // through exactly this path.
+  assert.equal(reseal.releaseLock(root, legacy), true);
   assert.equal(fs.existsSync(lockAbs), false);
 });
 

@@ -31,8 +31,9 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   항목 중 **판정을 가진 수**(다음 재봉인이 `dropped`로 보고할 수)가 보이지 않았다 —
   `denominator_gap.sealed_not_live_disposed`와 표의 `Net change:` · `Sealed not live:` 줄(null은
   `n/a`). (5) reseal lock 소유권이 pid·host·ms 시각뿐이었다 — body에 `nonce`, 구 body는 3필드 비교
-  유지. 그 밖에 handoff 승격이 registry degraded를 **조용히 삼키던** 것을 stderr 경고 +
-  `degraded` 필드로 표면화했고, R9가 emitter 함수의 **호출 존재**를 소스로 단언한다. CI는
+  유지(한쪽만 nonce가 있으면 다른 소유자). 그 밖에 handoff 승격이 registry degraded를 **조용히
+  삼키던** 것을 stderr 경고 + `degraded` 필드 + SessionStart `Open Findings` 블록의 불완전 표시로
+  표면화했고(hook stderr는 다음 세션에 닿지 않는다), R9가 emitter 함수의 **호출 존재**를 소스로 단언한다. CI는
   `closure-report.json`을 artifact로 남겨 격차 증가 속도를 사후에 재구성할 수 있게 했고(목표값은
   두지 않는다 — PRD OQ 종결), job summary fence는 리포트의 최장 backtick 연속보다 1 길다.
   closure 소유가 아닌 실측 결함 6건(escalation 해제 불가 · fix-task 문구 · 비재발 오라클 · PRD 경로

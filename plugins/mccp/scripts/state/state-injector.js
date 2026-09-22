@@ -202,7 +202,12 @@ function buildOpenFindingsBlock(repoRoot) {
     process.stderr.write('[mccp:state-injector] open findings skipped: ' + err.message + '\n');
     return null;
   }
-  if (!promoted || !Array.isArray(promoted.items) || promoted.items.length === 0) return null;
+  if (!promoted || !Array.isArray(promoted.items)) return null;
+  // closure-accounting M5 (1845) — a degraded read may be short, and this block is
+  // the only place the next session reads it: hook stderr on exit 0 never reaches
+  // the model. So a degraded read is said here even when it promoted nothing.
+  const degraded = promoted.degraded === true;
+  if (promoted.items.length === 0 && !degraded) return null;
 
   const lines = [];
   let excluded = 0;
@@ -220,7 +225,7 @@ function buildOpenFindingsBlock(repoRoot) {
       (citedPath ? ' · `' + citedPath + '`' : '') +
       ' — id `' + String(f.id).slice(0, 12) + '`, see `' + String(f.source) + '`');
   });
-  if (lines.length === 0 && excluded === 0) return null;
+  if (lines.length === 0 && excluded === 0 && !degraded) return null;
 
   const body = ['## Open Findings',
     '',
@@ -232,6 +237,10 @@ function buildOpenFindingsBlock(repoRoot) {
   if (excluded > 0) {
     body.push('', '> ' + excluded + '건은 주입 경계 검사(mixed-script / 지시문 형태)에 걸려 ' +
       '표시에서 제외했습니다. 레지스트리 기록은 그대로 남아 있습니다.');
+  }
+  // The reasons are NOT injected — they can carry paths; only the fact is.
+  if (degraded) {
+    body.push('', '> finding 레지스트리를 일부만 읽었습니다 — 이 목록은 불완전할 수 있습니다.');
   }
   if (promoted.truncated > 0) {
     body.push('', '> ' + promoted.truncated + '건이 상한을 넘어 잘렸습니다 ' +

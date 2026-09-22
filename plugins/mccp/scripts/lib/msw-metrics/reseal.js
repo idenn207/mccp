@@ -120,12 +120,14 @@ function selfBody() {
     nonce: crypto.randomUUID() };
 }
 
-// The nonce is compared only when BOTH bodies carry one. A body written before M5
-// has none, and comparing against a missing field would make its dead-pid lock
-// unreclaimable forever; the three-field match is what those bodies always had.
+// The three-field match decides only when NEITHER body carries a nonce (DD5). A
+// body written before M5 has none, and reclaim compares two reads of that same
+// file, so its dead-pid lock stays reclaimable. A body with a nonce against one
+// without is never the same owner: this code always writes one, so the mismatch
+// is exactly the pid-reuse collision the nonce exists to catch.
 function sameOwner(a, b) {
   if (!a || !b || a.pid !== b.pid || a.host !== b.host || a.started_at !== b.started_at) return false;
-  if (typeof a.nonce === 'string' && typeof b.nonce === 'string') return a.nonce === b.nonce;
+  if (typeof a.nonce === 'string' || typeof b.nonce === 'string') return a.nonce === b.nonce;
   return true;
 }
 

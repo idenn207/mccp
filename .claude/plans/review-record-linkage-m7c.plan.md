@@ -305,3 +305,7 @@ node plugins/mccp/scripts/lib/linkage-audit.js --check-live-linkage --decision "
 - [ ] exit 0이 아니면 사유가 M7 보고서에 있고 M7은 complete로 선언되지 않는다
 
 > 위 둘째~다섯째 항목은 **경로 조건**이다. 첫째 항목을 대체하는 통과 경로가 아니다(M7 plan DD9).
+
+## Codex Adversarial Review
+
+<!-- placeholder: will be replaced by Phase 7.3 -->

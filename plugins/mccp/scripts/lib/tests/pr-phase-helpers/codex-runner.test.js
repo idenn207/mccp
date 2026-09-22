@@ -17,6 +17,11 @@ const RUNNER = path.resolve(__dirname, '..', '..', 'pr-phase-helpers', 'codex-ru
 const LOCK_CLI = path.resolve(__dirname, '..', '..', 'pr-phase-lock.js');
 const NODE = process.execPath;
 
+// 이 파일은 Claude 호스트의 레거시 Codex 경로를 검증한다. M4 이후 codex-runner는 호스트를
+// route()로 판정하고 CI 셸에는 호스트 신호가 없으므로, 그 전제를 모든 spawn env에 명시한다.
+delete process.env.MCCP_HARNESS;
+process.env.CLAUDECODE = '1';
+
 // v0.3.5 — strip ambient MCCP_CODEX_DISABLED so legacy dedupe/skipped/invoke
 // tests behave hermetically regardless of the harness's permanent-bypass setting
 // (skypark207's .claude/settings.local.json sets it for daily work). Tests that

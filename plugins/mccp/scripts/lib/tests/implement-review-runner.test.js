@@ -12,7 +12,7 @@ function fixture(fn) {
   try {
     target.git(root, ['init', '-q']); target.git(root, ['config', 'user.name', 'Test']); target.git(root, ['config', 'user.email', 'test@example.invalid']);
     fs.writeFileSync(path.join(root, 'plan.md'), '# Plan\n\n## Tasks\nImplement a fixture.\n');
-    fs.writeFileSync(path.join(root, '.gitignore'), '.claude/state/msw-events/\n');
+    fs.writeFileSync(path.join(root, '.gitignore'), '.claude/state/msw-events/\n.claude/state/evidence-claims/\n');
     target.git(root, ['add', '.']); target.git(root, ['commit', '-qm', 'fixture']);
     const bin = path.join(temp, 'claude');
     const success = [ { type: 'assistant', message: { model: 'claude-opus-5' } },

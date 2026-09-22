@@ -4,7 +4,7 @@ M4 reviewer core 구현과 세 gate owner CLI의 실측을 완료했다. 전체 
 
 ## 실행 계약
 
-- `reviewer-invoke`는 공통 harness oracle로 Claude host → 기존 Codex adapter, Codex host → Claude adapter를 선택한다. unknown은 차단한다.
+- `reviewer-invoke`는 공통 harness oracle로 Claude host → 기존 Codex adapter, Codex host → Claude adapter를 선택한다. unknown은 차단한다. Claude 양성 신호는 `CLAUDE_PLUGIN_ROOT`(hook 경로)와 `CLAUDECODE=1`(명령 본문이 도는 Bash 도구 셸 — 이 셸에는 `CLAUDE_PLUGIN_ROOT`가 없다, 2026-09-22 실측)이고, `MCCP_HARNESS=codex`가 둘보다 먼저 이긴다.
 - `review-target`은 HEAD commit/tree, base commit, draft plan의 stable digest 및 design 입력 hash를 고정한다. staged·unstaged·untracked 제품 변경을 각각 검사하며 index/worktree 상쇄도 거부한다.
 - 독립 worktree는 `--no-checkout`과 빈 hooksPath로 만들고 fsmonitor를 비활성화한다. checkout hook/filter 실행 없이 Git blob·mode·diff를 수집한다. UTF-8 텍스트는 그대로, binary는 base64로 전달한다. CLI 도구는 비활성화하여 symlink 또는 절대 경로를 통한 추가 파일 읽기를 막는다. 입력은 8 MiB까지이며 초과 시 unavailable이다.
 - 호스트의 실행 지시와 리뷰 데이터는 구분한다. draft plan/design과 committed tree는 JSON의 서로 다른 필드다. 정확한 Codex Adversarial Review 섹션 외 plan 변경과 중복·모호한 섹션은 거부한다.

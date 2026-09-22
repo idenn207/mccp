@@ -2,9 +2,9 @@
 state_version: 1
 task_fingerprint: unknown
 created_at: 2026-06-03T18:51:31.328Z
-updated_at: 2026-09-10T09:52:06.699Z
+updated_at: 2026-09-10T09:52:43.379Z
 last_event: stop_loop_pass
-last_event_at: 2026-09-10T09:52:06.699Z
+last_event_at: 2026-09-10T09:52:43.379Z
 unsafe_checkpoint: false
 confirm_required: false
 session_end_imminent: true
@@ -32,13 +32,13 @@ codex-harness-portability M4 core 및 세 gate owner CLI 구현·검증 완료.
 - CI 전 체크 green(test-suite · env-contract drift · version declaration · release manifest · axis-k)
 
 ## In Progress
-M4 구현 완료; 이번 구현 파일의 MCCP 자동 커밋과 PR preflight 진행 중.
+M4 구현 커밋 bf3f4e2 완료. 자동 PR은 Phase 1 clean working directory 조건 미충족으로 중단.
 
 ## Next Step
-MCCP auto-chain commit check 통과. 이번 구현 변경을 커밋한 뒤 PR preflight를 실행한다. M5와 전체 workflow 교차 이어달리기는 별도 범위다.
+기존 미커밋 계획·백로그·리뷰 이력을 정리한 뒤 /mccp:pr 재개. 이번 구현 검증과 완료 보고서는 커밋 bf3f4e2에 보존했다.
 
 ## Last Decision
-R5 계획 본문을 보존하고 현재 완료 상태를 별도 보고서에 기록했다. 실제 Claude plan/implement/PR owner CLI의 승인·실패 대조를 모두 통과했다. 관련 테스트 1,502개 통과; 최종 artifact 경계 23개 재검증. 보안 리뷰에서 발견한 HIGH 이상 결함을 수정했다.
+MCCP prp-implement 및 자동 prp-commit 완료(bf3f4e2). PR 사전 검사는 통과했지만 commands/pr.md Phase 1의 clean working directory 조건을 만족하지 않아 PR 생성·push는 실행하지 않았다. 기존 사용자 변경을 임의로 커밋하거나 stash하지 않았다. plan R5 converged 해시 일치를 재확인했다.
 
 ## Open Questions
 - 축 (iii) ingress는 여전히 missing — MCCP_HARNESS=codex가 셸에 없고, Codex hook 자식이 그 env를 상속하는지는 별개 미측정 축
@@ -47,4 +47,4 @@ R5 계획 본문을 보존하고 현재 완료 상태를 별도 보고서에 기
 - 워크트리 .worktrees/codex-harness-portability는 머지 후에도 남아 있다 — §3.8대로 cleanup 필요
 
 ## Last Updated
-2026-09-10T09:52:06.699Z
+2026-09-10T09:52:43.379Z

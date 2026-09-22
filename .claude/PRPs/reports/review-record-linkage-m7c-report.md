@@ -156,7 +156,7 @@ receipt 104건 전부 `receiptHash(body) === receipt_hash`라 기존 ship을 오
 - PR-Codex `needs-attention` · HIGH 1건 **F2**(새 축): `--check-live-linkage --decision <slug>`가 ship receipt를 **파일명으로만**
   고른다(`linkage-audit.js:1061`). 링크된 receipt를 `target.json`으로 복사하면 digest·backlink가 유효한 채 `ok`가 난다.
   권고: 봉인된 `decision_id`가 슬러그와 같고 `gate_id`가 `mccp-pr-codex`인지 검사 + 복사 회귀 test.
-- lock이 **다시** 회수됐다(07:19:16Z · 시작 62s 뒤). e5f6d80의 진입부 수정만으로는 부족했다 — 두 번째 원인은 token EOF
+- lock이 **다시** 회수됐다(07:19:16Z · 시작 62s 뒤). 3d3090f의 진입부 수정만으로는 부족했다 — 두 번째 원인은 token EOF
   대기였고(backlog 같은 날 HIGH 행), R2 뒤에 고쳤다. **그 수정은 PR-Codex가 보지 않았다.**
 - 원장 `mccp-pr-codex__review-record-linkage-m7c` = 2/2. DD11 규칙 3상 같은 슬러그의 3라운드째는 HSR 권한 밖이다.
 - 전역 규칙(cap 도달)대로: 미해소 finding을 backlog에 적재했고(하위 세션 2행 + 오케스트레이터 1행), **receipt 없음 —
@@ -169,7 +169,7 @@ receipt 104건 전부 `receiptHash(body) === receipt_hash`라 기존 ship을 오
 새 HIGH를 냈으므로 4번째 슬러그가 수렴한다는 근거가 없다. dropped는 사용자가 원한 M7 완료를 포기한다.
 
 - R2 F1(파일명 선택)은 코드로 흡수했다: 정체성 검사 + 복사 회귀 test(검사 제거 시 red).
-- PR-Codex가 보지 못한 델타(heartbeat reader `f6abf38` + 정체성 검사)는 로컬 `mccp:code-reviewer`가 검토했다: CRITICAL·HIGH 0,
+- PR-Codex가 보지 못한 델타(heartbeat reader `c872a47` + 정체성 검사)는 로컬 `mccp:code-reviewer`가 검토했다: CRITICAL·HIGH 0,
   MEDIUM 1(backlog). chunked · CRLF · 무개행 EOF · 토큰 전 부모 SIGKILL을 재현으로 확인했다.
 - ship은 `MCCP_PR_SKIP_CODEX_REVIEW`로 한다. receipt의 `codex_verdict`는 `skipped`(+ `codex_skipped_at_pr`)로 봉인된다 —
   converged로 위장하지 않는다. PR-Codex 두 라운드의 비승인 기록은 원장과 이 보고서에 남는다.

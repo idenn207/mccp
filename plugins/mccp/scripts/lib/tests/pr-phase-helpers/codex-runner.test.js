@@ -554,10 +554,14 @@ test('heartbeat child keeps beating instead of exiting at the entry point', asyn
     '--cwd', dir, '--lock-cli', LOCK_CLI, '--heartbeat-ms', '100'],
   { stdio: ['pipe', 'ignore', 'ignore'] });
   child.stdin.end(enter.rawToken + '\n');
-  await new Promise((r) => setTimeout(r, 1500));
+  // The runner blocks in spawnSync(codex-invoke) right after this write, so the
+  // pipe's EOF is not delivered while the review runs. The child must beat anyway.
+  spawnSync(NODE, ['-e', 'setTimeout(() => {}, 1500)']);
+  const beatWhileBlocked = fs.statSync(lock).mtimeMs > past.getTime() + 60000;
+  await new Promise((r) => setTimeout(r, 300));
   try {
     assert.strictEqual(child.exitCode, null, 'heartbeat child exited before beating');
-    assert.ok(fs.statSync(lock).mtimeMs > past.getTime() + 60000, 'lock mtime was never refreshed');
+    assert.ok(beatWhileBlocked, 'lock mtime was not refreshed while the parent was blocked');
   } finally {
     child.kill('SIGTERM');
     fs.rmSync(dir, { recursive: true, force: true });

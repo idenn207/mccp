@@ -164,11 +164,24 @@ function computeRenderingSurface(base, cwd) {
   }
 }
 
+// Reads up to the first newline, not to EOF. The parent writes the token and
+// then blocks in spawnSync(codex-invoke), so the pipe's EOF only arrives after
+// the review ends — waiting for it held every beat back past the 60s lease.
 function readTokenFromStdinSync() {
+  const buf = Buffer.alloc(4096);
+  let s = '';
   try {
-    const buf = fs.readFileSync(0);
-    return buf.toString('utf8').replace(/\r?\n$/, '').trim();
+    while (s.indexOf('\n') < 0) {
+      let n;
+      try { n = fs.readSync(0, buf, 0, buf.length, null); } catch (err) {
+        if (err.code === 'EAGAIN') continue;
+        throw err;
+      }
+      if (n === 0) break;
+      s += buf.toString('utf8', 0, n);
+    }
   } catch (_) { return ''; }
+  return s.split('\n')[0].trim();
 }
 
 // --mode heartbeat (forked child). One-shot stdin read for the token, then

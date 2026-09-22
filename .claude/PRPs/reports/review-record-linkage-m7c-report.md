@@ -149,3 +149,15 @@ receipt 104건 전부 `receiptHash(body) === receipt_hash`라 기존 ship을 오
 
 - `linkage-audit.test.js` 73/73 · runner·lock·guard 214/214 · linkage·install-skew·state-writer 214/214
 - `installed_plugins.json` sha256 (Task 1 기록값) `a3d22d5f0425da43dd00c4e7eb94b19f3507ffd507ed72d6154765a6ca555a46`
+
+## T5 2라운드 — 비승인, cap 2/2 소진 (2026-09-22)
+
+- 캡 2 · runner 포그라운드 · `--base origin/main`(명령 본문 이탈 1건, 하위 세션이 기록). 07:18:14Z → 07:20:24Z · runner exit 1.
+- PR-Codex `needs-attention` · HIGH 1건 **F2**(새 축): `--check-live-linkage --decision <slug>`가 ship receipt를 **파일명으로만**
+  고른다(`linkage-audit.js:1061`). 링크된 receipt를 `target.json`으로 복사하면 digest·backlink가 유효한 채 `ok`가 난다.
+  권고: 봉인된 `decision_id`가 슬러그와 같고 `gate_id`가 `mccp-pr-codex`인지 검사 + 복사 회귀 test.
+- lock이 **다시** 회수됐다(07:19:16Z · 시작 62s 뒤). e5f6d80의 진입부 수정만으로는 부족했다 — 두 번째 원인은 token EOF
+  대기였고(backlog 같은 날 HIGH 행), R2 뒤에 고쳤다. **그 수정은 PR-Codex가 보지 않았다.**
+- 원장 `mccp-pr-codex__review-record-linkage-m7c` = 2/2. DD11 규칙 3상 같은 슬러그의 3라운드째는 HSR 권한 밖이다.
+- 전역 규칙(cap 도달)대로: 미해소 finding을 backlog에 적재했고(하위 세션 2행 + 오케스트레이터 1행), **receipt 없음 —
+  cap 도달, 반영분 미재검증.** M7은 complete가 아니다(`--check-live-linkage --decision review-record-linkage-m7c` → exit 3).

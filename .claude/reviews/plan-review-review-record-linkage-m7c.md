@@ -59,7 +59,7 @@
   "granted": 4,
   "reviewed_plan_hash": "sha256:e603253f19d98dd7122567647403c3a9d21faf06c454b08ac842ae6d521cf3e4",
   "plan_path": ".claude/plans/review-record-linkage-m7c.plan.md",
-  "receipt_hash": null,
+  "receipt_hash": "sha256:940b9079e2106e5cd2bb7af61f95d155db48ef5b17903653ea24b2fc56f0c7c0",
   "recorded_at": "2026-09-22T06:39:37.940Z",
   "rounds": 1
 }

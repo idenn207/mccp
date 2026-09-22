@@ -153,6 +153,8 @@ function validate(receipt) {
   req(isPlainObject(receipt.resolution), 'resolution must be an object');
   if (isPlainObject(receipt.resolution)) {
     const r = receipt.resolution;
+    req(require('../lib/reviewer-evidence').validatePair(r).ok,
+      'resolution.reviewer_* must be a complete cross-model execution pair without legacy approval fields');
     req(typeof r.converged === 'boolean', 'resolution.converged must be a boolean');
     req(Number.isInteger(r.rounds) && r.rounds >= 1, 'resolution.rounds must be a positive integer');
     req(Array.isArray(r.accepted), 'resolution.accepted must be an array');

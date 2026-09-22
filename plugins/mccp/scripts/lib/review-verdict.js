@@ -23,7 +23,7 @@
 // while no cross-model review ever happened. A partial stamp is therefore an
 // `unavailable` (fail-closed), never a downgrade to the legacy field.
 //
-// DD5 (division of labour) — this oracle is PURE. It validates the *structure*
+// Legacy DD5 (division of labour) — the review_* branch is PURE. It validates the *structure*
 // of review_proof and the *format* of the paths and hashes inside it. It never
 // touches the filesystem. Two things it deliberately cannot decide:
 //   • whether dispatch_evidence paths EXIST      → cli.js `verify-proof` (fs)
@@ -31,6 +31,9 @@
 // Both callers fail closed on their axis, mirroring pr-ship-gate's
 // `skipped-unproven` pattern: a converged verdict whose proof does not hold up
 // is downgraded to `unavailable`, not silently trusted.
+// M4 reviewer_* evidence is stricter: the caller must supply current repository,
+// gate, decision, subject and host context; its evidence is verified on disk.
+// Without that context the new axis reports unavailable, including display callers.
 
 // Approval issuers. 'codex' is the legacy cross-model judge; 'multi-agent' is
 // the L1+L2 panel; 'hybrid' is the panel with a Codex L3 layer on top.
@@ -202,9 +205,17 @@ function isReviewProofStructurallyValid(proof) {
 // Downgrades always land on 'unavailable' rather than 'divergent': "we could
 // not certify this" is a different fact from "a reviewer found a defect", and
 // collapsing them would make audit trails lie about what happened.
-function resolveEffectiveVerdict(resolution) {
+function resolveEffectiveVerdict(resolution, context) {
   if (!isPlainObject(resolution)) {
     return { verdict: null, source: null, axis: 'none', proofFailed: false };
+  }
+
+  const evidence = require('./reviewer-evidence');
+  if (evidence.present(resolution)) {
+    const valid = !!context && evidence.verify(resolution, context).ok;
+    return { verdict: valid ? resolution.reviewer_verdict : 'unavailable',
+      source: valid ? resolution.reviewer_execution.reviewer_family : null,
+      axis: 'reviewer', proofFailed: !valid };
   }
 
   const rv = resolution.review_verdict;
@@ -242,9 +253,10 @@ function resolveEffectiveVerdict(resolution) {
 // The DD2 predicate in one place: an approval that both converged AND came from
 // a cross-model issuer. Cross-gate dedupe is its only intended consumer, but it
 // lives here so the source vocabulary never gets re-derived at a call site.
-function isCrossModelCorroborated(resolution) {
-  const eff = resolveEffectiveVerdict(resolution);
+function isCrossModelCorroborated(resolution, context) {
+  const eff = resolveEffectiveVerdict(resolution, context);
   if (eff.verdict !== 'converged') return false;
+  if (eff.axis === 'reviewer') return !eff.proofFailed;
   if (CROSS_MODEL_SOURCES.indexOf(eff.source) === -1) return false;
 
   // santa-loop R5 (Codex GPT-5.4) — `hybrid` must SHOW its L3 layer, not just

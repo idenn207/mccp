@@ -39,7 +39,7 @@ const { execFileSync } = require('child_process');
 const ic = require('./intent-context');
 const iclaims = require('./intent-claims');
 const iarb = require('./intent-arbiter');
-const codexInvoke = require('./codex-invoke');
+const codexInvoke = require('./reviewer-invoke');
 const codexPayload = require('./codex-review-payload');
 const receiptWrite = require('../receipt/write');
 const { planAwareMarkdownHash, gitRepoRoot } = require('../receipt/hash');
@@ -406,7 +406,13 @@ function run(opts, deps) {
     const arbiterMode = iarb.ARBITER_MODES.indexOf(o.arbiterMode) !== -1
       ? o.arbiterMode : iarb.DEFAULT_ARBITER_MODE;
 
+    const reviewerRoute = codexInvoke.route(env);
+    const reviewContext = reviewerRoute.reviewer === 'claude' ? require('./reviewer-evidence').prepareContext({
+      cwd, planPath, gateId: 'mccp-plan-codex', decisionId, runNonce: nonce,
+    }) : null;
     const envelope = invoke(o.focus || '', {
+      cwd,
+      reviewContext,
       env: env,
       timeoutMs: o.codexTimeoutMs,
       json: true,
@@ -669,7 +675,7 @@ function run(opts, deps) {
       decision: decisionId,
       plan: planPath,
       cwd: cwd,
-      'codex-verdict': codexVerdict,
+      ...(envelope && envelope.reviewerFamily === 'claude' ? { reviewerRun: envelope } : { 'codex-verdict': codexVerdict }),
     }, passThrough, {
       intentDecision: {
         verdict: derived.verdict,
@@ -725,6 +731,16 @@ function run(opts, deps) {
       }, null, null);
     }
 
+    if (envelope.reviewerFamily === 'claude') {
+      const receipt = require('../receipt/store').readReceipt(cwd, 'mccp-plan-codex', decisionId);
+      const valid = receipt && receipt.receipt_hash === result.receipt.receipt_hash &&
+        require('../receipt/hash').receiptHash(receipt) === receipt.receipt_hash &&
+        require('./reviewer-evidence').verify(receipt.resolution, { repoRoot: cwd, gateId: receipt.gate_id,
+          decisionId, subjectHash: receipt.subject_hash, planHash: receipt.plan_hash, hostFamily: 'codex', mode: 'current-target' }).ok;
+      if (!valid || receipt.resolution.reviewer_verdict !== 'converged') return finish(EX_BLOCKED, {
+        verdict: derived.verdict, reason: valid ? 'Claude review remains non-approving' : 'Claude receipt read-back failed',
+      }, decision, result);
+    }
     return finish(EX_OK, derived, decision, result);
 
     function finish(exitCode, derivedOrDecision, rawDecision, writeResult) {
@@ -745,7 +761,7 @@ function run(opts, deps) {
         receipt_path: (writeResult && writeResult.path) || null,
         receipt_hash: (writeResult && writeResult.receipt && writeResult.receipt.receipt_hash) || null,
         intent_gate_verdict: derivedOrDecision.verdict,
-        codex_verdict: codexVerdict,
+        ...(codexInvoke.route(env).reviewer === 'claude' ? { reviewer_verdict: codexVerdict, reviewer_family: 'claude' } : { codex_verdict: codexVerdict }),
         exit_code: exitCode,
         reason: derivedOrDecision.reason || null,
       });
@@ -996,7 +1012,18 @@ function parseArgs(argv) {
 }
 
 if (require.main === module) {
-  const r = run(parseArgs(process.argv.slice(2)));
+  const argv = process.argv.slice(2);
+  const valueFlags = new Set(['--plan', '--decision', '--run-nonce', '--focus', '--codex-timeout-ms', '--adjudication-timeout-ms', '--arbiter-mode',
+    '--impeccable-skip-reason', '--impeccable-silent-skip-reason', '--design-critique-rounds', '--design-critique-verdict', '--design-intent-reason', '--impeccable-routing-mode']);
+  const switches = new Set(['--impeccable-available', '--impeccable-skipped', '--impeccable-silent-skip']);
+  for (let i = 0; i < argv.length; i++) {
+    if (switches.has(argv[i])) continue;
+    if (!valueFlags.has(argv[i]) || !argv[i + 1] || argv[i + 1].startsWith('--')) {
+      process.stderr.write('[plan-codex-runner] invalid CLI flag or missing value\n'); process.exit(EX_USAGE);
+    }
+    i++;
+  }
+  const r = run(parseArgs(argv));
   if (r.error) process.stderr.write('[plan-codex-runner] ' + r.error + '\n');
   process.stdout.write(JSON.stringify(r) + '\n');
   process.exit(r.exitCode);

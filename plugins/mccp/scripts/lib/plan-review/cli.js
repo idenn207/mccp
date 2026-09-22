@@ -166,7 +166,11 @@ function readJsonOrBlock(file, label) {
 // Reports what WILL fire, so the command body branches on data rather than
 // re-deriving the policy in shell.
 function cmdMode() {
-  const mode = parseReviewMode(process.env);
+  const route = require('../reviewer-invoke').route(process.env);
+  if (route.blocking) { errln('BLOCK: reviewer host unavailable'); return 12; }
+  const configuredMode = parseReviewMode(process.env);
+  // 'codex' is the historical runner mode, not a reviewer family claim.
+  const mode = route.reviewer === 'claude' ? 'codex' : configuredMode;
   const l3Enabled = parseL3Enabled(process.env);
   const quorum = parseQuorum(process.env);
   const rolesMin = parseRolesMin(process.env, quorum.of);
@@ -177,6 +181,9 @@ function cmdMode() {
 
   out({
     mode: mode,
+    configured_mode: configuredMode,
+    host_family: route.host,
+    reviewer_family: route.reviewer,
     l3_enabled: l3Enabled,
     fires: { l1: firesL1, l2: firesL2, l3: firesL3 },
     quorum: { required: quorum.required, of: quorum.of, roles_min: rolesMin },

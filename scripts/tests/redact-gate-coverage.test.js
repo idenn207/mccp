@@ -26,8 +26,9 @@ const ALLOWED = [
   'block-probe.js',   // 동上
   'reach-probe.js',   // 동上 (스크래치 설치·hook 스크립트)
   'probe-hook.js',    // 프로브 로그(gitignored)
+  'reviewer-probe.js', // mkdtemp 안의 fixture 저장소·보호 파일 — tracked 산출물이 아니다
 ];
-const ALLOWED_CEILING = 5;
+const ALLOWED_CEILING = 6;
 
 // 숫자는 상한이지 정원이 아니다. 늘리려면 이 상수를 함께 올려야 한다.
 test('(a) 면제 목록은 상한을 넘지 않는다 — 늘리려면 상수를 고쳐야 한다', () => {

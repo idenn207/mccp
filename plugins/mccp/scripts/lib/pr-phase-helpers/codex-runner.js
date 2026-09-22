@@ -229,6 +229,9 @@ function runHeartbeat(args) {
 
 // --mode run main orchestration.
 function runMain(args) {
+  const selected = require('../reviewer-invoke').route(process.env);
+  if (selected.reviewer === 'claude') return runClaude(args);
+  if (selected.blocking) return fail('unknown reviewer host', 12);
   if (!args.base) return fail('--base <branch> required');
   if (!args.decision) return fail('--decision <slug> required');
   if (!args['body-file']) return fail('--body-file <path> required');
@@ -455,6 +458,51 @@ function runMain(args) {
     a11y_findings: a11yFindings,
     rendering_surface: renderingSurface,
   }, lockExitOk ? 0 : 1);
+}
+
+function runClaude(args) {
+  const allowed = new Set(['_', 'mode', 'base', 'decision', 'plan', 'body-file', 'cwd', 'focus', 'timeout-ms', 'heartbeat-ms', 'lock-cli']);
+  if (Object.keys(args).some(k => !allowed.has(k))) return fail('unsupported Claude PR runner flag', 12);
+  if (!args.base || !args.decision || !args.plan || !args['body-file']) return fail('Claude PR review requires base, decision, plan and body-file', 12);
+  const cwd = args.cwd || process.cwd();
+  const lockCli = args['lock-cli'] || locateLockCli();
+  const runId = crypto.randomUUID();
+  let token; let heartbeat;
+  let ownerLock;
+  try {
+    const target = require('../review-target');
+    target.outputs('mccp-pr-codex', args.decision, runId);
+    const ownerDir = path.join(target.git(cwd, ['rev-parse', '--absolute-git-dir']).trim(), 'mccp', 'pr-review');
+    fs.mkdirSync(ownerDir, { recursive: true });
+    const candidateLock = path.join(ownerDir, args.decision + '.lock');
+    fs.writeFileSync(candidateLock, JSON.stringify({ pid: process.pid, nonce: runId }), { flag: 'wx', mode: 0o600 });
+    ownerLock = candidateLock;
+    const enter = spawnAndCaptureToken([NODE, lockCli, 'enter', '--run-id', runId, '--pid', String(process.pid), '--subphase', 'codex-review', '--cwd', cwd], { captureStderr: true, timeoutMs: 15000 });
+    if (enter.exitCode !== 0 || !enter.rawToken) return fail('PR lock enter failed', 12);
+    token = enter.rawToken;
+    heartbeat = spawn(NODE, [__filename, '--mode', 'heartbeat', '--run-id', runId, '--cwd', cwd, '--lock-cli', lockCli,
+      '--heartbeat-ms', String(args['heartbeat-ms'] || 10000)], { stdio: ['pipe', 'ignore', 'inherit'] });
+    heartbeat.stdin.end(token + '\n');
+    const evidence = require('../reviewer-evidence');
+    const context = evidence.prepareContext({ cwd, gateId: 'mccp-pr-codex', decisionId: args.decision, planPath: args.plan, base: args.base, runNonce: runId });
+    const envelope = require('../reviewer-invoke').invokeAdversarialReview(args.focus || 'Review this PR implementation.', {
+      cwd, reviewContext: context, intentReference: context.reviewText, timeoutMs: Number(args['timeout-ms']) || 90000,
+    });
+    if (!envelope.ok || envelope.blocking || envelope.classification !== 'ok') return fail('Claude PR review unavailable: ' + envelope.classification, 12);
+    // Read-only verification closes before receipt output is written; token
+    // remains owner-local. Finalization does not deserialize the audit result.
+    const exit = spawnAndPipeToken([NODE, lockCli, 'exit', '--run-id', runId, '--ownership-token-stdin', '--cwd', cwd], token, { captureStderr: true, timeoutMs: 15000 });
+    const state = JSON.parse(exit.stdout || '{}');
+    if (exit.exitCode !== 0 || !state.ok || state.baseline_missing || (state.mutations || []).length) return fail('PR review-only verification failed', 12);
+    token = null; tryHeartbeatStop(heartbeat); heartbeat = null;
+    return require('./finalize-receipt').run({ decision: args.decision, plan: args.plan, cwd, gate: 'mccp-pr-codex' }, envelope);
+  } catch (err) { return fail(err.message, 12); }
+  finally {
+    tryHeartbeatStop(heartbeat); if (token) tryLockExit(lockCli, runId, token, cwd);
+    if (ownerLock) {
+      try { if (JSON.parse(fs.readFileSync(ownerLock, 'utf8')).nonce === runId) fs.unlinkSync(ownerLock); } catch (_) {}
+    }
+  }
 }
 
 function tryHeartbeatStop(child) {

@@ -137,7 +137,7 @@ test('an unknown channel is refused — channels are 1:1 with the chokepoints', 
   assert.throws(function () {
     ledger.recordRound(key(repo, { channel: undefined }));
   }, function (e) { return e.code === 'REVIEW_ROUNDS_BAD_CHANNEL'; });
-  assert.deepEqual(ledger.CHANNELS.slice(), ['codex', 'panel']);
+  assert.deepEqual(ledger.CHANNELS.slice(), ['codex', 'panel', 'claude']);
 });
 
 // ── 손상은 0이 아니다 ────────────────────────────────────────────────────────

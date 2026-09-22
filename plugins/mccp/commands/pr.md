@@ -1421,7 +1421,18 @@ fi
 ### 3.2 — Push (rebase is a fail-closed HALT, not auto-executed)
 
 ```bash
-git push -u origin HEAD
+SHIP_TARGET=$(node - "$CLAUDE_PLUGIN_ROOT" "$DECISION_SLUG" <<'NODE'
+const root = process.argv[2];
+const route = require(root + '/scripts/lib/reviewer-invoke').route(process.env);
+if (route.blocking) process.exit(12);
+if (route.reviewer !== 'claude') { process.stdout.write('HEAD'); process.exit(0); }
+const receipt = require(root + '/scripts/receipt/store').readReceipt(process.cwd(), 'mccp-pr-codex', process.argv[3]);
+const checked = require(root + '/scripts/lib/review-ship-target').verify(process.cwd(), receipt);
+if (!checked.ok) { process.stderr.write(checked.reason + '\n'); process.exit(12); }
+process.stdout.write(checked.shipCommit);
+NODE
+) || exit 12
+git push -u origin "$SHIP_TARGET:refs/heads/$(git branch --show-current)"
 ```
 
 If push fails due to remote divergence, **HALT — do NOT auto-rebase**. A rebase
@@ -1719,3 +1730,39 @@ Next steps:
 - **Force push needed**: If remote has diverged and rebase was done, use `git push --force-with-lease` (never `--force`).
 - **Multiple PR templates**: If `.github/PULL_REQUEST_TEMPLATE/` has multiple files, list them and ask user to choose.
 - **Large PR (>20 files)**: Warn about PR size. Suggest splitting if changes are logically separable.
+
+---
+
+## M4 Codex-host PR review
+
+Resolve the host with `reviewer-invoke.route(process.env)`. A Codex host requires
+Claude review and uses the same-process PR owner below, after the existing
+preflight and required security/design reviews. Unknown hosts or unavailable
+required auxiliary tools stop the gate. Preserve the normal lock/heartbeat and
+review-only behavior. Do not forward legacy skip/disabled/advisory or
+`--codex-result` flags to the Claude path.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/lib/pr-phase-helpers/codex-runner.js" \
+  --base "<base ref>" --decision "<decision slug>" --plan "<plan path>" \
+  --body-file "<body draft in git-private scratch directory>"
+```
+
+This owner invokes Claude and calls finalize-receipt in the same process.
+Do not run the standalone finalizer again: JSON output cannot recreate an
+execution proof. Legacy-only or stale evidence cannot skip this review. The
+current implementation conservatively performs a real Claude PR review even
+when the evidence-aware dedupe predicate permits a skip.
+
+Commit only the three fixed output roles returned by
+`review-target.outputs(gate, decision, nonce)` (proof, receipt, ship manifest).
+Do not include plan/design updates in this evidence commit. Before push, read
+the sealed PR receipt and call `review-ship-target.verify(repoRoot, receipt)`.
+Stop unless its `ok` is true; use its exact `shipCommit` object ID as the source
+of `git push origin <shipCommit>:refs/heads/<branch>`. Never replace that ID with
+live HEAD. The verifier rejects product changes in every intermediate commit,
+including change/revert sequences, merges, unknown outputs and tampered bytes.
+The receipt retains the original reviewed commit, even after the evidence
+commit. Retain the remaining PR preflight/linkage/receipt checks and publication
+steps; the Claude path replaces only the legacy reviewer invocation/finalizer
+and the strict-HEAD push binding. Claude hosts retain their existing Codex path.

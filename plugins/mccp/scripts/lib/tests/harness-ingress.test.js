@@ -28,6 +28,17 @@ test('(b) CLAUDE_PLUGIN_ROOT는 claude 쪽 양성 신호다', () => {
   assert.equal(r.signal, 'claude-plugin-root');
 });
 
+test('(b2) CLAUDECODE=1은 Bash 도구 셸의 claude 양성 신호다 — 1 이외 값은 신호가 아니다', () => {
+  // 명령 본문이 도는 셸에는 CLAUDE_PLUGIN_ROOT가 없다. 이 신호가 빠지면 M4의 route()가
+  // 모든 Claude 호스트를 unknown으로 차단한다.
+  const r = oracle.resolveHarness({ CLAUDECODE: '1' });
+  assert.equal(r.harness, H.CLAUDE);
+  assert.equal(r.signal, 'claudecode');
+  assert.equal(oracle.resolveHarness({ CLAUDECODE: '0' }).harness, H.UNKNOWN);
+  assert.equal(oracle.resolveHarness({ CLAUDECODE: ' ' }).harness, H.UNKNOWN);
+  assert.equal(oracle.resolveHarness({ MCCP_HARNESS: 'codex', CLAUDECODE: '1' }).harness, H.CODEX);
+});
+
 test('(c) 명시 designation이 CLAUDE_PLUGIN_ROOT를 이긴다 (launcher-owned가 상위)', () => {
   assert.equal(
     oracle.resolveHarness({ MCCP_HARNESS: 'codex', CLAUDE_PLUGIN_ROOT: '/x' }).harness,

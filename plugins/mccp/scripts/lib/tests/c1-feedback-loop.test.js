@@ -576,6 +576,40 @@ test('C1-PROMOTE-THRESHOLD: MEDIUM and LOW are not promoted, HIGH and CRITICAL a
   });
 });
 
+// closure-accounting M5 Task 7 (backlog 1845) — a degraded registry read still
+// promotes what it could read, but the handoff says the list may be short.
+function captureStderr(fn) {
+  const orig = process.stderr.write;
+  const chunks = [];
+  process.stderr.write = function (c) { chunks.push(String(c)); return true; };
+  try { return { value: fn(), err: chunks.join('') }; } finally { process.stderr.write = orig; }
+}
+
+test('C1-PROMOTE-DEGRADED: an unreadable registry is reported, not silently empty', () => {
+  withTempRepo((root) => {
+    // (p1) a FILE where the findings directory belongs: readdir fails with
+    // ENOTDIR on every platform and for every uid.
+    fs.writeFileSync(path.join(root, '.claude', 'state', 'findings'), 'x', 'utf8');
+    const r = captureStderr(() => handoff.enumerateOpenFindings(root));
+    assert.strictEqual(r.value.degraded, true);
+    assert.deepStrictEqual(r.value.items, []);
+    assert.ok(r.value.degraded_reasons.length > 0);
+    const warnings = r.err.split('\n').filter((l) => l.indexOf('findings registry degraded') !== -1);
+    assert.strictEqual(warnings.length, 1, r.err);
+    assert.match(warnings[0], /the promotion list may be incomplete/);
+    assert.ok(warnings[0].indexOf(root) === -1 && !/\/(tmp|home|Users)\//.test(warnings[0]),
+      'the warning carries a count, never a path: ' + warnings[0]);
+  });
+  withTempRepo((root) => {
+    // (p2) positive control — a healthy registry is not degraded and warns nothing.
+    seedFindings(root, [opened('a high problem in the gate', { severity: 'HIGH' })]);
+    const r = captureStderr(() => handoff.enumerateOpenFindings(root));
+    assert.strictEqual(r.value.degraded, false);
+    assert.strictEqual(r.value.items.length, 1);
+    assert.ok(r.err.indexOf('findings registry degraded') === -1, r.err);
+  });
+});
+
 test('C1-PROMOTE-THRESHOLD: a closed finding is never promoted', () => {
   withTempRepo((root) => {
     const ev = opened('a critical finding that got fixed', { severity: 'CRITICAL' });

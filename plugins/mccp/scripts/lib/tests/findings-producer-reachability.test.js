@@ -243,3 +243,74 @@ test('(R8) the scanners catch an undeclared emitter and a map-bypassing adjudica
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ── R9: 선언된 emitter 함수는 실제로 호출된다 (closure-accounting M5 DD7 · backlog 1828 · 1851) ──
+//
+// R2 는 emitter **파일**에 `appendFindings(` 가 있는지만 본다. 그 호출을 감싼 함수를 아무도
+// 부르지 않아도 R2 는 초록이다 — 1828 이 적은 정확한 시나리오(러너의 호출 한 줄을 지워도
+// 모든 신호 불변)다. R9 는 그 함수가 자기 정의 밖의 비-test 소스에서 **적어도 한 번
+// 호출된다**를 단언한다. 주장 범위는 거기까지다 — "라이브 경로에서 실행된다"는 주장하지
+// 않는다(그 축은 이 파일 머리의 이연 항목 그대로다).
+//
+// ponytail: 줄 단위 근사 — `function NAME(` 선언만 본다. 화살표 함수·메서드 속성으로 쓴
+// emitter 는 보지 못하며, 오늘의 emitter 는 전부 `function` 선언이다. 자기 재귀 호출도
+// 호출로 센다.
+
+const FUNCTION_DECL_RE = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/;
+
+function escapeRe(x) { return x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// `appendFindings(` 가 나오는 줄마다, 그 줄이나 그 위에서 가장 가까운 `function NAME(`.
+function appendFindingsCallers(code) {
+  const names = new Set();
+  let current = null;
+  for (const line of String(code).split(/\r?\n/)) {
+    const decl = line.match(FUNCTION_DECL_RE);
+    if (decl) current = decl[1];
+    if (APPEND_RE.test(line) && current) names.add(current);
+  }
+  return names;
+}
+
+function uncalledEmitters(root, rels) {
+  const names = new Set();
+  for (const rel of rels) appendFindingsCallers(readEmitter(root, rel)).forEach((n) => names.add(n));
+  const corpus = scanSources(root).map((f) => f.code).join('\n');
+  const count = (re) => (corpus.match(re) || []).length;
+  return Array.from(names).filter(function (name) {
+    const calls = count(new RegExp('\\b' + escapeRe(name) + '\\s*\\(', 'g'));
+    const decls = count(new RegExp('\\bfunction\\s+' + escapeRe(name) + '\\s*\\(', 'g'));
+    return calls - decls === 0;
+  }).sort();
+}
+
+test('(R9) every function that calls appendFindings in a declared emitter is itself called', () => {
+  const rels = registry.PRODUCER_CHANNELS.filter((c) => c.registers).map((c) => c.emitter);
+  assert.ok(rels.length > 0, 'fixture: at least one registering channel');
+  const callers = new Set();
+  for (const rel of rels) appendFindingsCallers(readEmitter(REPO_ROOT, rel)).forEach((n) => callers.add(n));
+  assert.ok(callers.size >= rels.length, 'each registering emitter wraps its call in a named function: '
+    + Array.from(callers).join(', '));
+  assert.deepEqual(uncalledEmitters(REPO_ROOT, rels), [],
+    'these emitter functions write to the registry but nothing outside their definition calls them');
+});
+
+test('(R9b) the call scan catches an uncalled emitter and ignores a call that is only a comment', () => {
+  const EMITTER = 'plugins/mccp/scripts/lib/rogue-emitter.js';
+  const emitterSrc = "'use strict';\nfunction emitX(events) {\n  return registry.appendFindings('wu', events);\n}\nmodule.exports={emitX:emitX};\n";
+  const cases = [
+    [{ [EMITTER]: emitterSrc }, ['emitX']],
+    [{ [EMITTER]: emitterSrc, 'plugins/mccp/scripts/lib/caller.js': "'use strict';\nrequire('./rogue-emitter').emitX([]);\n" }, []],
+    [{ [EMITTER]: emitterSrc, 'plugins/mccp/scripts/lib/caller.js': "'use strict';\n// emitX([]) 는 여기서 부르지 않는다\n" }, ['emitX']],
+    // a test file is not a caller — the scan corpus excludes tests.
+    [{ [EMITTER]: emitterSrc, 'plugins/mccp/scripts/lib/tests/emit.test.js': "'use strict';\nemitX([]);\n" }, ['emitX']],
+  ];
+  for (const [files, expected] of cases) {
+    const root = makeTree(files);
+    try {
+      assert.deepEqual(uncalledEmitters(root, [EMITTER]), expected, Object.keys(files).join(' + '));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});

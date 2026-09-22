@@ -44,6 +44,7 @@
 // guards against drift and mistakes, not against someone who can run node with
 // write access to the repo. That is stated rather than defended.
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -109,12 +110,23 @@ function pidAlive(pid) {
   }
 }
 
+// `nonce` is the ownership token (closure-accounting M5 DD5, backlog 1843). pid,
+// host and a millisecond timestamp can all repeat — a reused pid inside the same
+// millisecond on the same host would pass for this process. Same in-body raw
+// token model as `quarantine.lock` (CLAUDE.md §3.6); no IPC, because the lock
+// never leaves this process.
 function selfBody() {
-  return { pid: process.pid, host: os.hostname(), started_at: new Date().toISOString() };
+  return { pid: process.pid, host: os.hostname(), started_at: new Date().toISOString(),
+    nonce: crypto.randomUUID() };
 }
 
+// The nonce is compared only when BOTH bodies carry one. A body written before M5
+// has none, and comparing against a missing field would make its dead-pid lock
+// unreclaimable forever; the three-field match is what those bodies always had.
 function sameOwner(a, b) {
-  return !!a && !!b && a.pid === b.pid && a.host === b.host && a.started_at === b.started_at;
+  if (!a || !b || a.pid !== b.pid || a.host !== b.host || a.started_at !== b.started_at) return false;
+  if (typeof a.nonce === 'string' && typeof b.nonce === 'string') return a.nonce === b.nonce;
+  return true;
 }
 
 function manualRecovery(rel) {

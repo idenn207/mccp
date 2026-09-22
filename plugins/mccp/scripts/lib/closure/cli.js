@@ -33,6 +33,21 @@ function producerLine(p) {
     + owner;
 }
 
+function isCount(v) { return typeof v === 'number' && Number.isFinite(v); }
+
+// Never the text `null` (M4 L1) — an unknown number is `n/a`.
+function na(v) { return isCount(v) ? String(v) : 'n/a'; }
+
+// closure-accounting M5 (MF2) — the disposed part is the one worth reading: those
+// judgments are what the next re-seal reports as dropped.
+function sealedNotLiveText(gap) {
+  if (!isCount(gap.sealed_not_live)) return 'n/a';
+  const d = gap.sealed_not_live_disposed;
+  if (!isCount(d)) return gap.sealed_not_live + ' (dispositions among them: n/a)';
+  if (d === 0) return gap.sealed_not_live + ' (none with a disposition)';
+  return gap.sealed_not_live + ' (' + d + ' with a disposition — dropped at the next re-seal)';
+}
+
 function formatTable(obj) {
   // Simple human-readable table format
   const lines = [];
@@ -79,9 +94,16 @@ function formatTable(obj) {
 
   // Gap section (C6: null when degraded)
   if (obj.denominator_gap) {
+    const gap = obj.denominator_gap;
     lines.push('DENOMINATOR GAP');
-    lines.push('  Count:           ' + obj.denominator_gap.count);
-    lines.push('  Percentage:      ' + obj.denominator_gap.pct + '%');
+    lines.push('  Count:           ' + na(gap.count));
+    lines.push('  Percentage:      ' + (isCount(gap.pct) ? gap.pct + '%' : 'n/a'));
+    // `Count` is a set difference and never negative; this is a length
+    // difference and can be. Two similar-sized numbers side by side read as a
+    // duplicate or a contradiction unless the line says which question it answers.
+    lines.push('  Net change:      ' + (isCount(gap.net_change)
+      ? gap.net_change + ' (live − sealed; may be negative)' : 'n/a'));
+    lines.push('  Sealed not live: ' + sealedNotLiveText(gap));
     lines.push('');
   } else if (obj.degraded && obj.degraded.length) {
     lines.push('DENOMINATOR GAP');
@@ -201,4 +223,4 @@ if (require.main === module) {
   process.exit(main(process.argv.slice(2)));
 }
 
-module.exports = { main };
+module.exports = { main, formatTable };

@@ -119,6 +119,34 @@ test('a re-seal appends carried lines and never edits the old ones', () => {
     .slice(0, beforeRaw.length), beforeRaw);
 });
 
+// M5 Task 6 (backlog 1005) — consumer continuity, read through the consumer. The
+// dashboard reads `scanBacklog`, not the ledger, so "succession preserved the
+// judgments" is only falsifiable at that surface: the disposed and resolved
+// counts must not move across a re-seal, and a new row lands in `open` alone.
+test('a re-seal leaves the backlog consumer\'s closed and resolved counts where they were', () => {
+  const { scanBacklog } = require('../../derive/sources/backlog');
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2), row(3)] });
+  const old = sealAndDispose(root);
+  const before = scanBacklog(root);
+  assert.equal(before.closed_count, 3, 'fixture: every row judged');
+  assert.equal(before.resolved_count, 1, 'fixture: one fixed');
+
+  writeBacklog(root, [row(1, 'HIGH'), row(2), row(3), row(4)]);
+  const res = reseal.applyReseal(root, { apply: true });
+  assert.equal(res.ok, true, JSON.stringify(res));
+  const after = scanBacklog(root);
+  assert.equal(after.closed_count, before.closed_count, 'carried judgments still count as disposed');
+  assert.equal(after.resolved_count, before.resolved_count);
+  assert.equal(after.open_count, before.open_count + 1, 'the new row is open, and only it');
+
+  // Non-vacuous contrast: bind the carried lines back to the OLD digest and the
+  // consumer loses them — so the equality above is carried by the succession
+  // lines, not by a counter that ignores the binding.
+  const abs = path.join(root, di.DISPOSITIONS_REL);
+  fs.writeFileSync(abs, fs.readFileSync(abs, 'utf8').split(res.new_sha).join(old.inventory_sha256), 'utf8');
+  assert.equal(scanBacklog(root).closed_count, 0);
+});
+
 test('a carried line copies the judgment verbatim and only adds provenance', () => {
   const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2)] });
   const old = sealAndDispose(root);
@@ -541,6 +569,57 @@ test('after a re-seal the gate seal axis reports ancestor-bound, not mismatch', 
   assert.equal(after.ok, false);
 });
 
+// ── M5 Task 2: the seal axis cross-checks verify (backlog 1841) ─────────────
+//
+// The gate recomputes the ancestor split itself (its header's rule), and until M5
+// it never compared that answer with `verifyDispositions`. Two ancestry judgments
+// that drift apart were invisible; now the disagreement is itself the failure,
+// the same shape axis 2 already uses.
+
+test('the gate seal axis fails when verify disagrees, and agrees on a malformed chain', () => {
+  const gate = require('../msw-metrics/m10-coverage-gate');
+  const root = makeRepo({ backlogRows: [row(1, 'HIGH'), row(2), row(3)] });
+  sealAndDispose(root);
+  writeBacklog(root, [row(1, 'HIGH'), row(2), row(3), row(4)]);
+  assert.equal(reseal.applyReseal(root, { apply: true }).ok, true);
+
+  // (a) the real producer agrees, and the axis stays green.
+  const real = gate.checkSeal(root, di);
+  assert.equal(real.producer_agrees, true, JSON.stringify(real));
+  assert.equal(real.ok, true);
+  assert.ok(real.ancestor_bound_lines > 0, 'fixture: there is something to agree on');
+
+  // (b) a producer that reports one more ancestor-bound line than the gate sees.
+  const skewed = Object.assign({}, di, {
+    verifyDispositions: function (r) {
+      const v = di.verifyDispositions(r);
+      return Object.assign({}, v, { ancestor_bound_lines: v.ancestor_bound_lines + 1 });
+    },
+  });
+  const off = gate.checkSeal(root, skewed);
+  assert.equal(off.producer_agrees, false);
+  assert.equal(off.ok, false, 'a disagreement is a failure on its own');
+  assert.equal(off.mismatched_lines, 0, 'and nothing else about the seal changed');
+
+  // (d) an unreadable answer is not agreement.
+  const throws = Object.assign({}, di, { verifyDispositions: function () { throw new Error('boom'); } });
+  assert.equal(gate.checkSeal(root, throws).producer_agrees, false);
+  assert.equal(gate.checkSeal(root, throws).ok, false);
+  const notObject = Object.assign({}, di, { verifyDispositions: function () { return 'nope'; } });
+  assert.equal(gate.checkSeal(root, notObject).producer_agrees, false);
+
+  // (c) a malformed ancestry — both sides refuse to judge, so they AGREE while
+  // the axis is still red. `meta` is outside the digest, so the seal stays intact.
+  const abs = path.join(root, di.INVENTORY_REL);
+  const doc = JSON.parse(fs.readFileSync(abs, 'utf8'));
+  doc.meta.ancestry = ['nope'];
+  fs.writeFileSync(abs, JSON.stringify(doc), 'utf8');
+  assert.equal(di.verifyDispositions(root).ancestry_depth, null, 'fixture: verify cannot judge it');
+  const bad = gate.checkSeal(root, di);
+  assert.equal(bad.ok, false);
+  assert.equal(bad.producer_agrees, true, JSON.stringify(bad));
+});
+
 // ── M4 Task 3: operational safety on the apply path ─────────────────────────
 
 // (f) Every abort leaves the seal byte-identical, and removing the cause lets the
@@ -731,6 +810,38 @@ test('a lock whose body never landed is refused with a recovery instruction', ()
 // written. The branch is not reachable through `apply` (planReseal only passes a
 // digest it recomputed), so what is falsifiable is the ORDER, and that is what is
 // asserted. A source scan is the only thing that goes red if it moves back.
+// ── M5 Task 5: the lock body carries an ownership nonce (backlog 1843) ───────
+//
+// pid + host + a millisecond timestamp is not an identity: a reused pid in the
+// same millisecond would pass for the owner and release a lock it never took.
+
+test('release refuses a lock whose nonce differs even when pid, host and time match', () => {
+  const root = makeRepo({ backlogRows: [row(1)] });
+  const lockAbs = path.join(root, reseal.LOCK_REL);
+
+  // (n3) the ordinary round trip: the body carries a nonce and release removes it.
+  const got = reseal.acquireLock(root);
+  assert.equal(got.ok, true, JSON.stringify(got));
+  assert.equal(typeof got.body.nonce, 'string');
+  assert.equal(JSON.parse(fs.readFileSync(lockAbs, 'utf8')).nonce, got.body.nonce);
+  assert.equal(reseal.releaseLock(root, got.body), true);
+  assert.equal(fs.existsSync(lockAbs), false, 'a round trip leaves no lock behind');
+
+  // (n1) the pid-reuse shape: every old field identical, a different nonce.
+  const mine = reseal.acquireLock(root).body;
+  const other = Object.assign({}, mine, { nonce: mine.nonce.replace(/^./, mine.nonce[0] === 'a' ? 'b' : 'a') });
+  fs.writeFileSync(lockAbs, JSON.stringify(other), 'utf8');
+  assert.equal(reseal.releaseLock(root, mine), false, 'not ours — the nonce says so');
+  assert.ok(fs.existsSync(lockAbs), 'and it is left in place');
+
+  // (n2) a body written before M5 has no nonce, so the three-field match still
+  // decides; otherwise an old lock could never be released or reclaimed.
+  const legacy = { pid: mine.pid, host: mine.host, started_at: mine.started_at };
+  fs.writeFileSync(lockAbs, JSON.stringify(legacy), 'utf8');
+  assert.equal(reseal.releaseLock(root, mine), true);
+  assert.equal(fs.existsSync(lockAbs), false);
+});
+
 test('the archive-path guard sits ahead of the manifest write', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'msw-metrics', 'reseal.js'), 'utf8');

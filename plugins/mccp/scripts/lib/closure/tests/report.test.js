@@ -1355,45 +1355,118 @@ test('invariant (m5): seal.ancestry_depth is present and null-on-unjudgeable, ne
   // follows: a chain that cannot be judged is `null`, not `0`. Reporting 0 for an
   // unreadable ancestry would claim "this seal is original" about a seal nobody
   // could check — the success-direction default this instrument exists to remove.
+  //
+  // M5 DD3 — the depth is read from the `verify` answer, so that is what is mocked.
+  const depthOf = function (verifyResult) {
+    return withDebtMock({ verifyDispositions: () => verifyResult }).report.seal.ancestry_depth;
+  };
+  assert.strictEqual(depthOf({ invalid_dispositions: 0, ancestry_depth: 0 }), 0,
+    'an original seal has depth 0');
+  assert.strictEqual(depthOf({ invalid_dispositions: 0, ancestry_depth: 2 }), 2,
+    'depth is whatever verify counted');
+  assert.strictEqual(depthOf({ invalid_dispositions: 0, ancestry_depth: null }), null,
+    'an unjudgeable chain is null, never 0');
+  // verify's early returns omit the field entirely — still unknown, not 0.
+  assert.strictEqual(depthOf({ ok: false, open: null }), null);
+});
+
+// Shared by (m5) · (d*) · (s*): a small seal whose live pile and ledger each test
+// shapes, with everything else the report touches mocked around it.
+function withDebtMock(overrides, shape) {
+  const o = shape || {};
   const Module = require('node:module');
   const originalRequire = Module.prototype.require;
   const fixture = createMockRepoFixture();
-
-  const withAncestry = function (ancestryResult) {
-    Module.prototype.require = function (id) {
-      if (id === '../msw-metrics/debt-inventory') {
-        return {
-          readInventory: () => fixture.sealedDoc,
-          buildInventory: () => ({ items: fixture.liveItems, stats: { by_source: {} } }),
-          readDispositions: () => ({ ok: true, lines: fixture.dispositions }),
-          SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
-          foldDispositions: (lines) => {
-            const m = new Map();
-            for (const l of lines) m.set(l.item_id, l);
-            return m;
-          },
-          sealAncestry: () => ancestryResult,
-        };
-      } else if (id === '../../state/findings-registry') {
-        return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: fixture.findings }) });
-      }
-      return originalRequire.apply(this, arguments);
-    };
-    try {
-      delete require.cache[require.resolve('../report.js')];
-      return require('../report.js').buildClosureReport(REPO_ROOT);
-    } finally {
-      Module.prototype.require = originalRequire;
-      delete require.cache[require.resolve('../report.js')];
+  const sealedDoc = o.sealedDoc || fixture.sealedDoc;
+  const calls = { sealAncestry: 0 };
+  const mod = Object.assign({
+    readInventory: () => sealedDoc,
+    buildInventory: () => ({ items: o.liveItems || fixture.liveItems, stats: { by_source: {} } }),
+    readDispositions: () => ({ ok: true, lines: o.dispositions || fixture.dispositions }),
+    SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+    foldDispositions: (lines) => {
+      const m = new Map();
+      for (const l of lines) m.set(l.item_id, l);
+      return m;
+    },
+    // Counted, and never expected to run: the report reads the depth from verify.
+    sealAncestry: () => { calls.sealAncestry += 1; return { verified: ['x', 'y', 'z', 'w'], unverified: [] }; },
+  }, overrides || {});
+  Module.prototype.require = function (id) {
+    if (id === '../msw-metrics/debt-inventory') return mod;
+    if (id === '../../state/findings-registry') {
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: fixture.findings }) });
     }
+    return originalRequire.apply(this, arguments);
   };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    return { report: require('../report.js').buildClosureReport(REPO_ROOT), calls: calls };
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}
 
-  assert.strictEqual(withAncestry({ verified: [], unverified: [] }).seal.ancestry_depth, 0,
-    'an original seal has depth 0');
-  assert.strictEqual(withAncestry({ verified: ['a', 'b'], unverified: [] }).seal.ancestry_depth, 2,
-    'depth counts VERIFIED ancestors only');
-  assert.strictEqual(withAncestry(null).seal.ancestry_depth, null,
-    'an unjudgeable chain is null, never 0');
+test('(d1) the report never calls sealAncestry itself — the depth is the verify answer', () => {
+  // backlog 1842: the report used to run the ancestry oracle twice per run, once
+  // inside verify and once on its own. One answer cannot disagree with itself.
+  const r = withDebtMock({ verifyDispositions: () => ({ invalid_dispositions: 0, ancestry_depth: 3 }) });
+  assert.strictEqual(r.calls.sealAncestry, 0, 'no direct sealAncestry call');
+  assert.strictEqual(r.report.seal.ancestry_depth, 3, 'the depth verify reported, not the mock oracle\'s 4');
+});
+
+test('(d2) no verify function means an unknown depth, even when an oracle is available', () => {
+  const r = withDebtMock({ verifyDispositions: undefined });
+  assert.strictEqual(r.report.seal.ancestry_depth, null);
+  assert.strictEqual(r.calls.sealAncestry, 0);
+});
+
+// MF2 · DD4 — a sealed item that left the live pile while holding a judgment bound
+// to the current seal is a judgment the next re-seal drops. The report says how
+// many, instead of leaving it to be discovered in the re-seal plan.
+function goneFixture(disposeGone) {
+  const sha = 'sha256:' + 'c'.repeat(64);
+  const items = ['backlog:a', 'backlog:b', 'backlog:gone'].map(function (id) {
+    return { item_id: id, source: 'backlog', severity: 'MEDIUM' };
+  });
+  const dispositions = [{ item_id: 'backlog:a', disposition: 'fixed', inventory_sha256: sha }];
+  if (disposeGone) dispositions.push({ item_id: 'backlog:gone', disposition: 'deferred', inventory_sha256: sha });
+  // An old-sha line on the gone item must NOT count: only current-seal judgments drop.
+  dispositions.push({ item_id: 'backlog:b', disposition: 'deferred', inventory_sha256: 'sha256:' + 'd'.repeat(64) });
+  return {
+    sealedDoc: { meta: { sealed_at: '2026-09-01T00:00:00.000Z' }, inventory_sha256: sha, items: items },
+    liveItems: [items[0], items[1], { item_id: 'backlog:new', source: 'backlog', severity: 'LOW' }],
+    dispositions: dispositions,
+  };
+}
+
+const cleanVerify = { verifyDispositions: () => ({ invalid_dispositions: 0, ancestry_depth: 0 }) };
+
+test('(s1) a gone sealed item with a current-seal judgment is counted and named in the warning', () => {
+  const r = withDebtMock(cleanVerify, goneFixture(true)).report;
+  assert.strictEqual(r.denominator_gap.sealed_not_live, 1);
+  assert.strictEqual(r.denominator_gap.sealed_not_live_disposed, 1);
+  assert.match(r.reseal_warning, /1 sealed item\(s\) that are no longer live still carry a disposition/);
+});
+
+test('(s2) a gone sealed item with no judgment counts 0 and leaves the warning unchanged', () => {
+  const r = withDebtMock(cleanVerify, goneFixture(false)).report;
+  assert.strictEqual(r.denominator_gap.sealed_not_live, 1);
+  assert.strictEqual(r.denominator_gap.sealed_not_live_disposed, 0);
+  assert.ok(r.reseal_warning, 'the gap still warns');
+  assert.ok(!/no longer live still carry/.test(r.reseal_warning), r.reseal_warning);
+});
+
+test('(s3) an item with no identity makes the count unknown, not 0', () => {
+  const shape = goneFixture(true);
+  shape.liveItems = shape.liveItems.concat([{ source: 'backlog', severity: 'LOW' }]);
+  const r = withDebtMock(cleanVerify, shape).report;
+  assert.strictEqual(r.denominator_gap.sealed_not_live_disposed, null);
+  // A blocked disposition axis is the other way to not know.
+  const blocked = withDebtMock({ verifyDispositions: () => ({ invalid_dispositions: 2, ancestry_depth: 0 }) },
+    goneFixture(true)).report;
+  assert.strictEqual(blocked.denominator_gap.sealed_not_live_disposed, null);
 });
 
 // ── producers[] — closure-accounting M3 (DD4/DD5) ────────────────────────────

@@ -780,3 +780,55 @@ test('a marker inside a code span or a raw-text block is not acceptance', () => 
   // A lone backtick is literal text, so it must not swallow a following marker.
   assert.equal(accepts('a ` b\n\n' + M + '\n'), true);
 });
+
+// closure-accounting M5 Task 1 (DD1 · fix-task F1 · L3 HIGH) — inline code is not
+// PAIRED any more. A paragraph that holds a backtick anywhere keeps none of its
+// lines, because pairing spans is unsafe in both directions: cut a paragraph where
+// CommonMark would not and a span is split open; join paragraphs CommonMark keeps
+// apart and an unpaired backtick steals the next paragraph's opener.
+test('a marker that shares a paragraph with a backtick is not acceptance', () => {
+  const SHA = 'sha256:' + 'a'.repeat(64);
+  const M = '<!-- accepts-inventory: ' + SHA + ' -->';
+  const accepts = function (body) { return di.collectAcceptedShas(body).has(SHA); };
+
+  // (t6) Positive control FIRST: backticks in the neighbouring paragraphs do not
+  // reach across a blank line, so a marker standing in its own paragraph accepts.
+  assert.equal(accepts('Use `x` here.\n\n' + M + '\n\nAnd `y` there.\n'), true);
+  // A line of spaces and tabs IS blank to CommonMark, so it separates too.
+  assert.equal(accepts('Use `x` here.\n \t\n' + M + '\n'), true);
+
+  // (t5) the fix-task F1 reproduction: a span opened on one line and closed two
+  // lines down. Per-line stripping saw no span on the marker line.
+  assert.equal(accepts('Example: `\n' + M + '\nend`\n'), false);
+
+  // (t7) a double-backtick span that crosses lines.
+  assert.equal(accepts('Write ``\n' + M + '\n`` to accept.\n'), false);
+
+  // (t8) L3 counterexample: a 4-column line inside a paragraph is a CONTINUATION,
+  // not indented code. The indent pass blanks it; a rule that treated that blank
+  // as a paragraph break would cut the span there and expose the marker.
+  assert.equal(accepts('Example: `\n    continued\n' + M + '\nend`\n'), false);
+
+  // (t9) pairing drift: an unpaired backtick in one paragraph must not be allowed
+  // to take the next paragraph's opener as its partner.
+  assert.equal(accepts('a ` b\n\n`' + M + '`\n'), false);
+
+  // (t10) THE COST, named on purpose: inline code in the same paragraph as a real
+  // marker refuses it. Over-removal only — a refused deferral fails closed.
+  assert.equal(accepts('Run `reseal.js` first.\n' + M + '\n'), false);
+
+  // (t11) the blank-line definition is CommonMark's, not `trim()`. A line holding
+  // only a no-break space does not end a paragraph, so the span below covers the
+  // marker; treating that line as blank would leave the middle group backtick-free.
+  assert.equal(accepts('`\n\u00a0\n' + M + '\n\u00a0\n`\n'), false);
+
+  // Line structure is preserved for every shape above, CRLF included.
+  for (const x of [
+    'Example: `\n' + M + '\nend`\n',
+    'Example: `\r\n    continued\r\n' + M + '\r\nend`\r\n',
+    '```\n' + M + '\n```\n',
+    'See <pre>\n' + M + '\n</pre> and `x`\n\n' + M,
+  ]) {
+    assert.equal(di.stripQuotedForMarker(x).split(/\r?\n/).length, x.split(/\r?\n/).length);
+  }
+});

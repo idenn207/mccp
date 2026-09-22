@@ -19,6 +19,26 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 
+- **closure-accounting M5 — M1~M4가 남긴 계기 결함 다섯과 CI 기록 공백.** (1) 수락 마커가
+  **여러 줄 inline code span 안에서도 승인으로 수락**됐다(M4 PR-Codex F1) — stripper가 span을
+  줄마다 짝지었기 때문이다. 짝짓기를 버리고, backtick이 하나라도 있는 문단(빈 줄 = CommonMark 정의,
+  공백·탭만)의 마커를 받지 않는다. 짝짓기는 경계를 늘려도 줄여도 노출을 만들고, `trim()`으로
+  빈 줄을 판정하면 NBSP 줄이 span을 끊는다. 비용은 인라인 코드와 같은 문단에 둔 진짜 마커의 거절이며
+  라이브 successor 3개는 해당 없음(`invalid_dispositions` 0 · `deferrals_by_successor` 불변).
+  (2) m10 봉인 축이 `verifyDispositions`와 조상 판정이 **어긋나도 몰랐다** — 자체 계산을 유지한 채
+  대조를 더해 불일치는 `producer_agrees:false`로 스스로 red가 된다. (3) `closure report`가 조상
+  오라클을 **한 실행에 두 번** 불렀다 — 깊이를 verify 답에서 읽는다. (4) 봉인됐지만 라이브에 없는
+  항목 중 **판정을 가진 수**(다음 재봉인이 `dropped`로 보고할 수)가 보이지 않았다 —
+  `denominator_gap.sealed_not_live_disposed`와 표의 `Net change:` · `Sealed not live:` 줄(null은
+  `n/a`). (5) reseal lock 소유권이 pid·host·ms 시각뿐이었다 — body에 `nonce`, 구 body는 3필드 비교
+  유지. 그 밖에 handoff 승격이 registry degraded를 **조용히 삼키던** 것을 stderr 경고 +
+  `degraded` 필드로 표면화했고, R9가 emitter 함수의 **호출 존재**를 소스로 단언한다. CI는
+  `closure-report.json`을 artifact로 남겨 격차 증가 속도를 사후에 재구성할 수 있게 했고(목표값은
+  두지 않는다 — PRD OQ 종결), job summary fence는 리포트의 최장 backtick 연속보다 1 길다.
+  closure 소유가 아닌 실측 결함 6건(escalation 해제 불가 · fix-task 문구 · 비재발 오라클 · PRD 경로
+  slug · `rowId` 재키잉 · hybrid intent 경로)은 증거째 backlog로 넘겼다. 재봉인 없음 · 판정 append
+  없음 · 새 임계 없음 · 게이트 없음.
+
 - **closure-accounting M4 — 부채 종결 계기가 스스로 틀린 값을 내던 경로 여섯.** M1이 격차를
   보이게 하고 M2가 닫는 경로를 만든 뒤, 두 산출물 자신이 잘못 답하고 있었다. (1) 재봉인이
   `sealed_at_commit`·`source_digests`를 **전임 봉인에서 복사**해 모든 세대가 첫 세대의 출처를

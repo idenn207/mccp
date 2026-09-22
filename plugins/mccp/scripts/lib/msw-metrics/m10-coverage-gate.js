@@ -98,9 +98,22 @@ function checkSeal(repoRoot, debt) {
   // No new rule: the same oracle, so the gate cannot disagree with `verify` about
   // what descends from what. An unjudgeable chain is a refusal, not an allowance.
   const anc = debt.sealAncestry(repoRoot, doc.value);
+
+  // closure-accounting M5 (DD2) — the same own-computation-then-compare shape as
+  // axis 2. This axis recomputes the ancestor split itself, which keeps the
+  // header's rule ("do not take the producer's word"), but until now it never
+  // looked at the producer's answer, so a drift between the two ancestry
+  // judgments went unseen. An answer that cannot be read is not agreement.
+  let reported = null;
+  try { reported = debt.verifyDispositions(repoRoot); } catch (_e) { reported = null; }
+  const readable = !!reported && typeof reported === 'object';
+
   if (anc === null) {
+    // Unjudgeable here must be unjudgeable there too — `verify` folds the same
+    // malformed chain to `ancestry_depth: null`.
     return { ok: false, reason: 'seal ancestry is malformed — refusing rather than ' +
-      'granting an allowance from a chain that cannot be judged' };
+      'granting an allowance from a chain that cannot be judged',
+      producer_agrees: readable && reported.ancestry_depth === null };
   }
   const ancestors = new Set(anc.verified);
 
@@ -113,8 +126,12 @@ function checkSeal(repoRoot, debt) {
     else mismatched += 1;
   }
 
+  const agrees = readable && reported.ancestor_bound_lines === ancestorBound &&
+    reported.binding_mismatch === mismatched;
+
   return {
-    ok: sealIntact && mismatched === 0 && led.malformed === 0,
+    ok: sealIntact && mismatched === 0 && led.malformed === 0 && agrees,
+    producer_agrees: agrees,
     seal_intact: sealIntact,
     inventory_sha256: doc.value.inventory_sha256,
     recomputed: recomputed,

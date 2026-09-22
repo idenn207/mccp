@@ -209,6 +209,11 @@ fix-task에 대해 M5가 하는 일은 그 **결함(F1)을 흡수**하는 것이
 | `.claude/PRPs/reports/closure-accounting-m4-report.md` | UPDATE | Task 11 — "PR run URL 미확보" 정정 (MF7) |
 | `CHANGELOG.md` | UPDATE | Task 11 — `## [Unreleased]` 항목 |
 | `.claude/PRPs/reports/closure-accounting-m5-report.md` | CREATE | Task 12 — 라이브 완주 산출 |
+| `.claude/plans/closure-accounting-m5.plan.md` | GATE | 게이트 산출물 — 이 plan 자체(리뷰 절·이탈 기록이 붙는다). 구현 범위 아님 |
+| `.claude/reviews/plan-review-closure-accounting-m5.md` | GATE | 게이트 산출물 — plan 리뷰 기록 |
+| `.claude/state/findings/closure-accounting-m5.jsonl` | GATE | 게이트 산출물 — findings registry shard |
+| `.claude/state/STATE.md` | GATE | 게이트 산출물 — 세션 연속성(state-writer가 쓴다) |
+| `.claude/state/fix-task-applied.md` | GATE | 게이트 산출물 — escalation fix-task(receipt writer가 쓴다, MF3·MF4) |
 
 `plugins/mccp/.claude-plugin/plugin.json`은 **건드리지 않는다** (§3.7 · `version-declaration-guard`).
 
@@ -533,3 +538,37 @@ routing mode: auto (effective at implement stage). At implement the design gate 
 - receipt: `.claude/receipts/mccp-plan-codex/closure-accounting-m5.json` — `codex_verdict=divergent` · `review_verdict=divergent` · `intent_gate_verdict=incomplete`(`MCCP_SKIP_INTENT_GATE` 감사 우회 — MF9, M3·M4 선례) · 봉인 plan hash `sha256:dd62bd74…`
 - **봉인 뒤 plan 편집이 있다.** L3 HIGH 흡수와 MF3·MF9·Task 10 갱신이다. 그래서 `/mccp:prp-implement` 진입 시 `mccp-plan-codex`가 stale로 보인다. §3.16대로 재리뷰 대신 진행하며, 실질 델타는 위 triage 첫 행과 MF9뿐이다.
 - 리뷰 기록: `.claude/reviews/plan-review-closure-accounting-m5.md`
+
+## Codex Implementation Review
+
+- 호출: `node /home/madsc/.claude/plugins/cache/mccp/mccp/1.33.6/scripts/lib/codex-invoke.js adversarial-review` (fail-closed Bash wrapper, v0.2.2) · class `ok` · 57s · scope auto → branch diff(작업 트리 clean — 구현 전 plan diff)
+- 라운드 수: 1 (캡 1 — `review-rounds` 봉인 `enforce`, rounds_so_far 1)
+- 합치 결론: structured `needs-attention` → `codex_verdict=divergent`. 요약: "M5 is plan-only in this checkout; the seven implementation decisions cannot be validated." 유일 finding은 Task 1이 고치려는 결함 자체(MF1)의 재현이다.
+- YAGNI Triage:
+
+  | Finding | Severity | Verdict | Why |
+  |---|---|---|---|
+  | F1 — `stripQuotedForMarker`가 줄마다 `stripInlineCode`를 불러 여러 줄 code span 안의 마커가 수락된다 (`debt-inventory.js:763`) | HIGH | ACCEPT_NOW | MF1 · fix-task F1과 같은 결함이다. Task 1이 그대로 흡수한다(새 결정 아님). 권고한 회귀 사례(여러 줄 · 들여쓰기 연속 · 독립 마커 양성)는 `(t5)`~`(t10)`과 일치한다 |
+
+- 구현 시점 결정(plan이 못박지 않은 것): 빈 줄 판정은 `trim() === ''`이 아니라 CommonMark 정의(`/^[ \t]*$/`)로 한다. JS `trim()`은 NBSP 같은 유니코드 공백 줄도 빈 줄로 보는데, CommonMark에서는 그 줄이 문단을 끊지 못하므로 3줄 이상에 걸친 span의 가운데 묶음이 backtick 없이 남아 노출된다 — 과다 제거 방향이 아니다.
+- Deferred to backlog: 0
+- Open Questions: 없음 (auto-CRITICAL 0)
+- Codex session 참조: `$(git rev-parse --git-dir)/mccp/tmp/codex-implement-m5.stdout`
+
+### Security Reviewer
+
+`Task(security-reviewer)` — 대상: 수락 마커 판정(Task 1) · reseal lock(Task 5) · handoff 경고(Task 7) · CI summary step(Task 9).
+
+| Finding | Severity | Verdict | Why |
+|---|---|---|---|
+| S1 — `trim() === ''`는 NBSP 등 유니코드 공백 줄을 문단 경계로 봐서, NBSP 줄로 나눈 가운데 묶음(마커만)이 backtick 없이 남아 수락된다 | HIGH | ACCEPT_NOW | 위 구현 시점 결정과 같은 결함이다 — 빈 줄은 `/^[ \t]*$/`로 판정하고 `(t11)` NBSP 반례를 Task 1 test에 둔다 |
+| S2 — nonce 선택적 비교의 과도기(한쪽에 nonce가 없으면 3필드 비교)를 잔여 리스크로 문서화 | LOW | ACCEPT_NOW (문서) | Task 11의 lock 절에 한 문장으로 적는다. 동작 변경 없음 |
+| S3 — 핸드오프 경고는 개수만 싣는다 | INFO | — | finding 아님 |
+| S4 — Task 9의 fence 계산이 리포트 내용을 `$(cat …)`로 `-e` 인자에 끼우면 셸·JS 주입이 된다. 정적 `(w9)` 가드 권고 | MEDIUM | DEFER_TO_BACKLOG (가드만) | 구현은 `node -e` 안에서 `fs.readFileSync`로 읽고 `(w8)`이 backtick 내용으로 행동을 확인한다. 정적 가드 test는 §3.14에 따라 backlog |
+
+## Gate Deviation
+
+- **무엇**: `/mccp:prp-implement` 2.5.7 read-back `cli.js validate --command mccp:prp-implement --decision closure-accounting-m5 --plan <plan>`이 exit 2로 끝났다. 사유는 `mccp-plan-codex` stale 1건뿐이다(`receipt_plan_hash sha256:dd62bd74…` ≠ 현재). `missing`·`blocking`·`open_critical`은 0건이다.
+- **왜 진행했나**: 명령 본문은 여기서 멈추라고 하지만, 이 validate에는 문서화된 감사 우회가 없다(`MCCP_SKIP_RECEIPT`는 preflight·hook만 읽는다). §3.16은 재리뷰를 기본 선택지로 두지 않는다. 사용자가 2026-09-22에 "이탈 기록 후 진행"으로 판정했다.
+- **receipt가 덮지 못하는 델타**: 봉인 뒤 plan 편집(L3 HIGH를 흡수한 DD1·Task 1 재작성, MF3·MF9·Task 10 갱신)과 이 절·`## Codex Implementation Review`. 앞의 것은 이번 Implement-Codex R1(branch diff 리뷰)과 security-reviewer가 현재 본문 그대로 읽었다.
+- **남는 비용**: `/mccp:pr`에서도 같은 stale이 걸린다. 그때 사유를 담은 감사 우회로 처리하고 PR 본문 `## Gate Deviation`에 옮겨 적는다.

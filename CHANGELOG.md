@@ -25,6 +25,8 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   공백·탭만)의 마커를 받지 않는다. 짝짓기는 경계를 늘려도 줄여도 노출을 만들고, `trim()`으로
   빈 줄을 판정하면 NBSP 줄이 span을 끊는다. 비용은 인라인 코드와 같은 문단에 둔 진짜 마커의 거절이며
   라이브 successor 3개는 해당 없음(`invalid_dispositions` 0 · `deferrals_by_successor` 불변).
+  같은 stripper는 닫는 fence를 여는 fence 정규식으로 판정해 ` ```x `에서 fence를 닫았다 — 닫는
+  줄에는 fence 연속 뒤 공백·탭만 허용한다(PR 게이트 security-reviewer S5).
   (2) m10 봉인 축이 `verifyDispositions`와 조상 판정이 **어긋나도 몰랐다** — 자체 계산을 유지한 채
   대조를 더해 불일치는 `producer_agrees:false`로 스스로 red가 된다. (3) `closure report`가 조상
   오라클을 **한 실행에 두 번** 불렀다 — 깊이를 verify 답에서 읽는다. (4) 봉인됐지만 라이브에 없는

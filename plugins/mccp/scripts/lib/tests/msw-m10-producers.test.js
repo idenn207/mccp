@@ -822,6 +822,14 @@ test('a marker that shares a paragraph with a backtick is not acceptance', () =>
   // marker; treating that line as blank would leave the middle group backtick-free.
   assert.equal(accepts('`\n\u00a0\n' + M + '\n\u00a0\n`\n'), false);
 
+  // (t12) PR gate security-reviewer S5 \u2014 a fence closes only on a line holding the
+  // run plus spaces/tabs. "```x" is content, so the fence stays open to EOF and the
+  // marker below the blank line is still inside it.
+  assert.equal(accepts('```code\n```x\n\n' + M + '\n'), false);
+  assert.equal(accepts('~~~\n~~~ x\n\n' + M + '\n'), false);
+  // Positive control: trailing spaces/tabs after a real close still close it.
+  assert.equal(accepts('```\ncode\n``` \t\n\n' + M + '\n'), true);
+
   // Line structure is preserved for every shape above, CRLF included.
   for (const x of [
     'Example: `\n' + M + '\nend`\n',

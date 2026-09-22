@@ -650,6 +650,10 @@ const MAX_SUCCESSOR_SCAN_CHARS = 256 * 1024;
 // refuses. So the rules stay deliberately blunt: fenced blocks, indented code, and
 // blockquotes.
 const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
+// A closing fence may be followed only by spaces or tabs (CommonMark). Reusing the
+// opener pattern closed on "```x", so the fence stayed open to a reader while the
+// marker after it was accepted (PR gate security-reviewer S5).
+const FENCE_CLOSE_RE = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*$/;
 const BLOCKQUOTE_RE = /^[ ]{0,3}>/;
 
 // Indentation is measured in COLUMNS, not characters: a tab advances to the next
@@ -710,7 +714,7 @@ function stripQuotedForMarker(text) {
   for (const line of lines) {
     if (fence) {
       // A closing fence must be the same character and at least as long.
-      const close = line.match(FENCE_OPEN_RE);
+      const close = line.match(FENCE_CLOSE_RE);
       if (close && close[1].charAt(0) === fence.charAt(0) && close[1].length >= fence.length) {
         fence = null;
       }

@@ -108,3 +108,44 @@ Design Grounding: N/A (no design trigger — silent-skip `no-signal`, capture �
 - [ ] Task 4 (오케스트레이터): T3 산출물을 명시 경로로 커밋하고 체인을 다시 읽는다
 - [ ] Task 5: `/mccp:pr` (FREEZE 포함) — plan receipt가 `divergent`라 cross-gate dedupe는 닫혀 있고 PR-Codex가 발화한다
 - [ ] Task 6: `linkage-audit.js --check-live-linkage --decision review-record-linkage-m7c` exit 0 확인 + sha256 대조
+
+## T5 1라운드 — PR-Codex 비승인과 R-PR (2026-09-22 · 오케스트레이터)
+
+- **첫 시도 중단**: 하위 세션이 codex-runner를 백그라운드로 띄운 채 턴을 끝냈다. `-p`는 턴 종료가 곧 세션 종료라 runner가
+  함께 죽었다(`codex-result.json` 0바이트 · 라운드 원장 미생성 → 예산 미소모). 잔존 `pr-phase.lock`은
+  `detect-stale`(`same-host-dead-pid`)로 회수했다. 이 시도에서 `pr-phase-guard`가 `/tmp` 쓰기 Bash 1건을
+  거부했다 — plan 검사 5 기준 deny 목록 밖이다(`t5-pr-attempt1`).
+- **재시도 = 1라운드**: runner 포그라운드 · `--base "main"`(로컬 main이 origin/main보다 134커밋 뒤 — 범위 부풂).
+  PR-Codex `needs-attention` · HIGH 1건 **F1**: `judgeShipLinkage`가 ship receipt digest를 재계산하지 않아 봉인 뒤
+  편집된 receipt가 옛 hash와 backlink로 acceptance를 통과한다. 원장 1/1.
+- **같은 실행의 lock 회수** — `.claude/state/pr-phase-lock-stale-reclaimed.json` 원문(06:59 판독):
+  `{"reclaimed_at":"2026-09-22T06:55:21.979Z","former_run_id":"74a075ad-cd41-4b98-bf9c-55122b3480bb","former_pid":35809,"former_host":"devbox","reason":"same-host-stale-imposter"}`.
+  이 마커는 이후 오케스트레이터가 돌린 test 실행 중 사라졌다 — `finalize-receipt.js`의 `consumeStaleReclaimMarker`가
+  `args.cwd || process.cwd()`로 경로를 정하므로, `--cwd` 없이 finalize를 부르는 test가 실제 워크트리의 마커를 소비한 것으로
+  추정한다(미검증 · backlog). 결과적으로 2라운드 receipt에는 1라운드 회수가 찍히지 않는다.
+- **R-PR**(HSR — `docs/review-record-linkage/hsr-decisions.jsonl`): Fable `halt` · Codex `halt` → **`halt`**. 둘 다 F1
+  흡수안은 옳다고 봤고, lock heartbeat 결함이 마지막 라운드를 receipt 없이 소진시킬 공산이 크다는 것이 이유였다.
+- **사람 판정 (2026-09-22)**: heartbeat를 먼저 고치고 → `--base origin/main` → F1 흡수 → pr 게이트 캡 2로 재실행.
+  heartbeat 수정은 어떤 HSR 선택지에도 없던 것이라 이 판정이 허용한다.
+
+### heartbeat 근본 원인 — 한 번도 박동하지 않았다
+
+`codex-runner.js` 진입부가 `process.exit(main(argv))`였다. heartbeat 모드의 `main`은 `setInterval`만 걸고
+`undefined`를 돌려주므로 자식이 **첫 박동 전에 exit 0**했다. 임시 저장소 재현: 자식 즉시 종료 · lock mtime 갱신 0ms ·
+stderr 없음. lock CLI의 heartbeat를 직접 부르면 정상이다 — 결함은 자식의 진입부다. 그래서 60s lease를 넘는 모든
+리뷰가 `pr-phase-guard`의 stale 회수를 맞았다(backlog 2026-09-14~15 `same-host-stale-imposter` 4행 + 이번 1건).
+수정: `undefined`면 exit하지 않는다 · spawn timeout throw가 자식을 같은 방식으로 죽이지 않게 틱 단위로 삼킨다.
+회귀 test는 lock mtime을 과거로 민 뒤 자식이 살아서 되돌리는지를 본다 — 수정을 빼면 `heartbeat child exited before
+beating`으로 붉어진다.
+
+### F1 흡수
+
+`judgeShipLinkage` 맨 앞에 봉인 검사(`check:'seal'` · `reason:'receipt_digest_mismatch'` — 레코드 쪽
+`receipt_hash_mismatch`와 다른 값). fixture는 실제 digest로 봉인하고 의도적 미봉인·불일치만 명시한다(두 리뷰어의
+MEDIUM). S1의 레코드 null 축은 별도 test로 보존했다. 봉인 검사를 빼면 F1 test와 S1 test가 붉어진다. tracked ship
+receipt 104건 전부 `receiptHash(body) === receipt_hash`라 기존 ship을 오판하지 않는다.
+
+### Validation (2026-09-22)
+
+- `linkage-audit.test.js` 73/73 · runner·lock·guard 214/214 · linkage·install-skew·state-writer 214/214
+- `installed_plugins.json` sha256 (Task 1 기록값) `a3d22d5f0425da43dd00c4e7eb94b19f3507ffd507ed72d6154765a6ca555a46`

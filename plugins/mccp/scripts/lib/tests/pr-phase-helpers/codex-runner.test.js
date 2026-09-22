@@ -532,3 +532,34 @@ test('oracle: missing filter result → actionable, not scope-excluded', () => {
   assert.deepStrictEqual(deriveEffectiveReview({ verdict: 'needs-attention' }, null),
     { actionable: true, scopeExcluded: false });
 });
+
+// The heartbeat child used to exit at the entry point (`process.exit(undefined)`)
+// before its first beat, so a Codex review longer than the 60s lease always lost
+// its live lock to a stale reclaim. The lock mtime is pushed into the past first
+// so only a real beat can bring it back.
+test('heartbeat child keeps beating instead of exiting at the entry point', async () => {
+  const { spawn } = require('child_process');
+  const { spawnAndCaptureToken } = require('../../pr-phase-helpers/stdout-pipe-ipc');
+  const dir = mkTmpRepo();
+  const runId = require('crypto').randomUUID();
+  const enter = spawnAndCaptureToken(
+    [NODE, LOCK_CLI, 'enter', '--run-id', runId, '--pid', String(process.pid),
+      '--subphase', 'codex-review', '--cwd', dir],
+    { captureStderr: true, timeoutMs: 15000 });
+  assert.strictEqual(enter.exitCode, 0, enter.stderr);
+  const lock = path.join(dir, '.claude', 'state', 'pr-phase.lock');
+  const past = new Date(Date.now() - 120000);
+  fs.utimesSync(lock, past, past);
+  const child = spawn(NODE, [RUNNER, '--mode', 'heartbeat', '--run-id', runId,
+    '--cwd', dir, '--lock-cli', LOCK_CLI, '--heartbeat-ms', '100'],
+  { stdio: ['pipe', 'ignore', 'ignore'] });
+  child.stdin.end(enter.rawToken + '\n');
+  await new Promise((r) => setTimeout(r, 1500));
+  try {
+    assert.strictEqual(child.exitCode, null, 'heartbeat child exited before beating');
+    assert.ok(fs.statSync(lock).mtimeMs > past.getTime() + 60000, 'lock mtime was never refreshed');
+  } finally {
+    child.kill('SIGTERM');
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

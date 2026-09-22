@@ -194,11 +194,19 @@ function runHeartbeat(args) {
 
   const t = setInterval(function () {
     if (!fs.existsSync(lockPath)) { shutdown(); return; }
-    const r = spawnAndPipeToken(
-      [NODE, lockCli, 'heartbeat', '--run-id', runId,
-        '--ownership-token-stdin', '--cwd', cwd],
-      tok,
-      { captureStderr: true, timeoutMs: 5000 });
+    let r;
+    try {
+      r = spawnAndPipeToken(
+        [NODE, lockCli, 'heartbeat', '--run-id', runId,
+          '--ownership-token-stdin', '--cwd', cwd],
+        tok,
+        { captureStderr: true, timeoutMs: 5000 });
+    } catch (err) {
+      // A spawn timeout throws; uncaught it would kill this child exactly like
+      // the entry-point exit did. A missed beat is retried on the next tick.
+      process.stderr.write('codex-runner heartbeat: beat skipped: ' + err.message + '\n');
+      return;
+    }
     if (r.exitCode !== 0) {
       // Heartbeat refused — stop loop. Lock may have been reclaimed.
       shutdown();
@@ -459,7 +467,11 @@ function main(argv) {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  const code = main(process.argv.slice(2));
+  // Heartbeat mode returns nothing: its setInterval has to outlive this line.
+  // Exiting on undefined killed the child before its first beat, so every
+  // Codex review longer than the 60s lease lost its lock to a stale reclaim.
+  if (code !== undefined) process.exit(code);
 }
 
 module.exports = {

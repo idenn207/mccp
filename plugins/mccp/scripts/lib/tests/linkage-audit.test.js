@@ -23,6 +23,7 @@ const { execFileSync, spawnSync } = require('child_process');
 
 const AUDIT = path.join(__dirname, '..', 'linkage-audit.js');
 const corpus = require('../plan-review/corpus');
+const receiptHashOf = require('../../receipt/hash').receiptHash;
 
 // ── 픽스처 저장소 ────────────────────────────────────────────────────────────
 
@@ -1117,7 +1118,10 @@ function liveShip(slug, opts) {
     resolution: { converged: true, rounds: 1 },
     meta: meta,
   };
-  if (o.receiptHash !== undefined) body.receipt_hash = o.receiptHash;
+  // 기본은 **실제 봉인**이다. 라이브 뷰가 digest 를 재계산하므로(PR-Codex F1) 가짜
+  // 해시는 봉인 검사에서 먼저 걸려 뒤의 검사를 가린다. 의도적 미봉인·불일치만 명시한다.
+  body.receipt_hash = 'receiptHash' in o ? o.receiptHash : receiptHashOf(body);
+  if (typeof o.tamper === 'function') o.tamper(body);
   return JSON.stringify(body, null, 2);
 }
 
@@ -1133,16 +1137,20 @@ function commitLinkedShip(root, slug, opts) {
   const rc = path.join(root, '.claude', 'receipts', 'mccp-pr-codex');
   const rv = path.join(root, '.claude', 'reviews');
   const recordRel = '.claude/reviews/plan-review-' + slug + '.md';
-  fs.writeFileSync(path.join(rc, slug + '.json'), liveShip(slug, {
+  const shipOpts = {
     // `'eligible' in o` 다 — `o.eligible === undefined` 로 쓰면 "명시적으로
     // 미봉인 상태를 원한다"(`{eligible: undefined}`)는 요청이 기본값 true 로
     // 되돌아가, 자격 축을 검사한다고 적어 놓고 실제로는 검사하지 않는다.
     eligible: 'eligible' in o ? o.eligible : true,
     recordPath: 'recordPath' in o ? o.recordPath : recordRel,
-    receiptHash: 'receiptHash' in o ? o.receiptHash : HASH_A,
-  }));
+    tamper: o.tamper,
+  };
+  if ('receiptHash' in o) shipOpts.receiptHash = o.receiptHash;
+  const shipJson = liveShip(slug, shipOpts);
+  fs.writeFileSync(path.join(rc, slug + '.json'), shipJson);
+  // backlink 기본값은 그 ship 이 **실제로 담은** receipt_hash 다.
   fs.writeFileSync(path.join(rv, 'plan-review-' + slug + '.md'),
-    liveRecord(slug, 'measurementHash' in o ? o.measurementHash : HASH_A));
+    liveRecord(slug, 'measurementHash' in o ? o.measurementHash : JSON.parse(shipJson).receipt_hash));
   commitAt(root, '2024-02-01T00:00:00+00:00', 'live linked ship ' + slug);
   return slug;
 }
@@ -1182,8 +1190,19 @@ test('live (Codex F1): an explicitly NOT-eligible ship does not pass either', fu
 test('live (security S1): a pair whose receipt_hash was never stamped on EITHER side is NOT linked', function () {
   const { root } = mkRepo();
   // back-patch 이전의 기본 상태다 — record.js 는 `receipt_hash: null` 로 레코드를 만든다.
-  // 순진한 `declared === actual` 재구현이 통과시키는 바로 그 조합.
+  // 순진한 `declared === actual` 재구현이 통과시키는 바로 그 조합. 이제 ship 쪽은
+  // 봉인 검사가 먼저 잡는다.
   commitLinkedShip(root, 'gamma', { receiptHash: null, measurementHash: null });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.notEqual(r.code, 0);
+  assert.equal(r.json.state, 'violations');
+  assert.equal(r.json.failures[0].check, 'seal');
+});
+
+test('live (security S1): a sealed ship whose record was never back-patched is NOT linked', function () {
+  const { root } = mkRepo();
+  // 레코드 쪽 null 축은 봉인 검사 뒤에도 살아 있어야 한다.
+  commitLinkedShip(root, 'gamma', { measurementHash: null });
   const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
   assert.notEqual(r.code, 0);
   assert.equal(r.json.state, 'violations');
@@ -1192,10 +1211,29 @@ test('live (security S1): a pair whose receipt_hash was never stamped on EITHER 
 
 test('live (security S1): a STALE receipt_hash is not a link either', function () {
   const { root } = mkRepo();
-  commitLinkedShip(root, 'gamma', { receiptHash: HASH_A, measurementHash: HASH_B });
+  commitLinkedShip(root, 'gamma', { measurementHash: HASH_B });
   const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
   assert.notEqual(r.code, 0);
+  assert.equal(r.json.failures[0].check, 'bidirectional');
   assert.equal(r.json.failures[0].reason, 'receipt_hash_mismatch');
+});
+
+test('live (PR-Codex F1): a ship edited after sealing fails even with its old hash and a matching backlink', function () {
+  const { root } = mkRepo();
+  // 비자격으로 봉인한 뒤 자격 필드만 바꾼다. 저장된 receipt_hash 와 레코드의 backlink 는
+  // 봉인 당시 값 그대로라 문자열 비교만으로는 완전히 링크된 ship 과 구분되지 않는다.
+  commitLinkedShip(root, 'gamma', {
+    eligible: false,
+    tamper: function (b) {
+      b.meta.plan_review_expected = true;
+      delete b.meta.no_plan_review_reason;
+    },
+  });
+  const r = runJson(root, ['--check-live-linkage', '--decision', 'gamma', '--json']);
+  assert.equal(r.code, 1);
+  assert.equal(r.json.state, 'violations');
+  assert.equal(r.json.failures[0].check, 'seal');
+  assert.equal(r.json.failures[0].reason, 'receipt_digest_mismatch');
 });
 
 test('live (plan fixture 3): another ship\'s link never approves the named one — no over-approval', function () {

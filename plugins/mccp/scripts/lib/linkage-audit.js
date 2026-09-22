@@ -68,6 +68,7 @@ const { execFileSync } = require('child_process');
 
 const corpus = require('./plan-review/corpus');
 const defs = require('./plan-review/linkage-defs');
+const receiptHashOf = require('../receipt/hash').receiptHash;
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
@@ -929,6 +930,14 @@ function pinHead(root) {
 // (`plan-review/record.js:395` 가 `receipt_hash: null` 로 레코드를 만든다). 즉 링크된
 // 적 없는 ship 과 back-patch 된 적 없는 레코드가 서로를 승인하게 된다.
 function judgeShipLinkage(ship, byPath) {
+  // 검사 0 — 봉인. 아래 검사는 전부 본문 필드를 읽고, `computeLinkage` 의 해시
+  // 비교는 **저장된** 두 문자열끼리라 봉인 뒤 편집된 본문을 보지 못한다 — 자격
+  // 필드만 고치고 옛 hash 와 backlink 를 둔 receipt 가 통과했다 (PR-Codex F1).
+  // reason 은 레코드 쪽 불일치(`receipt_hash_mismatch`)와 다른 값이다.
+  if (!ship.body || receiptHashOf(ship.body) !== ship.body.receipt_hash) {
+    return { ok: false, check: 'seal', reason: 'receipt_digest_mismatch' };
+  }
+
   // 검사 4 — 자격. **먼저** 판정한다 (Codex F1).
   // `computeLinkage` 는 자격 오라클이 아니다: `:383` 이 `eligibleShips` 를 그대로
   // 순회할 뿐 `classifyShipEligibility` 를 부르지 않고, 자격 판정은 **호출자**가

@@ -19,6 +19,13 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 
 ### Fixed
 
+- **`codex-runner.js` heartbeat 자식이 한 번도 박동하지 않던 결함** (review-record-linkage m7c).
+  진입부 `process.exit(main(argv))`가 heartbeat 모드의 `undefined` 반환에 즉시 exit해,
+  60s lease를 넘는 모든 PR-Codex 리뷰가 살아 있는 runner의 lock을 `same-host-stale-imposter`로
+  잃었다(backlog 4행 + 1). `undefined`면 exit하지 않고, spawn timeout throw는 틱 단위로 흡수한다.
+- **`linkage-audit.js --check-live-linkage`가 ship receipt 봉인을 검증하지 않던 결함** (m7c PR-Codex F1).
+  저장된 hash 문자열끼리만 비교해, 봉인 뒤 자격 필드를 고친 receipt가 옛 hash·backlink로 통과했다.
+  `judgeShipLinkage`가 자격 판정 전에 digest를 재계산한다(`check:'seal'`).
 - **closure-accounting M4 — 부채 종결 계기가 스스로 틀린 값을 내던 경로 여섯.** M1이 격차를
   보이게 하고 M2가 닫는 경로를 만든 뒤, 두 산출물 자신이 잘못 답하고 있었다. (1) 재봉인이
   `sealed_at_commit`·`source_digests`를 **전임 봉인에서 복사**해 모든 세대가 첫 세대의 출처를

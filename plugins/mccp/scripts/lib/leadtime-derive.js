@@ -30,6 +30,9 @@
 // 커밋되고 DD12의 "투영에 경로 없음"이 실패 경로에서 깨진다 — §3.12가 sanctioned
 // 재봉인 도구까지 필요했던 그 유출 계열이다.
 
+// 토글 판독은 반드시 이 오라클을 경유한다 — raw 비교는 env-contract lint L9 가 막는다.
+const { parseBool } = require('./env-contract/value');
+
 const ERROR_KINDS = Object.freeze({
   MODULE_LOAD: 'module-load-failed',
   ORACLE_THREW: 'oracle-threw',
@@ -76,9 +79,25 @@ function scanLeadtime(root, opts) {
     return sentinel(ERROR_KINDS.MODULE_LOAD);
   }
 
+  // ── DD6: git spawn 을 끄는 것은 축을 끄는 것이 아니다 ─────────────────────
+  //
+  // M3 는 여기에 `allowGit: true` 를 하드코딩해 렌더 경로가 **항상** git 을 spawn했고
+  // 되돌릴 수단이 없었다(같은 파일 위쪽 실측: 렌더 경로 약 16% 추가).
+  //
+  // 되돌릴 레버는 `allowGit` 이지 축 전체가 아니다. 축을 끄면 관측이 사라져 UI3/UI4 가
+  // 지키려는 것을 잃지만, `allowGit:false` 는 백분위와 커버리지를 **그대로 두고** 증인만
+  // 뺀다 — 그 성질은 코드가 이미 보장한다(`leadtime.js` 의 "분포는 영향을 받지 않는다;
+  // 증인은 미짝의 *분류*에만 쓰인다"). 대가는 `not_shipped` 가 도달 불가가 되어 그 행이
+  // `unclassified` 로 떨어지는 것이고, 그 사실은 산출물에 `degradations:['git-disabled']`
+  // 로 실린다 — 끈 것을 조용히 끄지 않는다.
+  //
+  // 기본값은 **on** 이다. 되돌릴 수단이 없던 것이 M4 가 고치는 결함이지, 관측을 줄이는
+  // 것이 목적이 아니다.
+  const allowGit = parseBool(process.env, 'MCCP_LEADTIME_GIT');
+
   let result;
   try {
-    result = lt.audit({ repoRoot: root, allowGit: true });
+    result = lt.audit({ repoRoot: root, allowGit: allowGit });
   } catch (err) {
     stderr('[mccp:leadtime] audit threw (allow): ' + ((err && err.message) || err));
     return sentinel(ERROR_KINDS.READ_FAILED);

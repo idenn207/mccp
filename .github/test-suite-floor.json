@@ -1,0 +1,13 @@
+{
+  "_comment": "래칫 상수 다섯. DD9(삭제 축) · DD2·DD7(격리 축)이 소유한다. 이 파일은 tracked라 어떤 값을 바꾸는 것도 리뷰 표면에 숫자로 남는다 — 그것이 통제 방식이고, 그 한계도 DD9가 적는다.",
+  "_tracked_basis": "floor를 도출한 기준 개수. **이 milestone이 test 4면을 더하기 전**의 tracked 개수(2026-09-04, 오늘 트리는 388)이고 그대로 두는 것이 맞다 — 유지 규칙은 DD9가 소유하며 allow_deletions 정리와 **같은 diff에서만** 그때의 실제 개수로 다시 적는다. 그 밖의 어떤 이유로도 손대지 않는다. 따라서 이 값은 상시 최신이 아니고 그럴 필요도 없다: 도출식은 이 파일 안의 순수 산술이라 트리가 커져도 불변이고, 생기는 여백은 결함이 아니라 설계다(정본 래칫은 base 집합 차이고 floor는 그 아래 backstop이다).",
+  "tracked_basis": 384,
+  "_tracked": "분모 절대 하한(backstop). 값은 도출식 `tracked_basis - (max_allowed_deletions + 1)`으로 고정되고, 그 등식을 test가 **순수 JSON 산술**로 확인한다(트리를 읽지 않으므로 어떤 트리 변형에도 불변). 현재 개수와 같게 두면 여백이 0이라 정식 등재된 삭제조차 below_floor로 막혀 DD9가 약속한 출구가 거짓이 된다.",
+  "tracked": 383,
+  "_max_excluded_files": "격리 목록이 실제로 덮는 **파일 수**(줄 수가 아니다). 등가로 pin되며 test가 glob 확장 결과와 대조한다 — 한 방향으로 두면 헤드룸만으로 게이트가 되열린다(DD2가 CRITICAL로 닫은 '한 줄 glob' 경로).",
+  "max_excluded_files": 6,
+  "_max_allowed_deletions": "allow_deletions의 항목 수 상한. 배열 길이와 등가로 pin되는 **독립 스칼라**다 — 상한이 배열 자신 말고 담길 자리가 없으면 그 단언은 length === length인 동어반복이고, 그때 경로 append는 아무것도 붉게 만들지 못한다.",
+  "max_allowed_deletions": 0,
+  "_allow_deletions": "base 대조 래칫의 명시 면제. path는 **repo-relative 리터럴**이고 glob이 아니다 — 정확 일치만 면제한다. 각 항목은 {path, reason, ticket}이고 셋 다 비어 있지 않은 문자열이어야 한다. 머지된 뒤 항목은 base에서도 사라져 효력이 스스로 없어지므로, 다음 편집과 같은 diff에서 정리하고 그때 tracked_basis를 재기준한다.",
+  "allow_deletions": []
+}

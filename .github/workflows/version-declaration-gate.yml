@@ -11,12 +11,21 @@ name: version declaration gate
 # 주장했고, 첫 위반자가 그 결정을 소유한 C0 자신이었다. 이 워크플로가 그 관례를
 # 기계로 바꾼다.
 #
-# paths 필터는 가드의 판정 입력과 정확히 같다. version 선언은 네 얼굴(manifest ·
-# html footer · markdown footer · CHANGELOG) 중 최소 하나를 건드리지 않고서는
-# 일어날 수 없으므로, 그 넷 + 가드 자신 + 이 파일이 필요충분이다. GitHub 는
-# 매칭되는 경로가 없으면 워크플로를 아예 건너뛰므로, 입력을 하나라도 빠뜨리면
-# 게이트 전체가 dead code 가 된다 — gitignore-drift.yml 이 같은 주의를 적어 둔
-# 이유이고 여기서도 같다.
+# paths 필터는 가드의 판정 입력과 정확히 같다. version 선언은 이 목록의 얼굴 중
+# 최소 하나를 건드리지 않고서는 일어날 수 없으므로, 그것들 + 가드 자신 + 이 파일이
+# 필요충분이다. GitHub 는 매칭되는 경로가 없으면 워크플로를 아예 건너뛰므로, 입력을
+# 하나라도 빠뜨리면 게이트 전체가 dead code 가 된다 — gitignore-drift.yml 이 같은
+# 주의를 적어 둔 이유이고 여기서도 같다.
+#
+# M4 가 목록을 넓혔다. 두 footer 가 번호를 renderer/plugin-version.js 에서 파생하게
+# 되면서 그 모듈이 판정 입력이 됐다 — semver 검사를 느슨하게 하거나 throw 하게
+# 바꾸는 PR 이 그 파일만 건드리면, 아래 test 단계가 **한 번도 돌지 않는다.**
+# 그 test 두 개가 곧 가드의 알려진 잔여(footer 리터럴을 다른 줄로 옮기는 간접 참조
+# 우회, version-declaration-guard.js 헤더 참조)에 대한 유일한 보상 검사이므로,
+# 그것이 안 도는 것은 가드가 약해지는 것과 같다.
+#
+# M4 이전에는 i18n-surface.test.js 를 부르는 워크플로가 **5개 중 0개** 였다.
+# 그 사실이 "보상 검사가 있다" 는 말을 공허하게 만들고 있었다.
 #
 # fetch-depth: 0 은 선택이 아니다. 가드는 base 와 대조하므로 origin/main 이
 # 로컬에 있어야 하고, shallow clone 이면 base 해소에 실패한다. 그때 가드는
@@ -30,6 +39,9 @@ on:
       - 'plugins/mccp/.claude-plugin/plugin.json'
       - 'plugins/mccp/scripts/lib/renderer/html.js'
       - 'plugins/mccp/scripts/lib/renderer/markdown.js'
+      - 'plugins/mccp/scripts/lib/renderer/plugin-version.js'
+      - 'plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js'
+      - 'plugins/mccp/scripts/lib/renderer/tests/plugin-version.test.js'
       - 'CHANGELOG.md'
       - 'scripts/version-declaration-guard.js'
       - 'scripts/tests/version-declaration-guard.test.js'
@@ -63,6 +75,13 @@ jobs:
       # 있으면 초록의 의미가 없다 — 판별력 test 가 그 경우를 잡는다.
       - name: Guard discriminating-power tests
         run: node --test scripts/tests/version-declaration-guard.test.js
+
+      # 보상 검사. 가드는 **소스에서 리터럴의 부재** 를 재고, 이 둘은 **렌더 출력에서
+      # 값의 일치** 를 잰다. 가드만으로는 "리터럴이 없다"와 "실제로 manifest 에서
+      # 파생한다"를 구별하지 못하므로(헤더의 알려진 잔여), 이 단계가 없으면 그 잔여가
+      # 관측되지 않는다. M4 이전에는 어떤 워크플로도 이 파일들을 부르지 않았다.
+      - name: Renderer version-derivation tests (compensating check)
+        run: node --test plugins/mccp/scripts/lib/renderer/tests/plugin-version.test.js plugins/mccp/scripts/lib/renderer/tests/i18n-surface.test.js
 
       - name: Assert this branch declares no version
         run: node scripts/version-declaration-guard.js --base origin/${{ github.base_ref || 'main' }}

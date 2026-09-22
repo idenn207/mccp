@@ -992,7 +992,9 @@ test('no input this oracle accepts can put a negative span in the distribution',
 //   - 사람 면의 절삭이 `--json`으로 새지 않는다 — 후자는 전 버킷을 유지한다.
 
 const { summarizeForSurface, audit, UNMATCHED_HUMAN_TOP_N } = require('../leadtime');
-const { formatLeadtimeLine } = require('../leadtime-surface');
+const {
+  displayWidth, SHARED_LINE_BUDGET, formatLeadtimeLine,
+} = require('../leadtime-surface');
 
 test('allowGit:false makes the git witness UNAVAILABLE, never a denial', () => {
   // 이 축은 `post_panel_span` 이 실제로 로드된 코퍼스에서만 관측 가능하다(빈 합성
@@ -1113,15 +1115,18 @@ test('the named reason does NOT fire when the partition holds (no false alarm)',
   assert.ok(!s.degradations.includes('sum-equation-broken'));
 });
 
-test('human output leads with the shared one line and stays inside 100 columns (DD15)', () => {
+test('human output leads with the shared one line and fits SHARED_LINE_BUDGET (DD15 · M4)', () => {
   const r = aggregate([panelRecord('a.md', { slug: 'a' })], {
     anchors: anchors({ ledgerEntries: [ledgerEntry('a', DAY)] }),
   });
   const lines = renderHuman(r).split('\n');
   assert.equal(lines[0], formatLeadtimeLine(summarizeForSurface(r)).text,
     'CLI · STATUS.md · distribution.json share one sentence');
-  const over = lines.filter(l => l.length > 100);
-  assert.deepEqual(over, [], 'Output Constraint 4 — no line exceeds 100 columns');
+  // M4 — 이 가드는 `l.length`(code unit)로 재고 있었고, 그래서 표시 폭 106 짜리 줄이
+  // 92 로 읽혀 100 칼럼 상한을 통과했다. 결함은 값이 아니라 **계측기**였다.
+  const over = lines.filter((l) => displayWidth(l) > SHARED_LINE_BUDGET);
+  assert.deepEqual(over, [],
+    'Output Constraint 4 — no line exceeds ' + SHARED_LINE_BUDGET + ' display columns');
 });
 
 test('the human unmatched line truncates visibly while --json keeps every bucket', () => {

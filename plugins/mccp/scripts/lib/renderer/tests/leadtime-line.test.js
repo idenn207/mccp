@@ -54,20 +54,45 @@ test('a blind state is RENDERED, not hidden — absence is stated, never silentl
 
 test('an ok state carries values with their coverage in both surfaces', () => {
   const out = renderLeadtimeLine({ leadtime: summary() }, formatUtils);
-  assert.ok(out.md.includes('(11/49)'), 'ledger coverage adjacent: ' + out.md);
-  assert.ok(out.md.includes('(17/49)'), 'ship coverage adjacent: ' + out.md);
-  assert.ok(out.html.includes('11/49') && out.html.includes('17/49'),
-    'html carries the same numbers');
+  // M4 DD3 — 분모는 토큰마다 반복하지 않고 **그룹 라벨이 한 번** 선언한다. 그래서
+  // 값 토큰은 분자만 달고, 분모는 헤드와 ship 그룹 라벨에 각각 정확히 한 번 나온다.
+  assert.ok(out.md.includes('ledger 0.38d (11)'), 'ledger numerator adjacent: ' + out.md);
+  assert.ok(out.md.includes('hash 0.28d (17)'), 'ship numerator adjacent: ' + out.md);
+  assert.ok(out.md.includes('(49/62 측정)'), 'corpus denominator declared once: ' + out.md);
+  assert.ok(out.md.includes('패널→ship (조인 49):'), 'join denominator declared once: ' + out.md);
+  assert.ok(out.html.includes('(11)') && out.html.includes('(17)')
+    && out.html.includes('조인 49'), 'html carries the same numbers');
 });
 
-test('a degraded state keeps its values and adds the damage note as a second line', () => {
+test('a degraded state keeps its values and adds the damage note as a separate paragraph', () => {
   const out = renderLeadtimeLine(
     { leadtime: summary({ state: 'degraded', degradations: ['parse-failures'] }) },
     formatUtils,
   );
-  assert.ok(out.md.split('\n').length === 2, 'note is a separate line: ' + out.md);
+  // M4 DD5 — 이전 단언(`out.md.split('\n').length === 2`)은 계약이 아니라 **결함을
+  // 고정**하고 있었다. 빈 줄이 없으면 CommonMark 가 두 줄을 한 문단으로 접어 html 의
+  // `<p>` 둘과 구조가 어긋난다.
+  const lines = out.md.split('\n');
+  assert.equal(lines.length, 3, 'text, blank, note: ' + JSON.stringify(out.md));
+  assert.equal(lines[1], '', 'the blank line is what makes it a paragraph break');
   assert.ok(out.md.includes('parse-failures'), 'the damage is named, not hidden');
   assert.ok(out.text.indexOf('parse-failures') === -1, 'the shared one line stays one line');
+});
+
+test('md paragraph count equals html <p> count in every state carrying a note (M4 DD5)', () => {
+  // 두 면의 **구조 동형**. 정보가 같아도 구조가 다르면 Design Principle 4 위반이다.
+  const paragraphs = (md) => md.split(/\n{2,}/).filter((s) => s.trim() !== '').length;
+  const pCount = (html) => (html.match(/<p\b/g) || []).length;
+  const cases = {
+    ok: summary(),
+    degraded: summary({ state: 'degraded', degradations: ['parse-failures'] }),
+    blind: emptySummary(['read-error']),
+  };
+  Object.keys(cases).forEach((name) => {
+    const out = renderLeadtimeLine({ leadtime: cases[name] }, formatUtils);
+    assert.equal(paragraphs(out.md), pCount(out.html),
+      name + ': md paragraphs must equal html <p> elements — ' + JSON.stringify(out.md));
+  });
 });
 
 // ── 3. §3.9 제약 — 신규 heading·CSS 0개 ─────────────────────────────────────

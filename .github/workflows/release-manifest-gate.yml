@@ -1,0 +1,49 @@
+name: release manifest gate
+
+# `.claude-plugin/marketplace.json` 의 릴리스 좌표가 형태를 유지하는지 상시 검사한다.
+#
+# 왜 이 파일이 릴리스 표면인가: 채널이 닫는 것은 plugin **본문**이지 좌표 파일이
+# 아니다. `~/.claude/plugins/known_marketplaces.json` 의 mccp 항목에는 `ref` 가 없어
+# marketplace clone 은 계속 main 을 추종하므로, 이 파일의 편집은 릴리스 컷을 거치지
+# 않고 머지 즉시 사용자 설치에 도달한다(docs/release-channel.md 6절 실측).
+#
+# **paths 필터가 없는 것은 누락이 아니라 설계다.** 이 저장소의 다른 두 게이트
+# (version-declaration-gate · gitignore-drift) 는 *PR 안의 파일들 사이 drift* 를
+# 재므로 입력을 정확히 좁히는 것이 맞고, 두 파일 모두 "입력을 하나라도 빠뜨리면
+# 게이트가 dead code 가 된다" 는 경고를 달고 있다. 이 게이트는 다르다 — *릴리스
+# 좌표의 상시 불변식* 을 재고, 그중 `sha` 키 부재 축은 **red 자체가 타이머**로
+# 설계됐다(사고 대응 핀이 빠질 때까지 계속 붉다). paths 로 좁히면 핀을 박은 그 PR
+# 에서 한 번 붉고 그 다음 PR 부터는 워크플로가 통째로 건너뛰어져, 조용한 영구 핀이
+# 정확히 이 가드가 막으려던 형태로 되살아난다. 그래서 모든 PR 에서 돈다.
+#
+# 비용은 의도된 것이다: JSON 하나를 읽는 수 ms 스크립트이고, matrix 는 단일 OS 다.
+# 이 가드는 JSON 값만 대조하며 경로·개행·권한을 만지지 않으므로 OS 축이 없다
+# (version-declaration-gate 가 [ubuntu, windows] 인 것과 다른 이유가 여기 있다).
+#
+# fetch-depth 는 기본값(1) 으로 둔다. version-declaration-gate 와 달리 이 가드는
+# base 와 대조하지 않고 **작업 트리의 현재 형태만** 보므로 히스토리가 필요 없다.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  guard:
+    name: release manifest coordinates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # test 를 가드보다 먼저 돌린다. 가드가 초록인데 그 가드 자체가 고장 나
+      # 있으면 초록의 의미가 없다 — 판별력 test 가 그 경우를 잡는다
+      # (version-declaration-gate.yml:62-65 와 같은 순서, 같은 이유).
+      - name: Guard discriminating-power tests
+        run: node --test scripts/tests/release-manifest-guard.test.js
+
+      - name: Assert release coordinates are intact
+        run: node scripts/release-manifest-guard.js

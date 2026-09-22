@@ -1,0 +1,152 @@
+{
+  "measured_at": "2026-09-08T00:38:18.592Z",
+  "repo_head": "e842558325738608e6de281d5322b76f8fd959cb",
+  "note": "closure-accounting 기준선. 각 값은 아래 command로 재현된다. 최상위 measured_at과 debt_inventory.measured_at은 서로 다른 시점이다.",
+  "backlog": {
+    "command": "node -e \"require('./plugins/mccp/scripts/derive/sources/backlog.js').scanBacklog(process.cwd())\"",
+    "rows": 1510,
+    "invalid": 0,
+    "disposed": 934,
+    "open": 576,
+    "resolved": 131,
+    "disposed_pct": 61.85,
+    "resolved_pct": 8.68,
+    "mechanism": "msw-metrics/debt-inventory: out-of-band disposition ledger keyed by row hash (NOT a status column)"
+  },
+  "findings_registry": {
+    "command": "cat .claude/state/findings/*.jsonl | grep -oE '\"kind\":\"[a-z_]+\"' | sort | uniq -c",
+    "files": 27,
+    "events": 1215,
+    "by_kind": {
+      "finding_opened": 1196,
+      "finding_closed": 19
+    },
+    "declared_kinds": [
+      "finding_opened",
+      "finding_adjudicated",
+      "finding_closed"
+    ],
+    "closed_pct": 1.59,
+    "work_units_that_closed": 2,
+    "closed_by_work_unit": {
+      "multi-session-work-loop-m7": 12,
+      "multi-session-work-loop-m9": 7
+    },
+    "closure_type": {
+      "fixed": 4,
+      "deferred": 14,
+      "invalidated": 1
+    },
+    "adjudicated_producer": "plugins/mccp/scripts/lib/plan-codex-runner.js:896 (mode=codex only)"
+  },
+  "ship_receipts": {
+    "command": "see .claude/_meta/data/ generator",
+    "total": 92,
+    "codex_verdict": {
+      "converged": 9,
+      "skipped": 44,
+      "(absent)": 22,
+      "divergent": 17
+    },
+    "skipped_without_proof": [
+      "codex-intent-context.json",
+      "context-budget-cleanup.json",
+      "diverse-agent-review-m1.json",
+      "multi-session-work-loop-m4.json",
+      "multi-session-work-loop.json",
+      "red-test-suite-restore.json"
+    ],
+    "divergent_shipped": 17
+  },
+  "review_records": {
+    "command": "grep -h '^\\*\\*Verdict\\*\\*' .claude/reviews/*.md",
+    "total": 101,
+    "verdict": {
+      "divergent": 54,
+      "converged": 7,
+      "unknown": 3,
+      "unavailable": 1
+    },
+    "with_halt_stage": 22
+  },
+  "open_questions": {
+    "command": "awk over ## Open Questions blocks",
+    "total_unchecked": 35,
+    "by_prd": {
+      "ci-full-suite.prd.md": 3,
+      "codex-disabled-round-invariant.prd.md": 4,
+      "diverse-agent-review.prd.md": 8,
+      "env-contract-integrity.prd.md": 5,
+      "harness-wiring-integrity.prd.md": 5,
+      "orchestrator-step-wiring.prd.md": 5,
+      "review-record-linkage.prd.md": 5
+    },
+    "has_owner_field": false,
+    "has_age_field": false,
+    "has_staleness_check": false,
+    "known_stale_example": "harness-wiring-integrity.prd.md \"backlog에 상태 열을 추가할 것인가\" — already answered by debt-inventory disposition ledger"
+  },
+  "tool_state": {
+    "env_contract_lint": "L10 FAIL — MCCP_EXPLORE_CONTROL_PLACEMENT evidence renderer/html.js:1112 does not name it within +/-2 lines",
+    "instruction_contract_lint": "pass",
+    "version_declaration_guard": "pass",
+    "release_manifest_guard": "pass",
+    "meta_research_lint": "pass (12 scanned)",
+    "evidence_audit": "incomplete — coverage 0.596, unverifiable 19, ledger 47, ship 92",
+    "fix_task": "fingerprint lag — task_fingerprint=release-channel-separation-m3 vs decision_id=release-channel-separation-m4"
+  },
+  "debt_inventory": {
+    "command": "node -e \"const d=require('./plugins/mccp/scripts/lib/msw-metrics/debt-inventory.js');console.log(d.readInventory(process.cwd()).items.length, d.buildInventory(process.cwd()).items.length)\"",
+    "seal": {
+      "sealed_at": "2026-09-01T01:21:41.049Z",
+      "sealed_at_commit": "9093b08f9f136849b42c5f70617d8c31368e2614",
+      "inventory_sha256": "sha256:f171a42e2c344849b988f613e827b11e3515dfcd777ad1d997645d917e71dfba",
+      "items": 1115,
+      "by_source": {
+        "backlog": 936,
+        "findings": 178,
+        "fix-task": 1
+      }
+    },
+    "live": {
+      "items": 2504,
+      "by_source": {
+        "backlog": 1510,
+        "findings": 993,
+        "fix-task": 1
+      }
+    },
+    "denominator_gap": {
+      "count": 1389,
+      "pct": 55.47
+    },
+    "dispositions": {
+      "total": 1115,
+      "by_disposition": {
+        "superseded": 111,
+        "duplicate": 19,
+        "deferred": 983,
+        "obsolete": 1,
+        "fixed": 1
+      },
+      "disposed": 1115,
+      "resolved": 132,
+      "fixed": 1,
+      "suppressing": [
+        "fixed",
+        "obsolete",
+        "superseded",
+        "duplicate"
+      ]
+    },
+    "verify": {
+      "ok": true,
+      "seal_intact": true,
+      "total_items": 1115,
+      "disposed": 1115,
+      "open": 0
+    },
+    "measured_at": "2026-09-08T00:49:40Z",
+    "epoch_note": "이 섹션은 최상위 measured_at보다 뒤에 잰 값이다. 그 사이 게이트 패널이 finding_opened 17건을 남겨 live.items가 2487 -> 2504로 움직였다. 한 파일에 측정 시각이 둘인 것은 결함이 아니라 이 PRD의 논지다 — 정본은 언제나 closure report의 실행 시점 산출이다."
+  }
+}

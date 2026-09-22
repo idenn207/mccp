@@ -47,6 +47,42 @@ const blockFormat = (function () {
   catch (_) { return null; }
 })();
 
+// ── 방출 seam (codex-harness-portability M2 Task 5) ──────────────────────────
+//
+// 이 파일의 stdout 방출은 **다섯 곳**이고 전부 Claude Code의 `UserPromptExpansion`
+// payload 형태를 리터럴로 갖고 있었다: allowWithMessage · g1Allow · block · tempfail ·
+// informational. 그 형태가 코어 안에 박혀 있으면 다른 하네스의 ingress가 다른 프로토콜을
+// 고를 자리가 없다 — plan DD4("동작 변경 0")와 Task 6("Task 2가 고른 차단 형식으로
+// 방출")이 양립 불가라는 지적이 정확히 이것이고, 리뷰어 셋이 독립적으로 지목했다.
+//
+// **`block()`만 seam 뒤로 내지 않는다.** 그렇게 하면 recovery(informational) · tempfail ·
+// debug ALLOW 경로가 번역되지 않은 채 남아, 차단은 되는데 복구 안내는 드롭되는 비대칭이
+// 생긴다. 다섯 곳 전부가 같은 seam을 지난다.
+//
+// **기본값이 곧 무변경 보장이다.** `runGate`에 아무것도 넘기지 않으면 방출 함수는
+// `process.stdout.write`이고 이벤트 이름은 `'UserPromptExpansion'`이라, Claude 경로의
+// 바이트는 이 커밋 전과 같다.
+const CLAUDE_HOOK_EVENT_NAME = 'UserPromptExpansion';
+
+const DEFAULT_EMISSION = Object.freeze({
+  hookEventName: CLAUDE_HOOK_EVENT_NAME,
+  emit: function (text) { process.stdout.write(text); },
+});
+
+let emission = DEFAULT_EMISSION;
+
+function emitRaw(text) { emission.emit(text); }
+function currentHookEventName() { return emission.hookEventName; }
+
+function normaliseEmission(opts) {
+  const o = opts || {};
+  const name = typeof o.hookEventName === 'string' && o.hookEventName
+    ? o.hookEventName
+    : CLAUDE_HOOK_EVENT_NAME;
+  const emit = typeof o.emit === 'function' ? o.emit : DEFAULT_EMISSION.emit;
+  return { hookEventName: name, emit: emit };
+}
+
 function readStdin() {
   return new Promise(function (resolve) {
     let buf = '';
@@ -126,11 +162,11 @@ function allowWithMessage(commandName, decisionId) {
   if (!envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG')) return 0;
   if (!envValue.parseBool(process.env, 'MCCP_RECEIPT_DEBUG_LEGACY_INLINE')) return 0;
   try {
-    process.stdout.write(JSON.stringify({
+    emitRaw(JSON.stringify({
       systemMessage: '[mccp] receipt-gate ALLOW ' + commandName +
         ' (decision="' + decisionId + '")',
       hookSpecificOutput: {
-        hookEventName: 'UserPromptExpansion',
+        hookEventName: currentHookEventName(),
         additionalContext: 'mccp ALLOW path: ' + commandName,
       },
     }));
@@ -246,10 +282,10 @@ function g1Allow(event, opts) {
     (opts.reason ? ': ' + opts.reason : '') +
     (tracePath ? '\n  trace: ' + tracePath : '');
   try {
-    process.stdout.write(JSON.stringify({
+    emitRaw(JSON.stringify({
       systemMessage: msg,
       hookSpecificOutput: {
-        hookEventName: 'UserPromptExpansion',
+        hookEventName: currentHookEventName(),
         additionalContext: 'mccp G1 fail-open: ' + (opts.exceptionClass || 'unknown'),
       },
     }));
@@ -304,14 +340,16 @@ function block(commandName, decisionId, result) {
     decision: 'block',
     reason: lines.join('\n'),
     hookSpecificOutput: {
-      hookEventName: 'UserPromptExpansion',
+      hookEventName: currentHookEventName(),
       additionalContext: additionalContext,
     },
   };
-  process.stdout.write(JSON.stringify(payload));
+  emitRaw(JSON.stringify(payload));
   return 0;
 }
 
+// stdin shim. 파싱까지만 하고 판정은 `runGate`가 한다 — 다른 하네스의 ingress는
+// 자기 payload를 스스로 정규화한 뒤 같은 코어를 부른다.
 async function main() {
   let event = null;
   try {
@@ -325,7 +363,23 @@ async function main() {
     debug('stdin parse error: ' + err.message);
     return allow();
   }
+  return runGate(event);
+}
 
+// 게이트 코어. `opts`를 비우면 Claude Code 경로와 바이트가 같다.
+//   opts.hookEventName — 방출 payload의 `hookSpecificOutput.hookEventName`
+//   opts.emit          — 직렬화된 payload를 받는 함수 (기본: process.stdout.write)
+async function runGate(event, opts) {
+  emission = normaliseEmission(opts);
+  try {
+    return await gateCore(event);
+  } finally {
+    // 한 프로세스가 코어를 두 번 부를 수 있으므로(test) 매 호출이 기본값에서 시작한다.
+    emission = DEFAULT_EMISSION;
+  }
+}
+
+async function gateCore(event) {
   const commandName = (event && event.command_name) || '';
   if (!commandName.toLowerCase().startsWith('mccp:')) {
     debug('not an mccp:* command (got "' + commandName + '"); skipping');
@@ -439,11 +493,11 @@ async function main() {
     debug('TEMPFAIL ' + commandName + ' — emitting retry hint + ALLOW');
     emitTaskStarted(event, decisionId, commandName);
     try {
-      process.stdout.write(JSON.stringify({
+      emitRaw(JSON.stringify({
         systemMessage: '[MCCP-RECEIPT-GATE] TEMPFAIL ' + commandName +
           ' — migration in progress; retry shortly. (' + (result.reason || '') + ')',
         hookSpecificOutput: {
-          hookEventName: 'UserPromptExpansion',
+          hookEventName: currentHookEventName(),
           additionalContext: 'mccp tempfail: transient, retryable. No block emitted.',
         },
       }));
@@ -486,12 +540,12 @@ async function main() {
         kind
       );
       const firstMissing = (result.missing[0] && result.missing[0].gate_id) || 'receipt';
-      process.stdout.write(JSON.stringify({
+      emitRaw(JSON.stringify({
         systemMessage: '[mccp] receipt-gate informational: ' + commandName +
           ' missing ' + firstMissing + ' (decision="' + decisionId +
           '"). Phase 0 of the command will auto-recover.',
         hookSpecificOutput: {
-          hookEventName: 'UserPromptExpansion',
+          hookEventName: currentHookEventName(),
           additionalContext: JSON.stringify(ctx),
         },
       }));
@@ -518,9 +572,13 @@ async function main() {
   return block(commandName, decisionId, result);
 }
 
-main().then(function (code) {
-  process.exit(code);
-}).catch(function (err) {
-  process.stderr.write('[mccp-receipt-prompt] fatal: ' + (err && err.stack || err) + '\n');
-  process.exit(0);
-});
+module.exports = { runGate, CLAUDE_HOOK_EVENT_NAME };
+
+if (require.main === module) {
+  main().then(function (code) {
+    process.exit(code);
+  }).catch(function (err) {
+    process.stderr.write('[mccp-receipt-prompt] fatal: ' + (err && err.stack || err) + '\n');
+    process.exit(0);
+  });
+}

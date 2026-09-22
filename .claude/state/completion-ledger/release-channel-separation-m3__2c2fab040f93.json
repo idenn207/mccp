@@ -1,0 +1,25 @@
+{
+  "schema_version": "v1",
+  "entry": {
+    "decision_id": "release-channel-separation-m3",
+    "gate": "mccp-pr-codex",
+    "verdict": "skipped",
+    "version": "1.34.4",
+    "completed_at": "2026-09-04T04:25:26.162Z",
+    "commit_sha": "6571971afd3c9cbfa4c58b0fb92a0aa400cd86f3",
+    "plan_basename": "release-channel-separation-m3.plan.md",
+    "plan_file_hash": "sha256:f467fb6fe406fff0e99eea0572d50c414a6ea09a45453d93c793ac8fca04a7e6",
+    "risks_closed": [
+      "런북이 **한 번도 실행되지 않은 절차**(컷)를 기술한다",
+      "2차 라이브 리허설을 하지 않아 롤백 주장이 M1의 n=1에 의존한다",
+      "순수 산문이라 강제기가 없어 문서가 실무와 어긋난다",
+      "컷을 잊어 사용자가 몇 달째 `1.33.6`에 머문다",
+      "`release` 보호가 없어 절차를 우회한 push가 기술적으로 가능하다",
+      "검사 8이 영어 단어를 커밋 SHA로 오인해 붉어진다",
+      "PRD Open Question을 전부 닫으면서 근거 없이 닫는다"
+    ],
+    "oq_closed": [],
+    "receipt_hash": "sha256:2c2fab040f93b3f3f8b1c782e006640377cce226fd9271b0f4999dd0445a92f8",
+    "verdict_provenance": "codex-verdict"
+  }
+}

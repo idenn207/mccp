@@ -166,6 +166,17 @@ function extractPlanPath(planCell) {
   if (!cell || cell === '—' || cell === '-') return null;
   const md = cell.match(/\[[^\]]+\]\(([^)]+)\)/);
   if (md) return md[1].trim();
+  // A row that names its plan AND its report — `<plan>` · 결과 `<report>` — is the
+  // shape most rows in this repo actually use, and the whole-cell fence above
+  // cannot match it: the backticks survive into path resolution and the row
+  // reports plan-missing for a plan that exists. The plan is the first span by
+  // convention and the remainder is commentary, which never resolves to a file,
+  // so taking the first span can only turn a false miss into a hit.
+  const firstSpan = cell.match(/`([^`]+)`/);
+  if (firstSpan) {
+    const inner = firstSpan[1].trim();
+    if (inner && inner !== '—' && inner !== '-') return inner;
+  }
   return cell;
 }
 

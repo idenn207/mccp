@@ -17,6 +17,187 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 > version 을 선언하지 않는다. 강제는
 > `node scripts/version-declaration-guard.js` 가 한다.
 
+### Fixed
+
+- **closure-accounting M4 — 부채 종결 계기가 스스로 틀린 값을 내던 경로 여섯.** M1이 격차를
+  보이게 하고 M2가 닫는 경로를 만든 뒤, 두 산출물 자신이 잘못 답하고 있었다. (1) 재봉인이
+  `sealed_at_commit`·`source_digests`를 **전임 봉인에서 복사**해 모든 세대가 첫 세대의 출처를
+  주장했다 — `buildCandidate`가 이제 자기 값을 잰다(`debt-inventory.js`가 `headCommit` ·
+  `sourceDigests` export). 커밋된 봉인의 meta 2필드는 정정했고 `items[]`·`inventory_sha256`은
+  불변이라 판정 1101건의 결속은 움직이지 않는다. (2) m10 게이트가 재봉인 뒤 조상 결속 1115줄을
+  **불일치로 보고**했다 — `verifyDispositions`가 쓰는 것과 **같은 오라클**(`sealAncestry`)로
+  `ancestor_bound_lines`를 분리했다. 게이트는 여전히 exit 1이지만 이유가 `dispositions.open`으로
+  옮겨졌다(red→green이 아니라 **red의 이유를 정확하게** 만든 수정). (3) `closure report`가
+  판정을 **한 번도 검증하지 않아** 모든 판정을 `NOT_A_REAL_ENUM`으로 바꿔도 `closed 1115 ·
+  pct 100 · degraded []`가 나왔다 — `verifyDispositions`의 판정을 빌려 접고, **답이 숫자가
+  아니면 0이 아니라 미상**으로 처리한다. (4) registry 디렉토리 열거 실패가 `catch { return [] }`로
+  **빈 저장소와 구별되지 않아** EACCES 하나로 findings 1250→0이 되는 동안 `degraded:false`였다 —
+  ENOENT만 부재로 남기고 그 밖의 errno는 degraded로 흘린다(reason은 **errno만**, 경로 없음).
+  (5) 수락 마커 stripper가 inline code span과 raw-text HTML 블록을 지우지 않아 **인용된 예시
+  마커가 진짜 승인이 될 수 있었다** — 균형 블록은 줄 위치 무관(mid-line `<pre>`가 실제 누수
+  경로)이되 fence 판정 **뒤에** 돈다(먼저 돌면 inline `<pre>`가 뒤따르는 fence의 여는 줄을 삼켜
+  인용된 마커를 되살린다 — 로컬 코드 리뷰 H1), 미종결 open만 줄 선두, backtick run은 CommonMark 길이 규칙. 라이브 `invalid_dispositions`는
+  전후 0으로 불변. (6) 원장 행이 `deferred` 970건을 포함한 1101을 `Closed 38.75%`로 렌더해 종결률로
+  읽혔다 — `Disposed:` + `Resolved: 131 (fixed 1)`로 3분할.
+
+- **closure-accounting M4 — `reseal.js apply`의 운영 안전.** apply 경로 전체(resume 포함)를
+  `.claude/state/reseal.lock`(`O_EXCL`)으로 감싸고, 죽은 pid 회수는
+  `.claude/state/reseal-reclaim.lock`으로 **직렬화**한다(동시 회수자 둘이 서로의 살아있는 lock을
+  지우던 경로). unlink 뒤 재생성도 `O_EXCL`이고 그 EEXIST는 거절이다 — "내가 지웠으니 열린다"는
+  가정이 제3의 평범한 획득자에게 지는 지점. body가 없는 lock은 추측 회수 대신 복구 문구로
+  거절한다. 그 밖에: `archiveRelFor` null 검사를 manifest write **앞**으로 옮기고(옛 순서는
+  manifest를 남긴 채 throw), 되돌아간 부채를 plan 단계에서 `candidate-is-ancestor`로 말하며
+  (옛 경로는 이해 불가한 사유로 영구 abort), `reseal.js plan`이 `plan.ok`를 종료코드로 반영하고,
+  preflight 거절 사유에서 절대경로를 스크럽한다.
+
+- **closure-accounting M4 — 아무도 계기를 부르지 않던 것.** `.github/workflows/closure-report.yml`
+  신설(`push: main` · 주 1회 cron · `workflow_dispatch` · 계기 파일 PR). **게이트가 아니다** —
+  required check 아니고 격차 값으로 red가 되지 않는다. `continue-on-error`를 두지 않는 이유는
+  red의 의미가 "계기가 실행되지 못했다"이기 때문이다. `scripts/tests/closure-report-workflow.test.js`가
+  트리거 4종 · SHA pin(태그를 거부하는 음성 대조 포함) · `contents: read` · CLI가 redirect 그룹
+  **밖**에 있음(그룹은 exit를 마지막 echo에서 가져와 crash를 삼킨다)을 단언하고, 마지막 test는
+  CLI를 실제로 spawn한다.
+
+
+- **Codex hook 출력 계약 — 하네스 가드의 passthrough가 stdout을 오염시키던 것.**
+  `bootstrap.js`의 `passthroughStdinAndExit`는 stdin을 stdout으로 되돌린다. Claude 쪽 ALLOW
+  관용구이고 이 저장소의 hook 24곳이 공유하는 형태지만, Codex는 hook stdout을 **그 이벤트의
+  출력 계약**(`continue`/`stopReason`/`decision`/`systemMessage`)으로 파싱하므로 입력 이벤트를
+  되돌리면 `hook returned invalid stop hook JSON output`으로 거부하고 그 hook을 Failed로
+  보고한다. M3.5가 연 Codex 설치 경로에서 **모든** Claude 전용 hook이 이 경로를 타므로, 운영자는
+  매 턴 실패 표시를 보게 되고 그 노이즈가 진짜 실패를 가린다.
+
+  하네스 가드 호출처에만 `silent`를 넘긴다. 나머지 두 호출처(root 미해소 · target 부재)는
+  plugin이 실제로 깨진 경로라 Codex가 Failed로 보고하는 것이 옳고, 그 지점에서는 오라클을
+  로드할 수 없어 하네스를 알 방법도 없다. `MCCP_HARNESS`의 read site는 늘리지 않는다 —
+  registry 선언 evidence는 `harness-ingress.js:101` 하나여야 한다.
+
+  음성 대조 실측(2026-09-10, codex-cli 0.153.4, 같은 명령·echo 여부만 상이):
+  echo면 SessionStart Failed 1 · Completed 1, Stop **Failed 3**; 침묵이면 SessionStart
+  Completed 2, Stop **Completed 3**. 갈린 SessionStart 두 건이 판별자다 — `session:start`는
+  `bootstrap.js`를 거쳐 echo하고 `mccp:render-trigger:session-start`는 직접 실행이라 echo하지
+  않는다. 증상이 echo 경로에만 정확히 붙는다.
+
+  **부수 관측**: 이 대조가 M3.5가 `unmeasured`로 남긴 축 하나를 닫는다 — 진단용 env를 런처에
+  세우자 hook 자식의 동작이 바뀌었으므로 **Codex가 띄우는 hook 자식은 런처의 env를 상속한다.**
+  같은 경로로 `MCCP_HARNESS=codex`도 도달한다. 다만 이것은 `codex-cli 0.153.4` 한 버전의
+  관측이고 다른 버전에 대해서는 아무 말도 하지 않는다.
+
+  회귀는 `bootstrap-passthrough-contract.test.js`가 **비대칭으로** 고정한다 — "codex에서
+  조용하다"만 단언하면 세 호출처를 전부 침묵시키는 구현이 통과하고 그러면 Claude 쪽 ALLOW
+  신호가 사라지므로, 가드는 침묵·깨진 경로는 echo를 짝으로 단언한다.
+
+### Added
+
+- **closure-accounting M3 — registry-reachability.** `closure report`의 `findings-registry` 행이
+  자기 **producer 도달성**을 함께 싣는다(`ledgers[].producers[]` — 채널별
+  `reachable{adjudicated, closure_types}` + `observed{total, open, accepted, closed, by_closure_type}`).
+  낮은 종결률(실측 `21 / 1505 · 1.4%`)이 "부채가 안 갚혔다"로 인용되던 것을 닫는다 — 분모의 86%를
+  차지하는 패널 채널은 기본 리뷰 모드에서 **종결을 낼 수 없고**, 그 배선은 `diverse-agent-review`
+  #1.5가 소유한다. 함께: `accepted` finding이 부채 분모에서 조용히 빠지던 누수를 닫았고
+  (`debt-inventory.js#collectFindings` → `state !== 'closed'`; 라이브 격차가 그만큼 **커지는** 방향으로
+  드러난다 — 재봉인은 하지 않는다), 선언(`PRODUCER_CHANNELS`)과 emitter 소스를 대조하는
+  falsifier(`findings-producer-reachability.test.js` R1~R8)가 계약 "판정은 `CLOSURE_FROM_ADJUDICATION`을
+  경유한다"를 강제한다. 그 스캔이 증명하지 않는 것(호출이 끊긴 emitter)은 문서에 명시했다.
+
+- **codex-harness-portability M3.5 — codex-ship (hotfix).** Codex 하네스에서 mccp가 **설치되고
+  발화하는 상태**를 운영자 한 번의 명령으로 만든다. `plugins/mccp/scripts/lib/codex-bootstrap.js`
+  (`status` 진단 4축 · `bootstrap [--apply]` 부트스트랩)와, 프로브에서 배포 트리로 **이전**된
+  `plugins/mccp/scripts/lib/codex-hooks-list.js`(사본이 아니라 단일 원본 — 프로브가 이쪽을 부른다).
+  M4·M5를 완주할 예산이 남지 않아 남은 축을 Codex 하네스에서 이어가기로 한 결정에 따른 hotfix이며,
+  이 저장소의 첫 릴리스 컷을 동반한다.
+
+  **성공 조건이 두 축인 것이 이 milestone의 실질이다.** 파일이 해소된다는 사실은 hook이
+  발화한다는 사실이 아니다 — `command-reach.js`의 `verify()`는 codex 캐시가 비면 claude 캐시로
+  폴백하고, `ROOT_ENV_NAMES`가 캐시 후보보다 먼저 오며, `harness==='claude'`면 즉시 단락된다.
+  실측(2026-09-10, mccp 미설치 상태)이 그것을 확증했다: `resolved via R-d:claude-cache, not the
+  Codex plugin cache`. 그래서 `--apply`의 exit 0은 (i) `hooks/list`가 mccp hook을
+  `trustStatus='trusted'`로 보고하고 (ii) `verify()`의 `rootSource`가 `R-d:codex-cache`일 때만
+  나온다. 축 (ii)는 root env 4종을 **지운 자식 프로세스**에서 돈다.
+
+  **성공 조건의 세 번째 축은 ingress다** (PR-Codex R1 흡수). hook이 발화하고 본문이 해소돼도
+  `harness-ingress.js`의 `resolveIngress`가 `MCCP_HARNESS` 양성 신호를 못 받으면 `enabled:false`를
+  내고 호출자는 아무 일도 하지 않는다 — `bootstrap.ok=true`와 `ingress.enabled=false`가 동시에
+  성립하는 것이 실행에서 재현됐다. 다만 이 축은 *이 프로세스의 env*만 재며, Codex가 띄우는 hook
+  자식이 그 env를 상속하는지는 별개 미측정 축으로 남는다.
+
+  **trust 승인은 mccp 소유 hook에 한정된다.** 프로브의 `grantHookTrust`는 `hooks/list` 반환
+  전량을 승인하는데, 스크래치 home에서만 안전한 동작이고 실사용 `~/.codex/config.toml`에 같은
+  짓을 하면 서드파티 hook 전부를 무차별 승인하는 권한 상승이다. 세 조건(선언원=`mccp@…` ·
+  `trustStatus!=='modified'` · 운영자가 끄지 않음)을 모두 만족하는 것만 승인하고 나머지는
+  사유와 함께 보고한다. 병합은 멱등이고(두 번 = 한 번, 바이트 동일) 타 plugin 블록을 보존하며,
+  `--apply`는 `{flag:'wx', mode:0o600}` 백업을 먼저 남긴다. dry-run이 기본이다.
+
+  순서는 **`컷 → 설치 → trust → 검증`**이다 — `trusted_hash`는 hook 본문의 해시라 컷이 본문을
+  바꾸면 기존 승인이 `modified`가 되고 발화가 0으로 돌아간다.
+  상세: [docs/codex-harness-portability/m3_5-codex-ship.md](docs/codex-harness-portability/m3_5-codex-ship.md)
+
+- **codex-harness-portability M3 — command-reach.** Codex에서 mccp 명령 **본문에 도달**한다.
+  `plugins/mccp/skills/run-command/SKILL.md`(dispatcher 하나, 명령 목록도 본문 사본도 싣지
+  않는다) + `plugins/mccp/scripts/lib/command-reach.js`(순수 후보 계산과 fs 검증을 가른
+  해소 오라클, `resolve` CLI shim). 라이브 실증: 실제 Codex 세션이 `plan-prd` 본문의 고유
+  헤딩을 축자 인용했고, 존재하지 않는 이름으로는 나오지 않았다(음성 대조 성립).
+  `scripts/codex-probe/reach-probe.js` + `cli.js reach`로 C축을 계측한다.
+- **DD10 redact 관문 커버리지 래칫** (`scripts/tests/redact-gate-coverage.test.js`). 관문을
+  지나지 않는 쓰기를 금지하지 않고 **가시화**한다 — 면제를 늘리려면 상한 상수를 올리는 별도
+  편집이 필요하고 그 사실이 diff에 숫자로 남는다.
+
+### Fixed
+
+- **`--plan` 인자로 임의 파일을 읽히던 경로를 닫았다** (보안, 재현됨). 진입점은 넷이었고
+  (`receipt-prompt.js` · `receipt-skill.js` · `receipt-prompt-submit.js` · `receipt/cli.js`)
+  그중 셋은 어떤 검사도 하지 않아 **평문 `--plan /dev/zero`만으로** 무제한 동기 read에
+  도달했다. 방어를 ingress마다 두지 않고 공유 초크포인트 `hash.js#markdownHash` 하나에
+  걸었다 — `open(O_NONBLOCK)` → `fstat(fd)` → `isFile()` → 상한 → bounded read.
+  `isFile()`이 실효 가드다(`/dev/zero`는 size를 0으로 보고하므로 상한만으로는 통과한다).
+  정상 파일의 해시값은 **불변**이라 기존 receipt는 stale이 되지 않는다.
+- **sanitizer와 소비처의 tokenizer 불일치를 없앴다.** `receipt-prompt-submit.js`가 공백으로
+  쪼개는 동안 `extract-plan-path.js`는 따옴표를 해석해, `"--plan" /dev/zero`가 검사를 그대로
+  통과했다. 이제 소비처의 tokenizer를 **빌려 쓰고** 재조립은 무손실이다 — 부수 효과로
+  공백을 품은 정당한 경로(`--plan "a b.md"`)가 처음으로 온전히 전달된다.
+- **중간 디렉토리 symlink 탈출을 막았다.** `checkPlanPath`가 어휘적 경로로 containment를
+  재고 마지막 요소만 `lstat`해, `/proc/self/root/etc/passwd`류가 통과했다(실측). 이제
+  `realpath` 기준으로 잰다.
+
+- **Codex receipt-gate ingress** — codex-harness-portability **M2 (gate-ingress)**. Codex에서
+  게이트 발화 수를 0에서 1로 올리고, 선행 receipt 부재 시 **실제로 차단하는 것**을 실측했다
+  (`runs[id=gate-block-live].pair_ok=true`). 신규 3면: `plugins/mccp/scripts/lib/harness-ingress.js`
+  (하네스 판별 + ingress 지목 오라클, 순수) · `plugins/mccp/scripts/hooks/receipt-prompt-submit.js`
+  (`UserPromptSubmit` ingress) · `scripts/codex-probe/block-probe.js`(B1·B2 스윕 + `gate-demo`).
+  판정은 [docs/codex-harness-portability/m2-gate-ingress.md](docs/codex-harness-portability/m2-gate-ingress.md).
+- **차단 프로토콜 실측(B1)** — `UserPromptSubmit`에서 stdout `{"decision":"block"}` + exit 0과
+  `exit 2 + stderr`가 **둘 다 차단**하고 `hookSpecificOutput.permissionDecision=deny`는
+  **존중되지 않는다**(codex-cli 0.153.4). 채택은 전자 — `receipt-prompt.js`가 이미 내는 형식이라
+  게이트 코어에 두 번째 직렬화기가 필요 없다. 판정은 종료 코드가 아니라 **보호 대상 연산의
+  미발생**이며, 음성 대조 없이는 어떤 차단 관측도 승격하지 않는다.
+- `MCCP_HARNESS` · `MCCP_HARNESS_INGRESS` — env-contract registry·색인·상세 앵커 3면 등재.
+- `scripts/codex-probe/cli.js teardown --verify` — read-only 잔재 검사(파괴적 teardown과 분리).
+
+### Changed
+
+- `plugins/mccp/scripts/hooks/receipt-prompt.js` — 게이트 코어를 `runGate(event, opts)`로 export
+  하고 stdout 방출 **5곳 전부**를 주입 가능한 seam 뒤로 냈다(`block()`만이 아니다 — 그러면
+  recovery·tempfail·debug ALLOW가 번역되지 않은 채 남는다). 기본값이 곧 무변경 보장이라 Claude
+  경로는 바이트 동일하고, 기존 hook·receipt test 1032건이 green이다.
+- `plugins/mccp/scripts/hooks/bootstrap.js` — `resolveRoot()` 해소 순서를
+  `env(+marker 검증) → __dirname 상대 → home 스캔`으로 바꿨다. 이전에는 `CLAUDE_PLUGIN_ROOT`를
+  **무검증으로 require**했고 env가 비면 곧바로 `~/.claude/plugins/cache/…`를 훑어, 호스트가 승인한
+  본문과 실제로 실행되는 본문이 갈릴 수 있었다.
+- `plugins/mccp/hooks/hooks.json` — `$schema` 제거(Codex의 hooks 구조체는 `deny_unknown_fields`라
+  그 한 줄이 전체 파싱을 죽이고, 실패가 warning이라 조용하다) + `UserPromptSubmit` ingress 등록.
+  제거는 **하네스 가드가 선 뒤에** 착지시켰다 — 그 한 줄이 Codex에서 살리는 것은 hook 1건이 아니라
+  핸들러 29건이고 그중 다섯이 exit 2 default-deny 가드다.
+- `scripts/codex-probe/scan-coupling.js` — `claude-env-name` 추출 정규식이 후행 `_`를 물어
+  실재하지 않는 이름(`CLAUDE_PLUGIN_ROOT_`)을 후보로 올리던 결함을 닫았다. 인벤토리에 화석으로
+  남아 있던 같은 산물도 정정.
+
+### Fixed
+
+- plan Validation 4건이 구조적으로 무효였다: `report --in`은 존재한 적 없는 플래그라 조용히 기본
+  로그를 읽었고, `scan-coupling`의 `unlisted`는 **수**라 `.length` 검사가 어떤 입력에도 falsy였으며,
+  Node 22의 `--test`는 디렉토리 인자를 모듈 경로로 해석하고, `teardown --verify`는 구현된 적이 없어
+  잔재 확인 대신 파괴적 teardown을 실행했다.
+
 ### Added
 
 - `linkage-audit.js --check-live-linkage [--decision <slug>]` — 층간 링크의 **강제 뷰**
@@ -86,6 +267,50 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   해소 6 · (b) M5 흡수 10 · (c) M6 이연 73 · (d) `FAIL` 버킷 14로 분류. 누락 0. 분류
   없이 "다음 마일스톤"이라고 적는 것은 이연이 아니라 유실이므로, M5 는 **닫지 않되
   남김없이 센다**.
+- `plugins/mccp/scripts/lib/msw-metrics/reseal.js` — 봉인 분모의 **승계**. 옛 판정을
+  제자리에서 고쳐 쓰지 않고(원장은 append-only라 그것은 재키잉이 아니라 로그 개작이다)
+  항목마다 새 digest에 결속된 줄을 덧붙인다. 판정 내용은 그대로 복사되고 새로 만들어지지
+  않는다. 분모에서 탈락한 항목(`dropped`)과 교차 참조가 끊긴 항목(`carry_blocked`)은
+  흡수하지 않고 **보고한다** — 조용히 지우면 재봉인이 곧 세탁이 된다. dry-run이 기본이고
+  `apply --apply`만 쓴다. 모든 원장 write는 `appendDispositions`를 지나며 그 사실을
+  스캔 test가 고정한다.
+- `debt-inventory.js` — 조상 사슬(`sealAncestry`). `meta.ancestry`는 봉인 digest 밖이라
+  선언만으로 신뢰하지 않고 **아카이브 재계산 + git 인덱스 등재** 2조건으로 검증한다. 그
+  둘이 막는 것은 드리프트와 실수이지 위조가 아니며(§3.12) 그 한계를 문서가 명시한다.
+  조상 결속 줄은 `ancestor_bound_lines`로 분리돼 `ok`에서 빠지고, `binding_mismatch`는
+  원래 의미를 유지한다.
+- `checkSuccessor` — 인계 수락이 **부분 문자열에서 전용 마커로** 바뀌었다
+  (`<!-- accepts-inventory: sha256:… -->`). 옛 규칙은 digest를 본문에 담은 **모든** 커밋
+  파일에 successor 자격을 줬고, 실측 반례가 이 저장소 안에 셋 있었다(리포트 JSON 2건 ·
+  원장 자신의 모든 줄). 열거식 거부 목록은 파일이 늘 때마다 구멍이 늘어 성립하지 않으므로
+  **클래스를 닫는** 모양으로 교체했다. 인용·코드 펜스 안의 마커는 수락이 아니다.
+
+- `scripts/codex-probe/` — codex-harness-portability **M1 (harness-truth)**. Codex CLI
+  0.153.4에서 mccp hook이 실제로 무엇을 하는지 재는 계측 하네스(실행/순수 2층 · DD10 redaction
+  관문 · 결합 스캐너). 7축 전부 `measured`이고 `report.js`의 `milestone_closeable`이 `ok:true`를
+  낸다. 판정은 [docs/codex-harness-portability/m1-harness-truth.md](docs/codex-harness-portability/m1-harness-truth.md),
+  원자료는 `.claude/_meta/data/2026-09-09-codex-harness-truth.json`.
+- `scripts/codex-probe/hooks-list.js` — app-server `hooks/list` 왕복 1회. hook마다
+  `key` · `currentHash` · `trustStatus`를 그대로 받아 온다. `cli.js`가 `spawnSync` 한 번으로
+  부르도록 비동기 stdio JSON-RPC를 이 파일에 가둔다.
+- **비대화형 hook trust 승인**(A1을 닫은 값). 승인 기록은 `config.toml`의
+  `[hooks.state."<key>"] { enabled = true, trusted_hash = "<currentHash>" }`이고, key와 기대
+  hash는 **계산하지 않고** `hooks/list`가 준 것을 그대로 쓴다. `-c` dotted-path override로는
+  적용되지 않는다(key가 경로를 담아 파서가 쪼갠다). 음성 대조: hash 1바이트 오류 →
+  `trustStatus=modified` → 발화 0.
+
+### Changed
+
+- `scripts/codex-probe/cli.js` — `trust_mode`가 **주장이 아니라 결과**가 됐다. 이전에는 bypass
+  플래그가 없기만 하면 `trusted`로 적혔는데 그때 hook은 승인되지 않아 발화가 0이었다 — 값은
+  `trusted`인데 신뢰 절차를 지난 발화가 하나도 없는 상태를 레코드가 구분하지 못했다. 승인이
+  실제로 기록됐을 때만 `trusted`이고, 실패하면 새 값 `untrusted`다(A1 승격 규칙은 무변경).
+  레코드에 `hook_trust`(승인 건수·사유·축약 key)를 함께 싣는다.
+- `scripts/codex-probe/cli.js` — 승인 key를 레코드에 실을 때 절대경로 구간을 basename으로
+  줄인다. 실측: 전체 key 10건을 그대로 실었더니 DD10 관문이 `posix-home` 11건으로 쓰기를
+  거부했다. 관문을 넓히는 대신 값을 줄였다 — 스크래치 home은 teardown으로 사라지므로 절대경로에
+  감사값이 없다.
+
 - `plugins/mccp/scripts/lib/leadtime-surface.js` — 한 줄 포매터. `formatLeadtimeLine`이
   CLI · `STATUS.md` · `status.html` · `distribution.json` **네 면이 공유하는 유일한 문장**을
   만든다. `assertCoverageAdjacency`가 "커버리지 없는 값 토큰은 존재할 수 없다"를 기계적으로
@@ -184,6 +409,43 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - `docs/dogfood-install.md` — M2의 본 산출물. worktree 본문을 로컬에서 여는 절차와
   그 한계, 캐시 직접 복사 금지의 사유, 채널 선택 규칙(PRD Open Question 4의 답)이
   여기 상주한다. 담긴 값은 전부 문서를 쓰기 **전에** 끝낸 실측이다.
+
+- **closure-accounting M1 — closure-report**: 봉인 분모와 라이브 부채의 격차·봉인 나이·
+  두 종결 계기(disposition ledger와 findings-registry)의 불일치·판정/해소/수정 3분할이
+  하나의 read-only CLI(`closure report [--json]`)로 산출된다. 재봉인 없음·상태 변경 없음·
+  게이트 없음·신규 코드 파일 3건(`plugins/mccp/scripts/lib/closure/`) +
+  문서 2건 편집(`docs/multi-session-work-loop/debt-inventory.md` 갱신, `CHANGELOG.md`).
+  - **순수 오라클**: `buildClosureReport(repoRoot)`가 세 원장을 읽어 봉인 분모 대 라이브
+    부채의 격차, 봉인 나이, 두 종결 계기의 불일치를 **실행 시점에** 산출한다. 수치를 여기
+    적지 않는 것은 의도다 — 그 값은 원장에 append될 때마다 움직이고(이 milestone의 게이트
+    실행 한 번이 격차를 1372 → 1389로 옮겼다), 고정 숫자를 문서에 박는 것이 이 PRD가
+    지목한 병리다. 계기 두 행은 **단위가 다르다**: disposition은 봉인 항목, findings는
+    fold된 record 기준이라 raw event 기준 비율과 서로 인용할 수 없다.
+  - **CLI 형식**: `closure report`(테이블)·`closure report --json`(구조화된 출력).
+    성공 시 항상 exit 0 — 계기이지 게이트가 아니다. 재봉인 경고는 격차가 양수이고
+    disposition 원장이 온전할 때만 나온다.
+  - **정직성 규약**: 읽기 실패·부분 판독은 0이 아니라 **null**로 보고하고 `degraded[]`에
+    사유를 남긴다. 메시지의 절대경로는 repo-relative 또는 basename으로 접어 git-tracked
+    산출물에 실리지 않는다.
+  - **격차는 길이가 아니라 식별자로 센다**: `denominator_gap.count`는 `|live \ sealed|`이고
+    음수가 될 수 없다. 옛 뺄셈은 다른 질문인 `net_change`로 분리했고 `sealed_not_live`를 함께
+    싣는다. PR-Codex가 잡은 HIGH의 흡수다 — 길이 뺄셈은 봉인 항목이 전부 라이브에 남아 있다고
+    가정하는데 실측 14건이 아니었고, 추가·삭제가 상쇄되면 격차 0을 보고해 **재봉인 경고를
+    침묵시킨다**. 식별자가 없는 항목이 있으면 숫자를 지어내지 않고 null + `degraded[]`다.
+  - **봉인 digest를 검증한다**: `inventory_sha256`을 `items[]`로 재계산해 대조하고, 불일치면
+    dispositions·denominator_gap·종결 행·재봉인 경고를 전부 null로 접고 `degraded[]`에 사유를
+    남긴다. PR-Codex R2가 잡은 HIGH의 흡수다 — 그 전에는 봉인을 1건으로 잘라도 digest만 유지하면
+    `pct: 100 · degraded: []`가 나왔다. **알려진 잔여 경로 1건**(disposition 레코드 미검증)은
+    backlog에 재현 절차째 이연했고, 이 축이 닫혔다고 주장하지 않는다.
+  - **불변식 test 27종**: EMPTY 패턴 · disposed ≥ resolved ≥ fixed · 주입 fixture 산출값 ·
+    ledgers 2행 · 기준선 구조 **부분집합** · 절대경로 0건 · gap=0 → warning null ·
+    **크기 동일 · 식별자 불일치**(길이 뺄셈이면 경고가 침묵하는 반증 case) ·
+    **digest 불일치 봉인**(+일치 시 정상 계상하는 positive control — 한 방향만 재면 "전부
+    degrade"라는 또 다른 무보고를 통과시킨다) ·
+    reader별 throw 포착 · 봉인 shape 불량 강등 · 열화 신호 3종 각각 단독 발화.
+    **mutation 13종으로 비공허성을 확인**했다(`resolved := disposed`,
+    `disposed := sealItems`, sha 결속 제거 등 전건 killed) — 이 milestone의 앞선 라운드가
+    "돌지 않는 test의 green"과 "돌지만 아무것도 고정하지 않는 green"을 차례로 냈기 때문이다.
 - `.claude/PRPs/reports/release-channel-separation-m2-report.md` — Task 3~5 실측의
   원문 증거. 채택한 기제와 **탈락한 기제의 탈락 사유**를 함께 적는다.
 - `scripts/version-declaration-guard.js` + `scripts/tests/…` + CI
@@ -212,6 +474,66 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   검증 블록이 기계로 잡는다. 롤백 절은 M1이 실제로 실행한 것의 전사이며
   n=1(patch 하향 1건 · major 경계 미측정) 한정을 함께 싣는다. README와 CLAUDE.md
   §3.7은 포인터만 갖는다 — 절차는 `docs/`가 소유한다.
+
+- **ci-full-suite M3 — ci-enforcement (구현 착지, 라이브 미완주)**: 전수 스위트를
+  머지 차단 게이트로 승격하는 배선. 상세는
+  [`docs/ci-full-suite/m3-enforcement.md`](docs/ci-full-suite/m3-enforcement.md).
+  - `.github/workflows/test-suite.yml` — 강제 게이트. `pull_request` 좁히는 필터
+    **없이**(오늘 2.7%를 만든 실패 모드와 같은 것을 반복하지 않는다) 돌고,
+    action 셋을 SHA로 pin하며, job 이름을 **안정 리터럴**(`full test suite gate`)로
+    고정한다 — required check는 문자열로 걸리므로 그 이름이 변하면 보호가
+    조용히 풀린다.
+  - `scripts/test-suite/gate.js` — DD3의 유일 소비처. 단계 0(측정 성립 + 트리 일치)
+    → 1(스위트 green) → 2(커버리지 4조건 + 삭제 래칫, 누적) → 3(유출). 판별자는
+    stage가 아니라 **닫힌 사유 코드 열거형**이다(stage 2는 공유 칸이다).
+    단계 0이 없으면 1이 거짓말을 한다 — chunk spawn 실패가 `{exit_code: null}`을 내고
+    `foldChunks`가 `Number(null) || 0`으로 접으므로, 스위트가 **한 번도 안 돌았는데**
+    1·3단계를 통과하는 measurement가 실재한다.
+  - `scripts/test-suite/coverage.js` — 순수 커버리지 오라클. 분모는 tracked `*.test.js`
+    **파일 수**이고(OQ5 확정) 채널은 `git ls-files -z`이며 소유자는 게이트다 —
+    `measurement.files_total`에서 파생하는 것은 **금지**다(피측정자가 자기 분모를 정하면
+    열거가 무너져도 커버리지는 100%로 보인다). 머지 차단 조건은 `coverage_pct === 100`이
+    아니라 `unexplained === 0`이다.
+  - `scripts/test-suite/inputs.js` — 입력 해소 공유층. fail-closed 사유 코드 11종을
+    방출하고 격리 목록 파싱은 `exclusions.js`에 위임한다(자체 `JSON.parse` 금지 —
+    게이트가 미검증 목록으로 판정하는 경로를 닫는다).
+  - `scripts/test-suite/exclusions.js` + `.github/test-suite-exclusions.json` — DD7 검증기가
+    **소비 경로 위에** 산다. 항목마다 `reason` + `ticket` 필수이고 상한 6건.
+  - `.github/test-suite-floor.json` + 삭제 래칫 — 판정은 **merge-base와의 집합 차**이지
+    개수 비교도 tip 비교도 아니다. 그래서 커버리지가 **만족한 채로** 차단된다.
+  - `scripts/test-suite/wiring-cut.js` — 축 D 절단 셋(A 심기 · B 삭제 · 오라클 왕복)을
+    재현 가능하게 고정. 1회 이벤트로 두면 훗날 커버리지가 다시 깨져도 잡을 기계가 없다.
+  - `scripts/ci-required-checks.js` + `docs/ci-full-suite/branch-protection-runbook.md` —
+    required check drift 진단(운영자 수동, CI 미실행). 보호 미설정은 "일치"가 아니라
+    `protection_absent`다 — 통과로 접으면 진단이 아무것도 말하지 않는다.
+  - `scripts/test-suite/container-check.js` — 컨테이너 3축(`ok` · `attribution` ·
+    `redaction_ok`) 검사. **빈 컨테이너는 비영점**이다 — 아무것도 검사하지 않는 것은
+    통과가 아니다.
+  - 단위 test 5면 150건 신규/확장. 무엇보다 `wiring-cut.test.js`가 자기 단언 14종을
+    **합성 돌연변이 약 40개**에 다시 적용해 "그 단언이 실제로 잡는가"를 잰다 —
+    주석 제거 후 스캔이라 산문이 아니라 배선을 검사한다(§3.17 선례).
+  - **`/mccp:code-review` 흡수 (같은 사이클)** — 로컬 리뷰의 MEDIUM 4 · LOW 7을 전건
+    수용했다. 게이트에 실제로 영향을 준 둘: (a) `floor_value_type` — floor 키 검사가
+    `hasOwnProperty`뿐이라 `null`이 "존재"로 읽혔고, 그 한 글자가 `below_floor`와
+    `excluded_over_cap`을 **사유 코드 없이** 끄면서 게이트가 `blocked:false`를 냈다
+    (도출식 test의 `strictEqual`이 부수적으로 막고 있었을 뿐이라, fail-closed를
+    소유한다고 선언한 층이 자기 이름으로 막게 했다). (b) `JUDGE_REASONS` ·
+    `INPUT_REASONS`가 "닫힌 열거"를 선언하고 **부르는 곳이 0건**이었으며 이미
+    불완전했다 — 이 우산이 서명 실패 모드로 지목한 형태가 판정자 자신 안에서 재현된
+    것이라, 런타임 소비처(`reasons_undeclared`)와 양방향 대조 test를 함께 붙였다.
+  - **첫 라이브 발화가 잡은 둘 (run 34174703512)** — 게이트가 PR #185에서 실제로 돌았고
+    stage 1에서 `suite_red`로 차단했다. 차단은 옳았다: 이 브랜치가 아니라 **main이**
+    붉었다(`command-body-lint.test.js`, 격리 6건과 무관하게 결정적). 원인은
+    `work.md:962` — halt 원장 진전 기록(`b35be24`)이 fail-open 계측 호출 **하나만** 담은
+    fence 를 새로 만들었고 그 마지막 줄이라 S2가 잡는데 부채 열거에 등재되지 않았다.
+    수리가 아니라 **열거**를 택했다(`SEAM_DEBT` 18 → 19): 규칙이 지목하는 해악("실패한
+    검사가 통과로 읽힌다")이 이 fence 에서는 성립하지 않고, `|| true`를 떼면 fail-open
+    계약이 깨지며, 다른 fallback 으로 바꾸는 것은 "exit status 가 항상 0"을 남긴 채
+    매처만 피하는 회피다. 둘째로 stage 1 메시지가 실패 파일 자리에 `[object Object]`를
+    싣고 있었다 — `failing`은 `{file,name,kind,error}` 객체 배열인데 fixture 만
+    문자열이라 test가 producer가 아니라 자기 자신을 검사하고 있었다. 게이트가 막았을 때
+    사람이 읽는 유일한 산출물이라 항목이 아니라 **파일**을 세도록 고치고 실제 shape 로
+    회귀 test 둘을 붙였다.
 
 ### Changed
 
@@ -255,6 +577,16 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
   — skew 행의 읽는 법, **배선 마일스톤의 라이브 acceptance 는 `--plugin-dir` 아래에서만
   성립한다**는 절차, 라이브 파티션의 M5 실측(동결 블록 밖). 동결 블록 바이트는 불변이고
   `linkage-frozen-baseline.test.js`가 그것을 확인한다.
+- **`.github/workflows/test-suite-baseline.yml` — 트리거 하나, OS 축 둘 (ci-full-suite M3)**.
+  `pull_request`를 뗀다(DD1) — 두 트리거를 둔 사유가 만료됐고, 남기면 같은 PR에서
+  측정과 강제가 나란히 돌아 무엇이 머지를 막는지가 흐려진다. 대신 `matrix.os`에
+  `windows-latest`가 더해지고 그 축이 **artifact 이름과 job 이름 양쪽에** 실린다 —
+  artifact 이름이 같으면 `upload-artifact@v4`가 중복을 거부해 Windows 산출물이
+  **존재 자체를 못 하고**, job 이름이 같으면 두 leg이 하나의 check 이름을 공유한다.
+  `defaults.run.shell: bash`(Windows 기본은 pwsh) · `/tmp` → `runner.temp`.
+  **이 workflow의 job 이름은 여전히 `${{ }}` 템플릿이며 그것은 의도다** —
+  측정은 머지를 막지 않으므로 required check 후보가 아니다.
+
 - `leadtime.js` — `audit(opts)`에 `allowGit`(기본 `true`) spawn 게이트 추가. `false`면 W3이
   `no`가 아니라 `unavailable`이 되고 `degradations:['git-disabled']`가 산출물에 실린다.
   **분포는 두 모드에서 동일하다** — 증인은 미짝의 분류에만 쓰인다. 순수 투영
@@ -332,6 +664,23 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
     링크 0건"과 구별되지 않으면 그 위의 어떤 acceptance도 아무것도 반증하지 못한다.
 
 ### Security
+
+- **격리 패턴에 복잡도 상한 — fork PR이 유일한 머지 차단 체크를 태울 수 있었다
+  (ci-full-suite M3, `mccp:security-reviewer` HIGH 흡수)**. `enumerate.js#globToRegExp`가
+  `*`마다 무한 수량자를 합치지 않고 이어붙이므로 연속 `*`가 파국적 backtracking 형태가
+  된다. 실측: `"*".repeat(15)+"ZZZNOMATCH"`는 경로 하나에 8초 후에도 미종료.
+  M3의 강제 workflow가 처음으로 fork PR이 통제하는 tracked 파일 내용을 **리뷰 이전에 ·
+  `paths` 필터 없이 · 저장소의 유일한 머지 차단 체크 위에서** 그 코드에 먹인다.
+  `exclusions.js#validateExclusions`에 상한 셋을 뒀다 — `MAX_PATTERN_LENGTH=200` ·
+  `MAX_PATTERN_WILDCARDS=8` · `***` 이상 연속 금지. 표현력 손실 0(glob에서 `***`는
+  `**`와 같다). DD7·DD9의 래칫 셋은 *몇 개를* 격리하는지만 재고 *한 패턴이 얼마나
+  비싼지*는 재지 않아 이것을 막지 못했다. 컴파일러 자체의 수량자 병합은 열거 의미론을
+  바꾸는 변경이라 backlog(별도 축).
+- **`run.js`의 `--allow-codex`가 CI에서 거부된다 (ci-full-suite M3)**. `GITHUB_ACTIONS=true`
+  이면 플래그 파싱 지점에서 throw한다. 전수 회귀가 codex 경로를 타면 실제 호출이 수백 회
+  발생하고 고아 broker가 자식을 무한 재생성한다(CLAUDE.md §3.4 실측: node 519개).
+  가드를 `childEnv`가 아니라 파싱 지점에 둔 것은 의도다 — `childEnv`를 직접 부르는
+  기존 test 둘이 CI에서 붉어진다.
 
 - **back-patch에 결정 결속이 붙었다 (fail-closed, 쓰기 *이전*).** Task 4의 containment는
   `.claude/reviews/` **하위인지**만 보므로, 상류가 봉인한 경로가 다른 결정의 레코드를
@@ -456,6 +805,80 @@ All notable ship milestones for **my-claude-code-plugin (mccp)** are recorded he
 - **설치 상태 무개입.** 실행 전후 `installed_plugins.json`의 sha256이 동일했고 캐시에
   새 디렉토리가 0개 생겼다. 이것이 캐시 복사 은퇴의 기계적 근거다.
 
+### Added (halt-step-recording)
+
+- **halt-step-recording** — `/mccp:work`가 멈춘 지점이 기록된다. `work-orchestrator.js`에
+  `record-halt`(producer)와 `last-halt`(repo-wide reader) 두 서브커맨드가 생겼고, 둘 다
+  **어떤 실패에도 exit 0**이다(UI2 — 계측이 진입을 막으면 그것은 계측이 아니라 게이트다).
+- **halt 사이트 표** — `work.md`에 상주하는 13행 전수 표(shell 11 + prose 2). 분모가
+  문서에 있고 `work-command-body.test.js`가 표 ↔ 배선을 **양방향으로** 강제해, 표를 줄여서
+  커버리지를 만족시키는 길이 막혀 있다.
+- **진입 배너** — A1 줄 바로 뒤에 직전 halt 한 줄. halt가 없으면 아무 줄도 내지 않고,
+  **읽기가 실패했을 때만** `halt 배너 생략: <사유>`를 남긴다(A1 선례의 정확한 재적용).
+  사유는 reader 자신의 접두(`[mccp:last-halt]`)를 단 줄만 채택한다 — 남의 파싱 경고를
+  집으면 부재와 실패의 구분이 무너진다.
+- **`chain_progress` present-only 3필드** — `halt_site`·`reason`·`work_unit`. 값이 있을
+  때만 키를 넣는다(§3.2 `dep_check_at` mirror). 기존 4필드 직렬화는 무변경.
+- **진전 기록 2지점** — Step 3.verify 통과와 Phase 3 도달이 `record-step --status ok`를
+  남긴다. append-only 원장에 halt 뒤로 아무것도 쌓이지 않으면 `last-halt`의 supersession
+  규칙이 **구조적으로 발동하지 못해** 배너가 이미 고쳐진 halt를 무기한 주장한다. A1 완주
+  지표와는 무관하다 — 완주의 정의도 그 producer도 건드리지 않는다(DD1이 갈라 놓은 별개
+  채널이며, 여기 쌓이는 값은 배너 신선도 판정에만 쓰인다).
+
+### Fixed (halt-step-recording)
+
+- **`auto-chain.recordStep`의 침묵 catch** — 이 catch는 모듈 부재뿐 아니라 `applyLocked`의
+  실제 throw 경로(`MCCP_JOURNAL_DEGRADED_UNRECORDED`)까지 삼켰다. 동작(fall-through)은
+  그대로 두고 침묵만 없앴다. sidecar JSONL도 present-only 규칙을 따라 두 채널의 레코드
+  모양이 같아졌다.
+- **`--reason`의 control character / ANSI escape** (security-reviewer S1, HIGH) —
+  `JSON.stringify`가 저장 시 이스케이프하므로 디스크의 STATE.md는 깨지지 않지만, 소비
+  지점의 `JSON.parse`가 원문자로 되돌리고 배너는 **인용부호 없이** 출력한다. 즉 위험한
+  것은 저장이 아니라 **재생**이었다. 좁히기 순서를 `scrubAbsPaths` → `stripAnsi` →
+  C0/C1/DEL 제거 → `oneLineExcerpt`로 정하고, **reader도 자신이 읽은 레코드에 같은 좁히기를
+  다시 적용**한다 — 쓰기 시점 좁히기는 이미 디스크에 있는 레코드를 되돌리지 못한다.
+- **repo-root 봉쇄 가드** — `findRepoRoot`는 `.git` 조상이 없으면 cwd를 그대로 돌려주므로,
+  비-repo 디렉토리의 `record-halt`가 거기에 `.claude/state/STATE.md`를 새로 만들고 평범한
+  성공으로 끝났다. `.claude`/`.git` 마커가 없으면 아무것도 쓰지 않고 거부한다.
+
+- **`parseStateMd(raw, {quiet})`** — 읽기 전용 관찰자용 옵션. 두 WARNING("resetting
+  state")은 자기 상태를 쓰는 호출자에게는 옳지만 남의 worktree를 훑기만 하는 reader에게는
+  거짓이고, 그 stderr가 배너의 실패 채널로 흘러가 **halt 부재(정상)를 읽기 실패로 오보**
+  했다(실측 재현). DD1이 읽기를 저장소 전체로 넓혔으므로 한 worktree의 파손이 모든
+  worktree의 진입 배너를 오염시켰다. 기본값은 무변경이라 기존 호출자는 계속 시끄럽다.
+- **reader 재강제의 적용 범위** — `step`·`site`·`ts`·`work_unit`도 `reason`과 같은
+  좁히기를 통과한다(텍스트·`--json` 양쪽). 배너는 인용부호 없이 `echo`되고
+  `chain_progress`는 git-tracked라 PR로 유입될 수 있으므로, 한 필드만 남겨 두면 개행
+  하나로 `[mccp:work] ` 접두를 위조한 줄이 만들어진다.
+
+### Changed (halt-step-recording)
+
+- `derive/sources/worktrees.js`가 `SCAN_TIMEOUT_MS`·`parseCap`을 export한다.
+  `last-halt`가 같은 순회를 하면서 리터럴을 복제하면 그 순간 drift가 시작되고,
+  `parseCap`(숫자가 아니라 정책)까지 내보내야 `MCCP_WORKTREE_SCAN_CAP`이 두 순회에
+  똑같이 먹는다. 소비처가 쓰지 않는 `DEFAULT_CAP`은 표면에 두지 않는다.
+- `work-command-body.test.js`의 커버리지 판정이 블록 단위 근사에서 **1:1 소비**로
+  바뀌었다. 초판은 "이 exit 앞 어딘가에 recorder가 있는가"만 물어서 한 블록에 recorder
+  1 + exit 3이면 뒤 두 개가 무임승차했다 — 지금 배선은 수가 맞아 red가 아니었지만, 그
+  test가 막겠다고 선언한 회귀를 정확히 놓치는 형태였다. 판정기 자신도 합성 입력으로
+  검증한다(`(c2)`).
+
+### Fixed (goal-detect)
+
+- **`/mccp:milestone-close`가 실재하는 plan을 `plan-missing`으로 거부하던 결함.**
+  `goal-detect.js#extractPlanPath`의 언펜스 정규식이 `` /^`+([^`]+)`+$/ `` — **셀 전체가
+  하나의 백틱 토큰일 때만** 매칭하는데, 이 저장소 PRD의 지배적 표기는
+  `` `<plan>` · 결과 `<report>` `` 2경로 형태다. 매칭에 실패하면 백틱이 포함된 원문 셀이
+  그대로 경로 해소로 넘어가 존재 검사가 실패하고, 그 milestone의 closure ceremony가
+  **구조적으로 진입 불가**가 된다(orchestrator-step-wiring M2에서 라이브 실측, 2026-09-04).
+  markdown 링크 분기 뒤에 **첫 인라인 코드 스팬** 추출을 더했다 — 표기 관례상 plan이 첫
+  스팬이고 나머지는 주석이라 어차피 파일로 해소되지 않으므로, 이 완화는 **거짓 miss를
+  hit으로 바꾸는 방향으로만** 작동한다. 같은 180행 corpus에 구/신 로직을 각각 적용한
+  A/B에서 해소 가능 행이 36 → 39로 늘고 **유실은 0건**이었다. placeholder를 hit으로
+  둔갑시키지 않도록 첫 스팬이 `—`/`-`면 기존대로 미해소로 떨어진다.
+  - 함께 확인된 나머지 2축은 이 수정 범위 밖이라 backlog에 남는다 — archived
+    `dashboard-truthfulness.prd.md`의 열 정렬 어긋남(셀에서 `complete`를 경로로 추출)과,
+    빈 셀(`—`)이 "plan 없음"과 "plan 못 찾음"을 같은 `plan-missing`으로 뭉개는 것.
 
 ## [1.34.4] — 2026-09-02
 
@@ -4888,6 +5311,31 @@ v1.4.0 multi-session — Milestone 2 ship (cross-session discovery). M1(PR #43, 
 - **`docs/v1.4.0-multi-session/session-ledger-schema.md`** — v1 → v2 schema doc bump. §2에 `last_seen_at` row + §3 Public API에 `updateLedgerHeartbeat`/`pidIsLive`/`liftV1` symbol + `DEFAULT_HEARTBEAT_TTL_MS` (5분, 24h fallback removed) + tri-state filter 본문화. §6 "Deferred to M2" → "M2 Done · M3 Deferred" 재분류.
 - **`renderer/index.js` + `markdown.js` + `html.js`** — 6번째 section(`active-sessions`) wire-up. anchors 목록 + section composer destructure 모두 갱신. 기존 5 section 동작 회귀 0.
 - **plugin.json version bump** `1.6.0 → 1.7.0`.
+
+### release-channel-separation M4 — residual-closure
+
+M1~M3이 자기 산출물 안에 **명시로 이연한 부채**를 닫는다. 새 기능은 없고 채널의 강제 표면만 넓어진다. 첫 릴리스 컷은 여전히 일어나지 않았고 M4가 그것을 일으키지 않는다. **번호를 선언하지 않는다**(우산 결정 1) — `plugins/mccp/.claude-plugin/plugin.json` diff 0줄.
+
+#### Added
+
+- **`scripts/release-manifest-guard.js`** + **`scripts/tests/release-manifest-guard.test.js`** — 릴리스 좌표 파일(`.claude-plugin/marketplace.json`)의 형태 단언을 소유하는 상시 가드. 6축: `source.source==='git-subdir'` · **`source.url` 값** · `source.path` · `source.ref==='release'` · **`sha` 키 부재** · **`mccp` 엔트리 유일성**. `url`을 존재가 아니라 값으로 재는 이유는 그것이 이 파일에서 유일하게 "코드를 어디서 가져오는가"를 정하기 때문이다 — 병합 사고가 그것을 바꾸면 나머지 단언은 전부 통과한다. 읽기·파싱 실패는 통과가 아니라 HALT. 판별력 test 11개(위반 8종 + 방어적 입력 + end-to-end).
+- **`.github/workflows/release-manifest-gate.yml`** — 모든 PR에서 도는 게이트. **`paths` 필터가 없는 것은 누락이 아니라 설계다**: 좁히면 `sha` 핀의 red가 그 PR에서 한 번 발화하고 다음 PR부터 워크플로가 건너뛰어져, "red가 곧 타이머"라는 설계가 죽고 조용한 영구 핀이 되살아난다. test → 가드 순서, 단일 OS(JSON 값만 대조하므로 OS 축이 없다).
+- **`plugins/mccp/scripts/lib/renderer/plugin-version.js`** + tests — 두 footer가 공유하는 단일 파생원. `readPluginVersion()`은 **절대 throw하지 않고** `{version:null, degraded:true, reason}` sentinel로 접힌다(`derive/host-version.js` 형태). semver 검사는 **앵커된 전체 일치**라 manifest의 임의 문자열이 escape 없는 footer로 흘러가지 못한다.
+
+#### Changed
+
+- **`renderer/html.js` · `renderer/markdown.js`** — footer 버전 리터럴 → `footerVersionLabel()` 파생. 릴리스 컷이 움직여야 하는 면이 **다섯에서 셋으로** 준다(manifest · CHANGELOG 노트 · CHANGELOG 항목) — PRD Open Question 2의 답이 예고한 그대로. markdown footer는 `derive-only`·`LLM-free`를 얻어 html 면과 **정보 동등**해진다(PRODUCT.md Design Principle 4).
+- **`scripts/version-declaration-guard.js`** — 4면 → 2면. 두 footer는 **앵커-후-리터럴 2단계**로 판정한다: 앵커(`<footer …page-foot` · `derived from .claude/`)를 못 찾으면 `version-face-missing`(부재는 여전히 위반 — 역방향 단언만 두면 footer 삭제가 통과로 읽힌다), 찾은 뒤 그 줄에 리터럴이 있으면 `version-face-literal-reintroduced`. 리터럴 대조가 남는 면은 `plugin_json`·`changelog_note` 둘.
+- **`.github/workflows/version-declaration-gate.yml`** — `paths`에 `plugin-version.js` + renderer test 2종 등재, test 단계에 **보상 검사** 추가. M4 이전 `i18n-surface.test.js`를 부르는 워크플로는 **5개 중 0개**였다 — "보상 검사가 있다"는 말이 공허했던 지점이다.
+- **`renderer/tests/i18n-surface.test.js`** — markdown footer 단언 회수(전체 줄 형태 pin → 앵커 + 값) + 두 면의 trust token을 **하나의 상수**에서 대조해 재갈라짐을 막는다.
+- **`docs/release-channel.md`** — 6절의 "사이클마다 실행돼야만 작동한다" 약점 문장 은퇴(무엇이 그것을 닫았는지 남긴다), 7절에 브랜치 보호 재측정(`release`·`main` **둘 다** 404 — M3은 `release`만 쟀다) + "형태를 재지 custody를 재지 않는다" 한정 추가.
+- **`.claude/prds/release-channel-separation.prd.md`** — M4 행 추가(`in-progress`), OQ6 신설·종결(`known_marketplaces.json`에 `ref`가 없어 좌표 파일 편집이 머지 즉시 도달하는 잔여의 소유), 소유 파일 목록 갱신 + 병렬 무충돌 주장의 범위를 M1~M3으로 좁힘.
+
+#### Known residuals (backlog 적재)
+
+- 극성 반전의 **간접 참조 우회** — 리터럴을 앵커 줄 밖 상수로 옮기면 가드가 `derived`로 인증한다. 구 4면 설계에는 없던 구멍이며 M4가 새로 연다. 보상은 렌더 **출력**을 보는 `i18n-surface.test.js`(이제 CI에서 실제로 돈다)이고, 정적 스캔의 모듈 참조 단언 승격은 별개 축.
+- 가드는 **형태를 재지 custody를 재지 않는다** — 브랜치 보호 부재와 required status check 미지정은 닫히지 않았다(UI4).
+- `sha` audited escape 부재의 비용 · `plugin-version.js`의 `require` 모듈 캐시 staleness(`/mccp:dashboard` 장수 프로세스).
 
 ## [Unreleased] — v1.4.0 automation modernization axis C (M3)
 

@@ -49,6 +49,44 @@ milestone이 닫으려는 통로다. 수용 의사를 해소로 계상하면 fin
 전건을 덮는다(전사성), 그리고 `ACCEPT_NOW`의 상은 `null`이다. 새 판정 enum이
 추가되면 전사성 단언이 먼저 붉어지므로 매핑 누락이 조용히 통과하지 못한다.
 
+### 채널별 도달성 (closure-accounting M3)
+
+위 매핑은 **판정을 받은 finding**이 어떤 종결을 얻는지를 말한다. 그러나 판정 자체에
+닿을 수 있는 채널은 넷 중 하나뿐이다. 레지스트리에 발자국을 남기는 주체 전부와, 각자가
+도달할 수 있는 종결 어휘는 이렇다(`findings-registry.js`의 `PRODUCER_CHANNELS`가 정본).
+
+| 채널 | emitter | 등록 | 판정 | 도달 가능한 `closure_type` |
+|---|---|---|---|---|
+| Plan-Codex runner (`MCCP_PLAN_REVIEW=codex`) | `lib/plan-codex-runner.js` | 예 | **예** | `deferred` · `rejected` · `invalidated` (위 맵의 비-null 값) |
+| 패널 L2 (`multi-agent` · `hybrid` — 저장소 기본) | `lib/plan-review/cli.js` | 예 | 아니오 | `deferred` (단일통과 완화 경로에서만) |
+| santa-loop | `lib/santa/seal.js` | 예 | 아니오 | `fixed` (converged ∧ 2라운드 이상) |
+| hybrid L3 | `lib/plan-review/l3.js` | **아니오** | 아니오 | 없음 |
+
+그래서 `closure report`의 `findings-registry` 행은 자기 `producers[]`를 함께 싣는다.
+그 행이 없으면 `Closed 21 / 1505 · 1.4%`가 "부채 종결률"로 인용되는데, 분모의 86%를
+차지하는 패널 채널은 **기본 경로에서 종결을 낼 수 없다**. 판정 producer를 패널에
+배선하는 일은 `diverse-agent-review` #1.5가 소유한다.
+
+**계약 (c)** — 판정을 기록하는 파일은 `CLOSURE_FROM_ADJUDICATION`을 경유하고,
+레지스트리에 이벤트를 남기는 파일은 `PRODUCER_CHANNELS`에 선언돼 있어야 한다.
+`plugins/mccp/scripts/lib/tests/findings-producer-reachability.test.js`(R1~R8)가 선언과
+emitter 소스를 대조하므로, 새 채널이 배선되면 그 test가 먼저 붉어진다.
+
+**M3가 주장하지 않는 것.**
+
+- **종결률은 오르지 않는다.** 패널 finding은 계속 열려 있다. 그것을 줄이는 정직한
+  경로는 DAR #1.5의 판정 producer뿐이고, M3는 그 부재를 *보이게* 했을 뿐이다.
+- **`reachable`은 "지금 발화한다"가 아니다.** 소스 스캔은 *길이 코드에 존재하는가*만
+  본다. emitter를 호출하는 쪽을 지워도 함수 본문의 리터럴·맵 참조·`appendFindings(`가
+  남아 모든 신호가 불변이므로, **연결이 끊긴 emitter는 잡히지 않는다**(Implement-Codex
+  R1 F1 · plan 게이트 hybrid L3 — 독립 2회 재현, backlog 2026-09-14 MEDIUM). 그 축은
+  각 producer를 운영 caller 경유로 구동하는 동작 test가 필요하고 이연돼 있다.
+- **hybrid L3를 배선하지 않는다.** L3의 Codex finding이 분모에 아예 들어가지 않는다는
+  사실을 표기할 뿐이다.
+- **falsifier는 위조 방지가 아니다.** 우발적 드리프트를 잡는다(`c1-coverage-gate.js`와
+  같은 위협 모델). 남는 사각 하나 더: **이미 선언된 파일 안에서** 새 채널이 생기는 경우
+  (예: `plan-review/cli.js`의 L3 핸들러가 emit을 시작하는 것)는 파일 단위 스캔이 못 본다.
+
 ## 3. 승격 경계 — CRITICAL·HIGH이고 상수다
 
 PRD Open Question("어떤 심각도부터 자동 승격할 것인가")의 답이다. 새 숫자를

@@ -1,15 +1,15 @@
 ---
 fix_task_version: 1
-task_fingerprint: review-record-linkage-m3
+task_fingerprint: ci-full-suite-m4
 gate_id: stop-review-loop
-decision_id: review-record-linkage-m7b
-created_at: 2026-09-08T07:46:09.304Z
-expires_at: 2026-09-15T07:46:09.304Z
+decision_id: ci-full-suite-m5
+created_at: 2026-09-14T06:12:47.627Z
+expires_at: 2026-09-21T06:12:47.627Z
 counter: 1
 verdict: codex_divergent
 escalate: true
 originating_receipts:
-  - .claude/receipts/mccp-implement-codex/review-record-linkage-m7b.json
+  - .claude/receipts/mccp-implement-codex/ci-full-suite-m5.json
 ---
 ## Title
 Codex divergent — review concerns
@@ -25,7 +25,7 @@ Codex review flagged unresolved concerns. Address them in the next turn before e
 2. Update the implementation, then end the response so the Stop-loop re-runs.
 
 ## Originating Decisions
-- .claude/receipts/mccp-implement-codex/review-record-linkage-m7b.json
+- .claude/receipts/mccp-implement-codex/ci-full-suite-m5.json
 
 ## Dual Reviewer Escalation Required
-Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/review-record-linkage-m7b>'
+Next: run /mccp:santa-loop '<gate-receipt:mccp-implement-codex/ci-full-suite-m5>'

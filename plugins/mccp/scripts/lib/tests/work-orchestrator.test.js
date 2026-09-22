@@ -147,3 +147,36 @@ test('nextStep: trivial pr → done', () => {
   assert.strictEqual(r.step, 'done');
   assert.strictEqual(r.halt, false);
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// orchestrator-step-wiring M2 — 신규 서브커맨드가 기존 계약을 깨지 않는다
+// ──────────────────────────────────────────────────────────────────────────
+
+test('M2: the halt surface is additive — classify/next-step exports are unchanged', () => {
+  ['classifyTrivial', 'nextStep', 'readGitDiff', 'FULL_CHAIN', 'TRIVIAL_CHAIN',
+    'STEP_TO_SLASH', 'ABORT_EXIT', 'TEMPFAIL_EXIT'].forEach((k) => {
+    assert.ok(k in orch, 'pre-M2 export vanished: ' + k);
+  });
+  assert.strictEqual(typeof orch.classifyTrivial, 'function');
+  assert.strictEqual(typeof orch.nextStep, 'function');
+});
+
+test('M2: HALT_STEPS is the DD7 enum and every chain step it names is real', () => {
+  assert.deepStrictEqual(orch.HALT_STEPS,
+    ['detect', 'plan_prd', 'plan', 'implement', 'verify', 'commit', 'pr']);
+  // `detect` 와 `verify` 는 FULL_CHAIN 의 상태 이름이 아니라 halt 가 일어나는
+  // phase 이름이다 — 나머지는 체인 상태와 같은 어휘를 쓴다. 그 교집합이 곧 A1
+  // corpus 와의 조인 지점이므로 어휘가 갈라지면 조인이 조용히 깨진다.
+  ['plan_prd', 'plan', 'implement', 'commit', 'pr'].forEach((s) => {
+    assert.ok(orch.FULL_CHAIN.includes(s), 'chain vocabulary drifted for: ' + s);
+  });
+});
+
+test('M2: the site regex accepts the wired slugs and rejects path-ish input', () => {
+  ['3.preflight', '3.wp.no-return', '0.dirty-tree', '2t.commit'].forEach((s) => {
+    assert.ok(orch.HALT_SITE_RE.test(s), 'must accept wired slug: ' + s);
+  });
+  ['../escape', 'has/slash', 'UPPER', '', 'a'.repeat(41), '-leading'].forEach((s) => {
+    assert.ok(!orch.HALT_SITE_RE.test(s), 'must reject: ' + JSON.stringify(s));
+  });
+});

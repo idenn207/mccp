@@ -1,0 +1,40 @@
+{
+  "schema_version": "v1",
+  "id": "2026-09-04T07-29-14-906Z__845b9249",
+  "created_at": "2026-09-04T07:29:14.906Z",
+  "session_id": "8abe030f-479b-4ffd-9b02-d14a7061bc44",
+  "scan_hash": "36ab92a20e91c22ebbeab70a199df65ae5d7945df877220678abc3a9d2bdafd6",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/leadtime-observability.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/leadtime-observability.prd.md",
+          "to": ".claude/prds/archived/leadtime-observability.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/leadtime-observability-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/leadtime-observability-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/leadtime-observability-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/leadtime-observability-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/leadtime-observability-m3.plan.md",
+          "to": ".claude/PRPs/plans/archived/leadtime-observability-m3.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/leadtime-observability-m4.plan.md",
+          "to": ".claude/PRPs/plans/archived/leadtime-observability-m4.plan.md"
+        }
+      ]
+    }
+  ]
+}

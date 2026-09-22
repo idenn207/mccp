@@ -126,6 +126,8 @@ We'll know we're right when **통과 경로 게이트 실행의 wall-clock이 �
 | 2 | L3 자동 트리거 | 불확실성(A: L2 divergent/quorum 경계) ∨ 위험영역(B: auth·API·migration·schema·gate-self·ledger) ∨ ship지점(C: terminal PR) 신호 시 cross-model 자동 발동 · **#6 실측**으로 조건 튜닝 · 과발동↔지연 균형 관측 | pending | — |
 | 3 | implement-verify 3층 확장 | `mccp-implement-verify`를 L1(강한 test/typecheck backbone)+L2+L3로 generalize · 코드 diff 게이트의 verification 가치 극대화 | pending | — |
 
+> **#1.5가 지켜야 할 계약 (closure-accounting M3).** 패널이 finding을 판정해 registry에 남길 때는 `findings-registry.js`의 `CLOSURE_FROM_ADJUDICATION`을 경유하고(호출부에서 `closure_type`을 직접 고르지 않는다) 같은 파일의 `PRODUCER_CHANNELS`에서 패널 행의 `adjudicated`·`closure_types`를 갱신해야 한다 — `plugins/mccp/scripts/lib/tests/findings-producer-reachability.test.js`(R3~R6)가 선언과 emitter 소스를 대조하므로, 배선만 하고 선언을 두면 착지하지 못한다. 지금 `closure report`의 registry 행은 이 채널을 `adjudication: unreachable (owner: diverse-agent-review #1.5)`로 표기한다.
+
 > **번호는 정체성, 순서는 표 위치.** CHANGELOG 1.23.5와 CLAUDE.md §1.4가 이미 "M2=L3 자동 트리거 · M3=implement-verify 3층 확장 · M1.5=패널 intent 편입"을 그 이름으로 참조하는 ship 기록이라, 재번호는 그 기록을 거짓으로 만든다. 대신 행 순서를 실행 순서로 쓴다 — `/mccp:plan`의 "next pending" 선택도 이 순서를 따른다.
 
 > **#6이 생긴 이유 — acceptance가 순환이었다 (2026-08-13).** #4의 원래 Outcome은 "패널 승인 경로 1회 완주"와 "budget 게이트 실발화"를 담았고, 그 plan의 Task 5는 충족 절차를 `claude plugin update → 새 세션`으로 적었다. 그런데 이 플러그인은 git-source라 `claude plugin update`는 **머지된 main**을 당긴다. 운영자의 규칙("milestone이 complete돼야 PR을 올린다")과 곱하면 complete → merge → 설치 → complete의 **순환**이 된다 — 머지된 아티팩트로만 충족되는 조건이 머지 전 milestone의 완료 조건에 들어간 것이다.

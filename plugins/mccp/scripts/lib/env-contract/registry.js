@@ -233,7 +233,7 @@ const RAW = [
   ['MCCP_HOOK_ID', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/observe-runner.js:73', '실행 중 hook id.'],
   ['MCCP_HOOK_INPUT_MAX_BYTES', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/config-protection.js:157', 'hook 입력 바이트 상한.'],
   ['MCCP_HOOK_INPUT_TRUNCATED', 'bool', B, 'off', OFF, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/config-protection.js:142', '입력 절단 신호.'],
-  ['MCCP_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/bootstrap.js:96', '플러그인 루트 경로.'],
+  ['MCCP_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/hooks/bootstrap.js:108', '플러그인 루트 경로.'],
   ['MCCP_SESSION_ID', 'string', null, null, null, 'internal', 'hooks', 'plugins/mccp/scripts/lib/session-identity.js:55', '현재 세션 id — 체인 1순위(M8 DD1: 해소는 session-identity 단독).'],
   ['MCCP_SESSION_START_CONTEXT', 'enum', ['off', 'on'], null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/session-start.js:168', 'STATE.md 주입 여부.', null, '판정이 canonical enum이 아니라 disable 별칭 집합이다 — session-start.js:168이 0/false/off/none/disabled에 들면 off로 보고 그 밖은 전부 on이라, MCCP_GATEGUARD와 같은 형태로 수용 어휘가 열거로 존재하지 않는다. 상수로 승격하면 없는 열거를 만들어 내는 셈이며, 이 형태를 다루는 것은 파서 이원화 축이다'],
   ['MCCP_SESSION_START_MAX_CHARS', 'int', null, null, null, 'undocumented-default', 'hooks', 'plugins/mccp/scripts/hooks/session-start.js:172', '주입 블록 문자 상한.'],
@@ -270,7 +270,7 @@ const RAW = [
   ['MCCP_LEADTIME_GIT', 'bool', B, 'on', ON, 'active', 'observability', 'plugins/mccp/scripts/lib/leadtime-derive.js:96', '리드타임 git 증인 spawn.'],
 
   // ── external — mccp가 정의하지 않지만 mccp 경로가 읽는 이름 ─────────────────
-  ['CLAUDE_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:95', '주입된 플러그인 루트.'],
+  ['CLAUDE_PLUGIN_ROOT', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:107', '주입된 플러그인 루트.'],
   ['CLAUDE_SESSION_ID', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/lib/session-identity.js:57', 'legacy 세션 id — 이 CLI는 설정하지 않는다. 체인 3순위(M8 DD1).'],
   ['CLAUDE_PID', 'string', null, null, null, 'internal', 'external', 'plugins/mccp/scripts/lib/session-processes.js:946', 'Claude Code PID.'],
   ['CLAUDE_RULES_DIR', 'string', null, null, null, 'undocumented-default', 'external', 'plugins/mccp/scripts/hooks/bootstrap.js:68', 'ECC rule 디렉토리.'],

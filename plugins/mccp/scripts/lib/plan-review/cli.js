@@ -1060,7 +1060,8 @@ function cmdVerifyProof(args) {
 // the closure rate. It moves a finding from `open` to `deferred`, which is what
 // actually happened. A producer that wrote `fixed` here would be lying.
 //
-// ONLY findings that are currently OPEN in the registry are closed. Two members
+// ONLY findings that are currently NOT CLOSED in the registry are closed — `open`
+// or `accepted`, since accepting a finding does not resolve it. Two members
 // of `blockingFindings` were never opened by emitPanelFindings and closing them
 // would fabricate closed records with `opened_at: null` — phantom denominator:
 //   - the synthesised `verdict=fail` rows (quorum.js), which carry no claim from
@@ -1078,7 +1079,7 @@ function emitPanelClosures(root, slug, rows) {
     try {
       const shard = findingsRegistry.readShard(slug, { repoRoot: root });
       openIds = new Set((shard.findings || [])
-        .filter(function (f) { return f && f.state === 'open'; })
+        .filter(function (f) { return f && f.state !== 'closed'; })
         .map(function (f) { return f.finding_id; }));
     } catch (e) {
       errln('cannot read the findings shard (' + (e && e.message ? e.message : String(e)) +

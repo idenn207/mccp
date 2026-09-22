@@ -1,0 +1,45 @@
+{
+  "schema_version": "v1",
+  "id": "2026-09-15T06-38-21-213Z__fb72dfd8",
+  "created_at": "2026-09-15T06:38:21.213Z",
+  "session_id": "1f8802aa-fbe5-4c88-854c-6bf084a2c36b",
+  "scan_hash": "e199ca3c89bc3c0aa50461fb414cd3dc684a29def93851d1f4d21419ec10b281",
+  "status_corrections": [],
+  "archives": [
+    {
+      "prd": ".claude/prds/ci-full-suite.prd.md",
+      "moves": [
+        {
+          "action": "move",
+          "from": ".claude/prds/ci-full-suite.prd.md",
+          "to": ".claude/prds/archived/ci-full-suite.prd.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/ci-full-suite-m1.plan.md",
+          "to": ".claude/PRPs/plans/archived/ci-full-suite-m1.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/ci-full-suite-m2.plan.md",
+          "to": ".claude/PRPs/plans/archived/ci-full-suite-m2.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/ci-full-suite-m3w.plan.md",
+          "to": ".claude/PRPs/plans/archived/ci-full-suite-m3w.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/ci-full-suite-m4.plan.md",
+          "to": ".claude/PRPs/plans/archived/ci-full-suite-m4.plan.md"
+        },
+        {
+          "action": "move",
+          "from": ".claude/plans/ci-full-suite-m5.plan.md",
+          "to": ".claude/PRPs/plans/archived/ci-full-suite-m5.plan.md"
+        }
+      ]
+    }
+  ]
+}

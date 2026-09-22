@@ -193,6 +193,11 @@ function computeA1(model) {
       'no _priorStartupCount baseline is recorded, so the anti-gaming spike guard cannot judge',
   };
 
+  // orchestrator-step-wiring M4 (Task 3) — present-only. 스캔이 비교할 공유 위치를 갖지
+  // 못했으면(`null`) 키 자체가 없다. A1 값에는 관여하지 않고 배너의 둘째 줄만 먹인다.
+  const localOnlyFields = Number.isInteger(sessionActivity.a1_local_only_events)
+    ? { local_only_events: sessionActivity.a1_local_only_events } : {};
+
   // Anti-gaming: inverted timestamps (착수 시각 > 지시 시각)
   const inversionFlag = sessionActivity.inversion_detected ? 'timestamp_inversion_detected' : null;
 
@@ -208,7 +213,7 @@ function computeA1(model) {
       invalid_reason: invalidReason,
       status: 'invalid',
       coverage: sessionActivity.producer_coverage || 'unknown',
-      ...spikeGuardFields,
+      ...spikeGuardFields, ...localOnlyFields,
     };
   }
 
@@ -227,7 +232,7 @@ function computeA1(model) {
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
       sealed_without_completion: sessionActivity.sealed_without_completion || 0,
-      ...spikeGuardFields,
+      ...spikeGuardFields, ...localOnlyFields,
     };
   }
 
@@ -247,7 +252,7 @@ function computeA1(model) {
       status: 'forward-only',
       coverage: sessionActivity.producer_coverage || 'unknown',
       sealed_without_completion: sessionActivity.sealed_without_completion || 0,
-      ...spikeGuardFields,
+      ...spikeGuardFields, ...localOnlyFields,
     };
   }
 
@@ -263,7 +268,7 @@ function computeA1(model) {
     // DD5 병기 축 — 봉인됐으나 완주 기록이 없는 작업 단위 수. 값 셀이 아니라
     // 대시보드의 `A1 커버리지:` 줄로 나간다(DD11: 값 셀은 한 지표만 담는다).
     sealed_without_completion: sessionActivity.sealed_without_completion || 0,
-    ...spikeGuardFields,
+    ...spikeGuardFields, ...localOnlyFields,
   };
 }
 

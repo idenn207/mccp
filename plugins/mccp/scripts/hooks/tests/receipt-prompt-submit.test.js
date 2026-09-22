@@ -11,7 +11,8 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const crypto = require('crypto');
+const { spawnSync, execFileSync } = require('child_process');
 
 const hook = require('../receipt-prompt-submit');
 const oracle = require('../../lib/harness-ingress');
@@ -50,13 +51,38 @@ test('(c) kill switch가 켜져 있으면 stdin을 읽기 전에 끝난다', () 
 
 test('(d) codex로 지목되면 게이트가 실제로 발화한다 — B1 측정 이후', () => {
   assert.ok(oracle.CODEX_BLOCK_PROTOCOL, 'B1 measured; the ingress is live');
-  // `/mccp:pr`은 선행 receipt를 요구하는 명령이라 이 저장소에서 실제 판정이 나온다.
-  const r = run({ MCCP_HARNESS: 'codex' },
-    JSON.stringify({ prompt: '/mccp:pr', turn_id: 't1', cwd: process.cwd(), session_id: 's1' }));
-  assert.equal(r.status, 0, 'the measured protocol is stdout-json + exit 0');
-  // 발화했다는 증거: 게이트가 payload를 냈거나(차단) 조용히 통과했거나 — 어느 쪽이든
-  // "지목되지 않아 즉시 나갔다"는 stderr notice는 없어야 한다.
-  assert.doesNotMatch(r.stderr, /not routed/);
+  // orchestrator-step-wiring M4 (Task 1) — 발화한 hook은 `cwd`의 공유 corpus에
+  // `task_started`를 append한다. 이 test가 실 저장소를 cwd로, 고정 `s1`을 session으로
+  // 넘기던 동안 전수 스위트마다 가짜 착수가 실 A1 분모에 붙었다. 임시 저장소와 실행마다
+  // 유일한 session id로 격리하고, 실 저장소에 흔적이 없음을 단언한다.
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-ingress-'));
+  execFileSync('git', ['init', '-q', repo]);
+  const sid = 'test-' + process.pid + '-' + crypto.randomUUID().slice(0, 8);
+  // 오염이 착지하던 자리는 **러너의 cwd**다. 그 cwd가 git 저장소가 아닌 경우도 있으므로
+  // (설치된 plugin cache에서 스위트를 돌리는 경우) 해소 실패는 이 test의 실패가 아니라
+  // 대조 대상 부재다 — 단언을 그때만 건너뛴다(code-review LOW).
+  let realShared = null;
+  try {
+    realShared = path.join(
+      execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(),
+      'mccp', 'msw-events', sid + '.jsonl');
+  } catch (_e) { realShared = null; }
+  try {
+    // `/mccp:pr`은 선행 receipt를 요구하는 명령이라 빈 저장소에서도 실제 판정이 나온다.
+    const r = run({ MCCP_HARNESS: 'codex' },
+      JSON.stringify({ prompt: '/mccp:pr', turn_id: 't1', cwd: repo, session_id: sid }));
+    assert.equal(r.status, 0, 'the measured protocol is stdout-json + exit 0');
+    // 발화했다는 증거: 게이트가 payload를 냈거나(차단) 조용히 통과했거나 — 어느 쪽이든
+    // "지목되지 않아 즉시 나갔다"는 stderr notice는 없어야 한다.
+    assert.doesNotMatch(r.stderr, /not routed/);
+    if (realShared) {
+      assert.equal(fs.existsSync(realShared), false,
+        'the test must not append to the real shared corpus: ' + realShared);
+    }
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
 });
 
 test('(d2) 채택된 형식이 Claude 코어의 형식과 같다 — 별도 직렬화기가 없다', () => {

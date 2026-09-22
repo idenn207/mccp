@@ -16,6 +16,17 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
+// B17 — the suite used `REPO_ROOT` as the repo root in 29 places, so every
+// one of them silently depended on which directory the runner was launched from.
+// `node --test` from `plugins/mccp/` made those calls read a tree with no
+// `.claude/`, and the assertions still passed because the fixtures are mocked —
+// a test that cannot fail on the axis it names. Resolved from `__dirname`, and
+// checked, so a wrong answer is loud rather than invisible.
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..');
+require('assert').ok(
+  require('fs').existsSync(path.join(REPO_ROOT, '.git')),
+  'REPO_ROOT must resolve to the repository, not the launch directory: ' + REPO_ROOT);
+
 // Inject fixtures by mocking the requires inside the report module.
 // We'll use a test-specific wrapper that resets the require cache.
 
@@ -129,11 +140,11 @@ function withFixtures(testFn) {
           },
         };
       } else if (id === '../../state/findings-registry') {
-        return {
+        return Object.assign({}, require('../../../state/findings-registry'), {
           readAll: () => ({
             findings: fixture.findings,
           }),
-        };
+        });
       }
       return originalRequire.apply(this, arguments);
     };
@@ -151,7 +162,7 @@ function withFixtures(testFn) {
 }
 
 test('invariant (a): all return paths have same top-level keys', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
   const keys = Object.keys(result).sort();
   const expectedKeys = ['degraded', 'denominator_gap', 'dispositions', 'ledgers', 'live', 'reseal_warning', 'seal'].sort();
   assert.deepStrictEqual(keys, expectedKeys, 'missing or extra keys in return object');
@@ -175,7 +186,7 @@ test('invariant (a): return path with degraded error has same keys', withFixture
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
     const keys = Object.keys(result).sort();
     const expectedKeys = ['degraded', 'denominator_gap', 'dispositions', 'ledgers', 'live', 'reseal_warning', 'seal'].sort();
     assert.deepStrictEqual(keys, expectedKeys, 'degraded path has different keys');
@@ -186,7 +197,7 @@ test('invariant (a): return path with degraded error has same keys', withFixture
 }));
 
 test('invariant (b): disposed >= resolved >= fixed', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
   assert.ok(
     result.dispositions.disposed >= result.dispositions.resolved,
     'disposed (' + result.dispositions.disposed + ') should be >= resolved (' + result.dispositions.resolved + ')'
@@ -198,7 +209,7 @@ test('invariant (b): disposed >= resolved >= fixed', withFixtures((t, report, fi
 }));
 
 test('invariant (c): injected fixtures produce known values', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
 
   // Seal.items should be 1115
   assert.strictEqual(result.seal.items, 1115, 'seal.items should be 1115');
@@ -220,7 +231,7 @@ test('invariant (c): injected fixtures produce known values', withFixtures((t, r
 }));
 
 test('invariant (d): ledgers exactly 2 rows with denominator_note', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
   assert.strictEqual(result.ledgers.length, 2, 'ledgers must have exactly 2 rows');
 
   for (let i = 0; i < result.ledgers.length; i++) {
@@ -234,12 +245,12 @@ test('invariant (d): ledgers exactly 2 rows with denominator_note', withFixtures
 }));
 
 test('invariant (e): baseline JSON structure as subset (C1 fix: fail if baseline missing)', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
 
   // Load baseline for comparison (just check structure, not values)
   // C1: Correct path from repo root, not from test file
   const fs = require('fs');
-  const repoRoot = process.cwd();
+  const repoRoot = REPO_ROOT;
   const baselinePath = path.join(repoRoot, '.claude/_meta/data/2026-09-08-closure-baseline.json');
 
   let baseline = null;
@@ -290,7 +301,7 @@ test('invariant (e): baseline JSON structure as subset (C1 fix: fail if baseline
 
 test('invariant (e-guard): baseline file must exist and be readable (C1)', (t) => {
   const fs = require('fs');
-  const repoRoot = process.cwd();
+  const repoRoot = REPO_ROOT;
   const baselinePath = path.join(repoRoot, '.claude/_meta/data/2026-09-08-closure-baseline.json');
   assert.ok(fs.existsSync(baselinePath), 'baseline file must exist at ' + baselinePath);
 
@@ -301,7 +312,7 @@ test('invariant (e-guard): baseline file must exist and be readable (C1)', (t) =
 });
 
 test('invariant (f): no absolute paths in output', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
   const serialized = JSON.stringify(result);
 
   // Check for /home/ paths
@@ -356,9 +367,9 @@ test('invariant (g): reseal_warning null when denominator_gap.count === 0', with
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => ({ findings: [] }),
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -366,7 +377,7 @@ test('invariant (g): reseal_warning null when denominator_gap.count === 0', with
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.strictEqual(result.denominator_gap.count, 0, 'gap should be 0');
     assert.strictEqual(result.reseal_warning, null, 'reseal_warning should be null when gap === 0');
@@ -377,7 +388,7 @@ test('invariant (g): reseal_warning null when denominator_gap.count === 0', with
 }));
 
 test('invariant (c2): denominator_gap.pct divides by live.items, not seal.items (C2)', withFixtures((t, report, fixture) => {
-  const result = report.buildClosureReport(process.cwd());
+  const result = report.buildClosureReport(REPO_ROOT);
 
   // Fixture: seal.items = 1115, live.items = 1389
   // gap = 1389 - 1115 = 274
@@ -435,9 +446,9 @@ test('invariant (c3): disposition count uses folded records, not line count (C3)
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => ({ findings: [] }),
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -445,7 +456,7 @@ test('invariant (c3): disposition count uses folded records, not line count (C3)
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     // After folding:
     // - backlog:1 has disposition 'fixed' (last line wins)
@@ -485,7 +496,7 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => ({
           findings: [
             // Mix of states
@@ -495,7 +506,7 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
             { finding_id: 'f3', state: 'accepted', severity: 'MEDIUM', claim_digest: 'dig3' },
           ],
         }),
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -503,7 +514,7 @@ test('invariant (c8): findings with state != closed are counted as open (C8)', w
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     // Expected: open (f0, f2, f3), closed (f1)
     // opened should be 3, closed should be 1, total 4
@@ -550,7 +561,7 @@ function sealDigestFixture(storedSha, hashFn) {
         inventoryHash: hashFn,
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(self, args);
   };
@@ -572,7 +583,7 @@ test('invariant (i): a seal whose digest does not match its items is NOT counted
 
   try {
     delete require.cache[require.resolve('../report.js')];
-    const result = require('../report.js').buildClosureReport(process.cwd());
+    const result = require('../report.js').buildClosureReport(REPO_ROOT);
 
     const hit = (result.degraded || []).find((d) => d.name === 'seal-digest');
     assert.ok(hit, 'degraded[] must carry a seal-digest entry');
@@ -603,7 +614,7 @@ test('invariant (i2): a seal whose digest DOES match is counted normally (positi
 
   try {
     delete require.cache[require.resolve('../report.js')];
-    const result = require('../report.js').buildClosureReport(process.cwd());
+    const result = require('../report.js').buildClosureReport(REPO_ROOT);
 
     assert.strictEqual((result.degraded || []).find((d) => d.name === 'seal-digest'), undefined,
       'a matching digest must not degrade');
@@ -660,7 +671,7 @@ test('invariant (h): equal-sized inventories with DIFFERENT identities report th
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -668,7 +679,7 @@ test('invariant (h): equal-sized inventories with DIFFERENT identities report th
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.strictEqual(result.denominator_gap.count, 10,
       'all 10 live items are outside the seal (identity-based), not 0');
@@ -712,7 +723,7 @@ test('invariant (c9): a shrinking pile reports a negative net_change (not clampe
         foldDispositions: (lines) => new Map(),
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -720,7 +731,7 @@ test('invariant (c9): a shrinking pile reports a negative net_change (not clampe
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     // PR-Codex R1 F1 — the negative case moved fields, not meanings. `count` is
     // now |live \\ sealed| and cannot be negative; the "did the pile shrink?"
@@ -771,12 +782,12 @@ test('invariant (c7): throws in readers are caught and reported in degraded (C7)
         foldDispositions: (lines) => new Map(),
       };
     } else if (id === '../../state/findings-registry') {
-      return {
+      return Object.assign({}, require('../../../state/findings-registry'), {
         readAll: () => {
           const err = new Error('Registry file /root/.claude/state/findings-registry.json corrupted');
           throw err;
         },
-      };
+      });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -785,7 +796,7 @@ test('invariant (c7): throws in readers are caught and reported in degraded (C7)
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
     // Should NOT throw; should return with degraded entries
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.ok(result.degraded && result.degraded.length > 0, 'should have degraded entries');
 
@@ -838,7 +849,7 @@ test('invariant (c4): scrubPathsFromMessage handles diverse paths (C4)', (t) => 
           foldDispositions: (lines) => new Map(),
         };
       } else if (id === '../../state/findings-registry') {
-        return { readAll: () => ({ findings: [] }) };
+        return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
       }
       return originalRequire.apply(this, arguments);
     };
@@ -846,7 +857,7 @@ test('invariant (c4): scrubPathsFromMessage handles diverse paths (C4)', (t) => 
     try {
       delete require.cache[require.resolve('../report.js')];
       const testReport = require('../report.js');
-      const result = testReport.buildClosureReport(process.cwd());
+      const result = testReport.buildClosureReport(REPO_ROOT);
 
       const serialized = JSON.stringify(result);
       assert.ok(!serialized.includes(tc.should_not_have), 'output should not contain ' + tc.should_not_have);
@@ -904,7 +915,7 @@ test('invariant (c3b): disposition lines whose item is not in the seal are exclu
         },
       };
     } else if (id === '../../state/findings-registry') {
-      return { readAll: () => ({ findings: [] }) };
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: [] }) });
     }
     return originalRequire.apply(this, arguments);
   };
@@ -912,7 +923,7 @@ test('invariant (c3b): disposition lines whose item is not in the seal are exclu
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.strictEqual(result.dispositions.disposed, 1,
       'only the sealed item may be counted as disposed');
@@ -1000,7 +1011,7 @@ test('invariant (c5): a degraded findings registry nulls its counts instead of r
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.ok(result.degraded.some((d) => d.name === 'findings-registry'),
       'a degraded registry must name itself in degraded[]: ' + JSON.stringify(result.degraded));
@@ -1044,7 +1055,7 @@ test('invariant (c7-build): a buildInventory throw is caught and its path scrubb
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.ok(result && typeof result === 'object', 'the oracle must return, never throw');
     assert.ok(result.degraded.length > 0, 'the failure must appear in degraded[]');
@@ -1078,7 +1089,7 @@ test('invariant (c7-registry): a findings-registry throw is caught and its path 
   try {
     delete require.cache[require.resolve('../report.js')];
     const testReport = require('../report.js');
-    const result = testReport.buildClosureReport(process.cwd());
+    const result = testReport.buildClosureReport(REPO_ROOT);
 
     assert.ok(result && typeof result === 'object', 'the oracle must return, never throw');
     assert.ok(result.degraded.some((d) => d.name === 'findings-registry'),
@@ -1169,7 +1180,7 @@ test('invariant (m1): disposed, resolved and fixed are three different numbers (
 
   try {
     delete require.cache[require.resolve('../report.js')];
-    const result = require('../report.js').buildClosureReport(process.cwd());
+    const result = require('../report.js').buildClosureReport(REPO_ROOT);
     const d = result.dispositions;
 
     assert.strictEqual(d.total, 10, 'total is the sealed item count, not stats and not live');
@@ -1192,10 +1203,19 @@ test('invariant (m1): disposed, resolved and fixed are three different numbers (
     assert.strictEqual(typeof result.seal.age_days, 'number', 'age_days must be present and numeric');
     assert.ok(result.seal.age_days >= 0, 'age_days must not be negative');
 
-    // The warning has to carry both anchors: the count tells the operator what a
-    // re-seal would unbind, the sha says which seal they are bound to.
+    // The warning has to carry both anchors: the count tells the operator how many
+    // judgments are at stake, and the path tells them where the succession lives.
+    //
+    // It used to quote the inventory sha instead of the path, because the only
+    // thing it could say was "re-sealing would unbind these". Now there is a tool
+    // that carries them forward, so the useful anchor is the tool — and quoting
+    // the digest here is what made every committed report JSON a candidate
+    // successor under the old substring rule.
     assert.match(result.reseal_warning, /\b6\b/, 'reseal_warning must quote the disposition count');
-    assert.ok(result.reseal_warning.indexOf(SHA) !== -1, 'reseal_warning must quote inventory_sha256');
+    assert.match(result.reseal_warning, /msw-metrics\/reseal\.js/,
+      'reseal_warning must name the succession path');
+    assert.doesNotMatch(result.reseal_warning, /\bM2\b/,
+      'the warning must not still call re-sealing a future milestone');
   } finally {
     Module.prototype.require = originalRequire;
     delete require.cache[require.resolve('../report.js')];
@@ -1225,7 +1245,7 @@ test('invariant (m2): each degradation signal alone is enough to mark the regist
     };
     try {
       delete require.cache[require.resolve('../report.js')];
-      const result = require('../report.js').buildClosureReport(process.cwd());
+      const result = require('../report.js').buildClosureReport(REPO_ROOT);
       const row = result.ledgers.find((l) => l.name === 'findings-registry');
       assert.strictEqual(row.total, null, label + ': counts must be null');
       assert.ok(result.degraded.some((x) => x.name === 'findings-registry'),
@@ -1264,7 +1284,7 @@ test('invariant (m3): a degraded live inventory is reported, not absorbed (C5)',
 
   try {
     delete require.cache[require.resolve('../report.js')];
-    const result = require('../report.js').buildClosureReport(process.cwd());
+    const result = require('../report.js').buildClosureReport(REPO_ROOT);
     assert.ok(result.degraded.some((d) => /live-inventory|findings/.test(d.name)),
       'a degraded live inventory must be named in degraded[]: ' + JSON.stringify(result.degraded));
   } finally {
@@ -1311,7 +1331,7 @@ test('invariant (m4): a malformed disposition ledger nulls its row and suppresse
 
   try {
     delete require.cache[require.resolve('../report.js')];
-    const result = require('../report.js').buildClosureReport(process.cwd());
+    const result = require('../report.js').buildClosureReport(REPO_ROOT);
 
     assert.strictEqual(result.dispositions, null, 'a malformed ledger nulls the dispositions block');
     const row = result.ledgers.find((l) => l.name === 'disposition-ledger');
@@ -1323,6 +1343,515 @@ test('invariant (m4): a malformed disposition ledger nulls its row and suppresse
       'the warning quotes a disposition count, so it must be suppressed with it');
     assert.ok(result.degraded.some((d) => d.name === 'disposition-ledger'),
       'the malformed ledger must name itself in degraded[]');
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+});
+
+test('invariant (m5): seal.ancestry_depth is present and null-on-unjudgeable, never 0-on-unknown', (t) => {
+  // A re-sealed denominator descends from something, and the report has to be able
+  // to say how deep that chain is. The rule is the same one the rest of this file
+  // follows: a chain that cannot be judged is `null`, not `0`. Reporting 0 for an
+  // unreadable ancestry would claim "this seal is original" about a seal nobody
+  // could check — the success-direction default this instrument exists to remove.
+  //
+  // M5 DD3 — the depth is read from the `verify` answer, so that is what is mocked.
+  const depthOf = function (verifyResult) {
+    return withDebtMock({ verifyDispositions: () => verifyResult }).report.seal.ancestry_depth;
+  };
+  assert.strictEqual(depthOf({ invalid_dispositions: 0, ancestry_depth: 0 }), 0,
+    'an original seal has depth 0');
+  assert.strictEqual(depthOf({ invalid_dispositions: 0, ancestry_depth: 2 }), 2,
+    'depth is whatever verify counted');
+  assert.strictEqual(depthOf({ invalid_dispositions: 0, ancestry_depth: null }), null,
+    'an unjudgeable chain is null, never 0');
+  // verify's early returns omit the field entirely — still unknown, not 0.
+  assert.strictEqual(depthOf({ ok: false, open: null }), null);
+});
+
+// Shared by (m5) · (d*) · (s*): a small seal whose live pile and ledger each test
+// shapes, with everything else the report touches mocked around it.
+function withDebtMock(overrides, shape) {
+  const o = shape || {};
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+  const fixture = createMockRepoFixture();
+  const sealedDoc = o.sealedDoc || fixture.sealedDoc;
+  const calls = { sealAncestry: 0 };
+  const mod = Object.assign({
+    readInventory: () => sealedDoc,
+    buildInventory: () => ({ items: o.liveItems || fixture.liveItems, stats: { by_source: {} } }),
+    readDispositions: () => ({ ok: true, lines: o.dispositions || fixture.dispositions }),
+    SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+    foldDispositions: (lines) => {
+      const m = new Map();
+      for (const l of lines) m.set(l.item_id, l);
+      return m;
+    },
+    // Counted, and never expected to run: the report reads the depth from verify.
+    sealAncestry: () => { calls.sealAncestry += 1; return { verified: ['x', 'y', 'z', 'w'], unverified: [] }; },
+  }, overrides || {});
+  Module.prototype.require = function (id) {
+    if (id === '../msw-metrics/debt-inventory') return mod;
+    if (id === '../../state/findings-registry') {
+      return Object.assign({}, require('../../../state/findings-registry'), { readAll: () => ({ findings: fixture.findings }) });
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    return { report: require('../report.js').buildClosureReport(REPO_ROOT), calls: calls };
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}
+
+test('(d1) the report never calls sealAncestry itself — the depth is the verify answer', () => {
+  // backlog 1842: the report used to run the ancestry oracle twice per run, once
+  // inside verify and once on its own. One answer cannot disagree with itself.
+  const r = withDebtMock({ verifyDispositions: () => ({ invalid_dispositions: 0, ancestry_depth: 3 }) });
+  assert.strictEqual(r.calls.sealAncestry, 0, 'no direct sealAncestry call');
+  assert.strictEqual(r.report.seal.ancestry_depth, 3, 'the depth verify reported, not the mock oracle\'s 4');
+});
+
+test('(d2) no verify function means an unknown depth, even when an oracle is available', () => {
+  const r = withDebtMock({ verifyDispositions: undefined });
+  assert.strictEqual(r.report.seal.ancestry_depth, null);
+  assert.strictEqual(r.calls.sealAncestry, 0);
+});
+
+// MF2 · DD4 — a sealed item that left the live pile while holding a judgment bound
+// to the current seal is a judgment the next re-seal drops. The report says how
+// many, instead of leaving it to be discovered in the re-seal plan.
+function goneFixture(disposeGone) {
+  const sha = 'sha256:' + 'c'.repeat(64);
+  const items = ['backlog:a', 'backlog:b', 'backlog:gone'].map(function (id) {
+    return { item_id: id, source: 'backlog', severity: 'MEDIUM' };
+  });
+  const dispositions = [{ item_id: 'backlog:a', disposition: 'fixed', inventory_sha256: sha }];
+  if (disposeGone) dispositions.push({ item_id: 'backlog:gone', disposition: 'deferred', inventory_sha256: sha });
+  // An old-sha line on the gone item must NOT count: only current-seal judgments drop.
+  dispositions.push({ item_id: 'backlog:b', disposition: 'deferred', inventory_sha256: 'sha256:' + 'd'.repeat(64) });
+  return {
+    sealedDoc: { meta: { sealed_at: '2026-09-01T00:00:00.000Z' }, inventory_sha256: sha, items: items },
+    liveItems: [items[0], items[1], { item_id: 'backlog:new', source: 'backlog', severity: 'LOW' }],
+    dispositions: dispositions,
+  };
+}
+
+const cleanVerify = { verifyDispositions: () => ({ invalid_dispositions: 0, ancestry_depth: 0 }) };
+
+test('(s1) a gone sealed item with a current-seal judgment is counted and named in the warning', () => {
+  const r = withDebtMock(cleanVerify, goneFixture(true)).report;
+  assert.strictEqual(r.denominator_gap.sealed_not_live, 1);
+  assert.strictEqual(r.denominator_gap.sealed_not_live_disposed, 1);
+  assert.match(r.reseal_warning, /1 sealed item\(s\) that are no longer live still carry a disposition/);
+});
+
+test('(s2) a gone sealed item with no judgment counts 0 and leaves the warning unchanged', () => {
+  const r = withDebtMock(cleanVerify, goneFixture(false)).report;
+  assert.strictEqual(r.denominator_gap.sealed_not_live, 1);
+  assert.strictEqual(r.denominator_gap.sealed_not_live_disposed, 0);
+  assert.ok(r.reseal_warning, 'the gap still warns');
+  assert.ok(!/no longer live still carry/.test(r.reseal_warning), r.reseal_warning);
+});
+
+test('(s3) an item with no identity makes the count unknown, not 0', () => {
+  const shape = goneFixture(true);
+  shape.liveItems = shape.liveItems.concat([{ source: 'backlog', severity: 'LOW' }]);
+  const r = withDebtMock(cleanVerify, shape).report;
+  assert.strictEqual(r.denominator_gap.sealed_not_live_disposed, null);
+  // A blocked disposition axis is the other way to not know.
+  const blocked = withDebtMock({ verifyDispositions: () => ({ invalid_dispositions: 2, ancestry_depth: 0 }) },
+    goneFixture(true)).report;
+  assert.strictEqual(blocked.denominator_gap.sealed_not_live_disposed, null);
+});
+
+// ── producers[] — closure-accounting M3 (DD4/DD5) ────────────────────────────
+//
+// What these pin is that the registry row carries its own reachability and that
+// the per-channel counts are a PARTITION of it. A channel table that does not
+// add up to the ledger it annotates is worse than no table: it invites the
+// reader to subtract and find a residue nobody can explain.
+
+const M3_FINDINGS = [
+  { finding_id: 'a1', gate_id: 'mccp-plan-codex', perspective: 'architect', state: 'open' },
+  { finding_id: 'a2', gate_id: 'mccp-plan-codex', perspective: 'test', state: 'closed', closure_type: 'deferred' },
+  { finding_id: 'a3', gate_id: 'mccp-plan-codex', perspective: 'codex', state: 'accepted' },
+  { finding_id: 'a4', gate_id: 'mccp-plan-codex', perspective: 'codex', state: 'closed', closure_type: 'rejected' },
+  { finding_id: 'a5', gate_id: 'mccp-santa-loop', perspective: 'santa-A', state: 'open' },
+  { finding_id: 'a6', gate_id: null, perspective: null, state: 'open' },
+];
+
+// `readAllResult` may be a function (e.g. one that throws); `registryOverrides`
+// replaces other exports of the real module.
+function withRegistry(readAllResult, fn, registryOverrides) {
+  const fixture = createMockRepoFixture();
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+  Module.prototype.require = function(id) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return {
+        readInventory: () => fixture.sealedDoc,
+        buildInventory: () => ({
+          items: fixture.liveItems,
+          stats: { by_source: { backlog: 1510, findings: 976, 'fix-task': 1 } },
+        }),
+        readDispositions: () => ({ ok: true, lines: fixture.dispositions }),
+        SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+        foldDispositions: (lines) => {
+          const m = new Map();
+          for (const l of lines) m.set(l.item_id, l);
+          return m;
+        },
+      };
+    } else if (id === '../../state/findings-registry') {
+      return Object.assign({}, require('../../../state/findings-registry'), {
+        readAll: typeof readAllResult === 'function' ? readAllResult : () => readAllResult,
+      }, registryOverrides || {});
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const testReport = require('../report.js');
+    const result = testReport.buildClosureReport(REPO_ROOT);
+    return fn(result, result.ledgers.find((l) => l.name === 'findings-registry'));
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+}
+
+const healthyRegistry = (findings) => ({
+  findings, degraded: false, degraded_reasons: [], malformed: 0,
+});
+
+test('invariant (p1): producers lists the declared channels in order, then unattributed', () => {
+  const declared = require('../../../state/findings-registry').PRODUCER_CHANNELS
+    .map((c) => c.channel);
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    assert.deepStrictEqual(row.producers.map((p) => p.channel), declared.concat(['unattributed']));
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.strictEqual(panel.reachable.adjudicated, false,
+      'the default review path cannot adjudicate — that is the whole point of the row');
+    assert.deepStrictEqual(panel.reachable.closure_types, ['deferred']);
+    assert.ok(panel.pending_owner, 'a channel that cannot close must name who owns wiring it');
+  });
+});
+
+test('invariant (p2): channel counts partition the ledger they annotate', () => {
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    const sum = (k) => row.producers.reduce((a, p) => a + p.observed[k], 0);
+    assert.strictEqual(sum('total'), row.total, 'channel totals must sum to the ledger total');
+    assert.strictEqual(sum('closed'), row.closed, 'channel closures must sum to the ledger closures');
+    // The fixture exercises all four classifications, so the sums above are not
+    // vacuously satisfied by a single bucket holding everything.
+    for (const ch of ['plan-codex-runner', 'plan-review-panel', 'santa-loop', 'unattributed']) {
+      assert.ok(row.producers.find((p) => p.channel === ch).observed.total > 0,
+        ch + ' must be exercised or this partition proves nothing');
+    }
+  });
+});
+
+test('invariant (p3): a degraded registry nulls every observed count and keeps reachability', () => {
+  withRegistry({
+    findings: M3_FINDINGS, degraded: true,
+    degraded_reasons: ['unit: truncated line'], malformed: 1,
+  }, (result, row) => {
+    assert.strictEqual(row.total, null, 'precondition: the row itself is NOT COUNTED');
+    for (const p of row.producers) {
+      assert.strictEqual(p.observed, null, p.channel + ': a partial read is not a count');
+    }
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.deepStrictEqual(panel.reachable.closure_types, ['deferred'],
+      'reachability is declaration data — an unreadable ledger does not unmake it');
+  });
+});
+
+test('invariant (p4): accepted is counted as open AND named, and closed is neither', () => {
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    const codex = row.producers.find((p) => p.channel === 'plan-codex-runner');
+    // a3 accepted + a4 closed(rejected)
+    assert.strictEqual(codex.observed.total, 2);
+    assert.strictEqual(codex.observed.open, 1, 'accepted is still open — the debt did not go away');
+    assert.strictEqual(codex.observed.accepted, 1, 'and it is named, not folded into open (UI2)');
+    assert.strictEqual(codex.observed.closed, 1);
+    assert.deepStrictEqual(codex.observed.by_closure_type, { rejected: 1 });
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.strictEqual(panel.observed.accepted, 0, 'the panel channel cannot produce an accepted state');
+    assert.deepStrictEqual(panel.observed.by_closure_type, { deferred: 1 });
+  });
+});
+
+test('invariant (p5): a registry that throws on read keeps reachability and nulls observed', () => {
+  withRegistry(() => { throw new Error('unit: registry unreadable'); }, (result, row) => {
+    assert.strictEqual(row.total, null, 'precondition: the row itself is NOT COUNTED');
+    assert.ok(Array.isArray(row.producers), 'a read failure must not erase the declaration');
+    for (const p of row.producers) {
+      assert.strictEqual(p.observed, null, p.channel + ': nothing was read, so nothing is counted');
+    }
+    const panel = row.producers.find((p) => p.channel === 'plan-review-panel');
+    assert.deepStrictEqual(panel.reachable.closure_types, ['deferred']);
+  });
+});
+
+test('invariant (p6): a registry without channel exports degrades loudly instead of reading as empty', () => {
+  withRegistry(healthyRegistry(M3_FINDINGS), (result, row) => {
+    assert.strictEqual(row.producers, null);
+    const hit = (result.degraded || []).find((d) => d.name === 'findings-producers');
+    assert.ok(hit, 'a missing channel table must surface in degraded, not as a silent null');
+    assert.match(hit.reason, /exports no PRODUCER_CHANNELS/);
+  }, { PRODUCER_CHANNELS: undefined });
+});
+
+// ── M4 Task 4: the report stops counting judgments it never validated ────────
+//
+// These use the REAL debt-inventory against a synthetic repo, because the whole
+// finding is that the mocked module has no `validateDisposition` to skip.
+
+const fs = require('fs');
+const os = require('os');
+const di = require('../../msw-metrics/debt-inventory');
+
+function synthRepo(rows) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mccp-closure-'));
+  fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude', 'plans'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude', 'state', 'findings'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', 'plans', 'codex-findings-backlog.md'),
+    ['# Backlog', '', '| Date | Severity | Source plan | Finding |', '| --- | --- | --- | --- |']
+      .concat(rows).join('\n') + '\n', 'utf8');
+  return root;
+}
+
+function appendRawDisposition(root, rec) {
+  fs.appendFileSync(path.join(root, di.DISPOSITIONS_REL),
+    JSON.stringify(rec) + '\n', 'utf8');
+}
+
+test('(v1) a judgment the validator rejects nulls the row instead of counting it', () => {
+  const root = synthRepo(['| 2026-09-01 | LOW | a.md | one |', '| 2026-09-01 | LOW | a.md | two |']);
+  const doc = di.sealInventory(root);
+  // Straight into the ledger, past `appendDispositions` — which is exactly how a
+  // bad line gets there in the first place (a hand edit, a merge, an older
+  // writer). Reproduced against the live seal before the fix: every judgment
+  // rewritten to this value still reported closed 1115 · pct 100 · degraded [].
+  appendRawDisposition(root, {
+    item_id: doc.items[0].item_id,
+    disposition: 'NOT_A_REAL_ENUM',
+    inventory_sha256: doc.inventory_sha256,
+    disposed_at: '2026-09-14T00:00:00.000Z',
+  });
+
+  delete require.cache[require.resolve('../report.js')];
+  const report = require('../report.js');
+  const out = report.buildClosureReport(root);
+  const row = out.ledgers.find((l) => l.name === 'disposition-ledger');
+
+  assert.strictEqual(row.closed, null);
+  assert.strictEqual(row.total, null);
+  assert.strictEqual(row.pct, null);
+  assert.strictEqual(row.resolved, null);
+  assert.strictEqual(row.fixed, null);
+  assert.strictEqual(out.dispositions, null);
+  assert.ok(out.degraded.some((d) => d.name === 'disposition-validity'),
+    'the reason names the validity axis, not the ledger or the seal');
+  assert.match(row.denominator_note, /invalid dispositions/);
+  assert.strictEqual(out.reseal_warning, null,
+    'a warning must not quote a count the row above just declared uncountable');
+});
+
+test('(v2) a `fixed` with no evidence is the same failure as a bogus enum', () => {
+  const root = synthRepo(['| 2026-09-01 | LOW | a.md | one |']);
+  const doc = di.sealInventory(root);
+  appendRawDisposition(root, {
+    item_id: doc.items[0].item_id,
+    disposition: 'fixed',          // real enum, but `fixed` requires evidence
+    inventory_sha256: doc.inventory_sha256,
+    disposed_at: '2026-09-14T00:00:00.000Z',
+  });
+
+  delete require.cache[require.resolve('../report.js')];
+  const out = require('../report.js').buildClosureReport(root);
+  const row = out.ledgers.find((l) => l.name === 'disposition-ledger');
+  assert.strictEqual(row.closed, null);
+  assert.ok(out.degraded.some((d) => d.name === 'disposition-validity'));
+});
+
+test('(v3) positive control — valid judgments still produce numbers', () => {
+  const root = synthRepo(['| 2026-09-01 | LOW | a.md | one |', '| 2026-09-01 | LOW | a.md | two |']);
+  const doc = di.sealInventory(root);
+  const res = di.appendDispositions(root, [
+    { item_id: doc.items[0].item_id, disposition: 'fixed', evidence: '#1' },
+  ]);
+  assert.strictEqual(res.ok, true, JSON.stringify(res.rejected || []));
+
+  delete require.cache[require.resolve('../report.js')];
+  const out = require('../report.js').buildClosureReport(root);
+  const row = out.ledgers.find((l) => l.name === 'disposition-ledger');
+  assert.strictEqual(row.closed, 1, 'the null above is caused by invalidity, not by this path');
+  assert.strictEqual(row.total, 2);
+  assert.strictEqual(row.resolved, 1);
+  assert.strictEqual(row.fixed, 1);
+  assert.ok(!out.degraded.some((d) => d.name === 'disposition-validity'));
+});
+
+test('(o1) B15 — a later build failure does not erase an earlier one', () => {
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+  const sealed = {
+    meta: { sealed_at: '2026-09-01T00:00:00.000Z', sealed_at_commit: 'abc', stats: {} },
+    inventory_sha256: 'sha256:' + '0'.repeat(64),
+    items: [{ item_id: 'backlog:0', source: 'backlog', severity: 'LOW' }],
+  };
+  Module.prototype.require = function (id) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return {
+        readInventory: () => sealed,
+        // The seal's digest does not recompute, AND the ledger is malformed, AND
+        // the live build throws. Order of discovery must not decide the report.
+        inventoryHash: () => 'sha256:' + 'f'.repeat(64),
+        readDispositions: () => ({ ok: true, lines: [], malformed: 3 }),
+        buildInventory: () => { throw new Error('live collector exploded'); },
+        SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+        foldDispositions: () => new Map(),
+      };
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const out = require('../report.js').buildClosureReport(REPO_ROOT);
+    const names = out.degraded.map((d) => d.name).sort();
+    assert.ok(names.includes('live-inventory'), 'the build error is reported');
+    assert.ok(names.includes('seal-digest'), 'and so is the corruption seen before it');
+    assert.ok(names.includes('disposition-ledger'), 'and the malformed ledger');
+    assert.strictEqual(out.dispositions, null,
+      'a blocked disposition axis stays blocked on the early-return path too');
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+});
+
+test('(n1) B18 — a registry with no findings array is unknown, not zero', () => {
+  const Module = require('node:module');
+  // Captured BEFORE the override: resolved relative to THIS file. Resolving it
+  // inside the hook would use report.js as the base and throw, which lands in the
+  // catch path and tests a different branch than the one named here.
+  const realRegistry = require('../../../state/findings-registry');
+  const originalRequire = Module.prototype.require;
+  const fixture = createMockRepoFixture();
+  Module.prototype.require = function (id) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return {
+        readInventory: () => fixture.sealedDoc,
+        buildInventory: () => ({ items: fixture.liveItems, stats: { by_source: {} } }),
+        readDispositions: () => ({ ok: true, lines: fixture.dispositions }),
+        SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+        foldDispositions: (lines) => {
+          const m = new Map();
+          for (const l of lines) m.set(l.item_id, l);
+          return m;
+        },
+      };
+    }
+    if (id === '../../state/findings-registry') {
+      return Object.assign({}, realRegistry, {
+        readAll: () => ({ findings: {} }),      // truthy, not an array
+      });
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const out = require('../report.js').buildClosureReport(REPO_ROOT);
+    const row = out.ledgers.find((l) => l.name === 'findings-registry');
+    assert.strictEqual(row.closed, null, '0/0 would be a claim; null is the honest answer');
+    assert.strictEqual(row.total, null);
+    assert.ok(out.degraded.some((d) => d.name === 'findings-registry'
+      && /no findings array/.test(d.reason)));
+  } finally {
+    Module.prototype.require = originalRequire;
+    delete require.cache[require.resolve('../report.js')];
+  }
+});
+
+test('(r1) DD4 — fixed <= resolved <= closed on the row, and all three null together',
+  withFixtures((t, report) => {
+    const out = report.buildClosureReport(REPO_ROOT);
+    const row = out.ledgers.find((l) => l.name === 'disposition-ledger');
+    assert.ok(Object.prototype.hasOwnProperty.call(row, 'resolved'));
+    assert.ok(Object.prototype.hasOwnProperty.call(row, 'fixed'));
+    assert.ok(row.fixed <= row.resolved && row.resolved <= row.closed,
+      'fixed ' + row.fixed + ' <= resolved ' + row.resolved + ' <= closed ' + row.closed);
+    // And the registry row, which counts closures rather than dispositions, must
+    // NOT carry them — the renderer keys its label off the key's presence.
+    const reg = out.ledgers.find((l) => l.name === 'findings-registry');
+    assert.ok(!Object.prototype.hasOwnProperty.call(reg, 'resolved'));
+  }));
+
+test('(v4) an unanswerable validity check is unknown, not clean', () => {
+  const Module = require('node:module');
+  const originalRequire = Module.prototype.require;
+  const fixture = createMockRepoFixture();
+  const base = {
+    readInventory: () => fixture.sealedDoc,
+    buildInventory: () => ({ items: fixture.liveItems, stats: { by_source: {} } }),
+    readDispositions: () => ({ ok: true, lines: fixture.dispositions }),
+    SUPPRESSING_DISPOSITIONS: ['fixed', 'obsolete', 'superseded', 'duplicate'],
+    foldDispositions: (lines) => {
+      const m = new Map();
+      for (const l of lines) m.set(l.item_id, l);
+      return m;
+    },
+  };
+
+  // `verifyDispositions` has early returns (no seal, unreadable ledger) whose
+  // shape omits the count entirely. `undefined > 0` is false, so a bare `> 0`
+  // test reads "not invalid" — a success-direction default, which is the exact
+  // pathology this PRD names. Both unanswerable shapes must degrade.
+  const shapes = [
+    { label: 'no count reported', verifyDispositions: () => ({ ok: false }) },
+    { label: 'validator threw', verifyDispositions: () => { throw new Error('boom'); } },
+  ];
+  for (const shape of shapes) {
+    Module.prototype.require = function (id) {
+      if (id === '../msw-metrics/debt-inventory') {
+        return Object.assign({}, base, { verifyDispositions: shape.verifyDispositions });
+      }
+      return originalRequire.apply(this, arguments);
+    };
+    try {
+      delete require.cache[require.resolve('../report.js')];
+      const out = require('../report.js').buildClosureReport(REPO_ROOT);
+      const row = out.ledgers.find((l) => l.name === 'disposition-ledger');
+      assert.strictEqual(row.closed, null, shape.label + ': must not report a count');
+      assert.strictEqual(out.dispositions, null, shape.label);
+      assert.ok(out.degraded.some((d) => d.name === 'disposition-validity'), shape.label);
+    } finally {
+      Module.prototype.require = originalRequire;
+      delete require.cache[require.resolve('../report.js')];
+    }
+  }
+
+  // Positive control: a validator that answers 0 lets the row report numbers, so
+  // the nulls above come from unanswerability and not from the mock's presence.
+  Module.prototype.require = function (id) {
+    if (id === '../msw-metrics/debt-inventory') {
+      return Object.assign({}, base, { verifyDispositions: () => ({ invalid_dispositions: 0 }) });
+    }
+    return originalRequire.apply(this, arguments);
+  };
+  try {
+    delete require.cache[require.resolve('../report.js')];
+    const out = require('../report.js').buildClosureReport(REPO_ROOT);
+    const row = out.ledgers.find((l) => l.name === 'disposition-ledger');
+    assert.ok(typeof row.closed === 'number');
+    assert.ok(!out.degraded.some((d) => d.name === 'disposition-validity'));
   } finally {
     Module.prototype.require = originalRequire;
     delete require.cache[require.resolve('../report.js')];

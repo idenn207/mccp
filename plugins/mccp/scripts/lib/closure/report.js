@@ -76,6 +76,64 @@ function scrubPathsFromMessage(message, repoRoot) {
   });
 }
 
+// closure-accounting M3 (DD5) — per-channel counts over FOLDED records. The
+// adjudication and closure events carry no `gate_id` of their own; the folded
+// record inherits it from the opened event, so counting events instead of
+// records would drop every one of them into `unattributed`.
+function emptyObserved() {
+  return { total: 0, open: 0, accepted: 0, closed: 0, by_closure_type: {} };
+}
+
+function countByChannel(registry, findings) {
+  const buckets = {};
+  for (const c of registry.PRODUCER_CHANNELS) buckets[c.channel] = emptyObserved();
+  buckets[registry.UNATTRIBUTED_CHANNEL] = emptyObserved();
+
+  for (const f of findings) {
+    if (!f) continue;
+    // A channel the oracle knows but this report does not is still counted —
+    // falling back to the unattributed bucket keeps the partition invariant
+    // (channel totals sum to the ledger total) true by construction.
+    const bucket = buckets[registry.channelOf(f)] || buckets[registry.UNATTRIBUTED_CHANNEL];
+    bucket.total += 1;
+    if (f.state === 'closed') {
+      bucket.closed += 1;
+      const type = f.closure_type || 'untyped';
+      bucket.by_closure_type[type] = (bucket.by_closure_type[type] || 0) + 1;
+    } else {
+      bucket.open += 1;
+      // `accepted` is a SUBSET of open, reported beside it rather than folded
+      // into it: an accepted finding is one the author agreed to fix, which is
+      // not the same event as having fixed it (UI2).
+      if (f.state === 'accepted') bucket.accepted += 1;
+    }
+  }
+  return buckets;
+}
+
+function buildProducers(registry, findings, findingsUnknown) {
+  const counts = findingsUnknown ? null : countByChannel(registry, findings);
+  const rows = registry.PRODUCER_CHANNELS.map(function (c) {
+    return {
+      channel: c.channel,
+      registers: c.registers,
+      pending_owner: c.pending_owner,
+      reachable: { adjudicated: c.adjudicated, closure_types: c.closure_types.slice() },
+      observed: counts ? counts[c.channel] : null,
+    };
+  });
+  rows.push({
+    channel: registry.UNATTRIBUTED_CHANNEL,
+    // Not a producer: nothing is declared about what it can reach, and saying
+    // `false` would claim knowledge this row exists precisely because we lack.
+    registers: null,
+    pending_owner: null,
+    reachable: null,
+    observed: counts ? counts[registry.UNATTRIBUTED_CHANNEL] : null,
+  });
+  return rows;
+}
+
 /**
  * buildClosureReport(repoRoot) — pure oracle, no side effects
  *
@@ -274,6 +332,65 @@ function buildClosureReport(repoRoot) {
     };
   }
 
+  // DD3 — the report BORROWS `verify`'s judgment instead of re-deriving it.
+  //
+  // Until M4 this file never called `validateDisposition` at all, so a line could
+  // carry any string as its disposition and still be counted as closed: rewriting
+  // every judgment to `NOT_A_REAL_ENUM` reproduced `closed: 1115 · pct: 100 ·
+  // degraded: []` — a fresh route to the comfortable 100% this milestone exists to
+  // remove. Reassembling the validator here would just create a second opinion
+  // that can drift from the gate's; the gate already computes this.
+  //
+  // `verify` checks every line under the CURRENT sha, not the folded record, so a
+  // single old invalid line that was later corrected still nulls the row. That is
+  // the conservative direction and it agrees with the gate.
+  //
+  // An answer that is not a number is not zero (backlog 2026-09-14 MEDIUM): the
+  // early returns inside `verifyDispositions` omit the field entirely, and
+  // `undefined > 0` is false — a success-direction default, which is the exact
+  // pathology this PRD is about. A mocked module without the function is skipped,
+  // the same carve-out `inventoryHash` above already uses.
+  let dispositionValidity = null;
+  // Hoisted: the ancestry depth below is read from this same answer (M5 DD3).
+  let verified = null;
+  if (typeof debtInv.verifyDispositions === 'function') {
+    try {
+      verified = debtInv.verifyDispositions(repoRoot);
+    } catch (err) {
+      dispositionValidity = {
+        name: 'disposition-validity',
+        reason: scrubPathsFromMessage(
+          'the disposition validator threw: ' + (err.message || String(err)), repoRoot),
+      };
+    }
+    if (!dispositionValidity) {
+      const invalid = verified && verified.invalid_dispositions;
+      if (typeof invalid !== 'number') {
+        dispositionValidity = {
+          name: 'disposition-validity',
+          reason: 'the disposition validator reported no invalid_dispositions count, '
+            + 'so validity is unknown — not assumed clean',
+        };
+      } else if (invalid > 0) {
+        dispositionValidity = {
+          name: 'disposition-validity',
+          reason: invalid + ' disposition line(s) fail the validator the gate uses, '
+            + 'so the closed count cannot be trusted',
+        };
+      }
+    }
+  }
+
+  // One place decides whether the disposition axis is countable, and one list
+  // names WHY in the order a reader should look. A corrupt seal and a malformed
+  // ledger and an invalid judgment are three different failures; telling a reader
+  // the wrong one sends them to the wrong file.
+  const disposalBlockers = [];
+  if (sealDigestMismatch) disposalBlockers.push('seal digest does not match its items');
+  if (dispositionValidity) disposalBlockers.push('invalid dispositions');
+  if (disposalDegraded) disposalBlockers.push('ledger has malformed lines');
+  const disposalBlocked = disposalBlockers.length > 0;
+
   // Read live inventory (buildInventory throws on failure)
   let liveInventory = null;
   let buildError = null;
@@ -295,7 +412,13 @@ function buildClosureReport(repoRoot) {
         by_source: sealBySource,
         age_days: ageDays,
       },
-      dispositions: {
+      // B15 — what this path reports must not depend on which failure happened
+      // FIRST. A corrupt seal or an invalid ledger observed above is still true
+      // when `buildInventory` throws afterwards, and the old early return
+      // dropped both: it published a confident `dispositions` block and a
+      // degraded list holding only the build error. Same nulling rule as the
+      // normal path, so the two cannot disagree about one measurement.
+      dispositions: disposalBlocked ? null : {
         total: sealItems,
         by_disposition: dispositionsByType,
         disposed: disposedCount,
@@ -303,9 +426,21 @@ function buildClosureReport(repoRoot) {
         fixed: fixedCount,
         suppressing: debtInv.SUPPRESSING_DISPOSITIONS,
       },
-      degraded: [buildError],
+      degraded: [buildError]
+        .concat(sealDigestMismatch ? [sealDigestMismatch] : [])
+        .concat(dispositionValidity ? [dispositionValidity] : [])
+        .concat(disposalDegraded ? [disposalDegraded] : []),
     });
   }
+
+  // Ancestry depth is read from the `verify` answer above rather than from a
+  // second `sealAncestry` call (closure-accounting M5 DD3, backlog 1842), so the
+  // report cannot disagree with `verify` about how deep the chain is — it is the
+  // same number. No verify answer (module without the function, a throw, an
+  // early return that omits the field) is `null`, never 0.
+  const sealAncestryDepth = verified && Number.isInteger(verified.ancestry_depth)
+    ? verified.ancestry_depth
+    : null;
 
   // Check for live inventory degradation (C5)
   if (liveInventory.stats && liveInventory.stats.findings_degraded) {
@@ -356,6 +491,14 @@ function buildClosureReport(repoRoot) {
   const sealedNotLive = identityIncomplete
     ? null
     : sealIdList.filter(function (id) { return !liveIdSet.has(id); }).length;
+  // closure-accounting M5 (MF2 · DD4) — how many of those carry a judgment bound
+  // to the CURRENT seal. Those are the judgments the next re-seal reports as
+  // `dropped`: nothing live is left to attach them to. The usual cause is a
+  // backlog row edited in place (`rowId` hashes every cell). Unknown when either
+  // the identities or the disposition axis cannot be trusted.
+  const sealedNotLiveDisposed = (identityIncomplete || disposalBlocked)
+    ? null
+    : sealIdList.filter(function (id) { return !liveIdSet.has(id) && folded.has(id); }).length;
   const netChange = liveItems - sealItems;
   const gapPct = (gapCount !== null && liveItems > 0)
     ? parseFloat((gapCount * 100 / liveItems).toFixed(2))
@@ -366,8 +509,14 @@ function buildClosureReport(repoRoot) {
   let findingsDegraded = [];
   let findingsIncomplete = false;
   let findingsInfo = { opened: 0, closed: 0 };
+  // closure-accounting M3 — the folded records and the module itself are needed
+  // again below, for the per-channel `producers` block. Hoisted rather than
+  // re-required so a single read failure produces a single diagnosis.
+  let registryModule = null;
+  let findingsList = [];
   try {
     const registry = require('../../state/findings-registry');
+    registryModule = registry;
     const allFindings = registry.readAll({ repoRoot });
 
     // `degraded` is a BOOLEAN and the reasons are strings in `degraded_reasons`
@@ -389,7 +538,20 @@ function buildClosureReport(repoRoot) {
       });
     }
 
+    // B18 — a registry that answers without a `findings` array has not answered.
+    // The old shape fell through this `if` and left `findingsInfo` at its `{0,0}`
+    // initialiser, so the row published `0 / 0` with an empty degraded[] — a
+    // measurement claim made from no measurement.
+    if (allFindings && !Array.isArray(allFindings.findings)) {
+      findingsIncomplete = true;
+      findingsDegraded.push({
+        name: 'findings-registry',
+        reason: 'readAll returned no findings array',
+      });
+    }
+
     if (allFindings && Array.isArray(allFindings.findings)) {
+      findingsList = allFindings.findings;
       // Count opened vs closed (non-closed is open per upstream countFindings)
       let opened = 0;
       let closed = 0;
@@ -427,23 +589,48 @@ function buildClosureReport(repoRoot) {
   // measurement, and the confident one is the one a reader quotes.
   ledgers.push({
     name: 'disposition-ledger',
-    closed: (disposalDegraded || sealDigestMismatch) ? null : disposedCount,
-    total: (disposalDegraded || sealDigestMismatch) ? null : sealItems,
-    pct: (!disposalDegraded && !sealDigestMismatch && sealItems > 0)
+    closed: disposalBlocked ? null : disposedCount,
+    total: disposalBlocked ? null : sealItems,
+    pct: (!disposalBlocked && sealItems > 0)
       ? parseFloat((disposedCount * 100 / sealItems).toFixed(2))
       : null,
-    // The note must name the ACTUAL reason: a corrupt seal and a malformed
-    // ledger are different failures, and a reader who is told the wrong one
-    // looks in the wrong place.
-    denominator_note: (disposalDegraded || sealDigestMismatch)
+    // DD4 — `closed` keeps its name (the baseline-subset test fixes the shape),
+    // but it cannot travel alone. Of the 1101 it counts here, 970 are `deferred`:
+    // read as a closure rate it says 38.75% of the debt is dealt with, when what
+    // is dealt with is 131 and what is FIXED is 1. Three different questions,
+    // three numbers, same null rule — a reader quoting one of them can see the
+    // other two beside it.
+    resolved: disposalBlocked ? null : resolvedCount,
+    fixed: disposalBlocked ? null : fixedCount,
+    denominator_note: disposalBlocked
       ? 'sealed inventory at ' + (sealedAtCommit || 'unknown')
-        + ' — NOT COUNTED ('
-        + (sealDigestMismatch
-          ? 'seal digest does not match its items'
-          : 'ledger has malformed lines')
-        + '; see degraded)'
+        + ' — NOT COUNTED (' + disposalBlockers[0] + '; see degraded)'
       : 'sealed inventory at ' + (sealedAtCommit || 'unknown'),
   });
+
+  // closure-accounting M3 (DD4/DD5) — the registry row carries its own producer
+  // reachability. Without it, `Closed 21 / 1280 · 1.64%` reads as a debt closure
+  // rate, while most of that denominator comes from the panel channel, which
+  // cannot close anything on the default review path. The footnote that fixes
+  // that misreading has to travel with the number, not sit in a doc.
+  //
+  // `reachable` is static declaration data and stays even when the registry is
+  // degraded; `observed` is measurement and goes null with everything else.
+  let producers = null;
+  let producersDegraded = null;
+  if (registryModule
+    && Array.isArray(registryModule.PRODUCER_CHANNELS)
+    && typeof registryModule.channelOf === 'function') {
+    producers = buildProducers(registryModule, findingsList, findingsUnknown);
+  } else {
+    // A silent null here would look exactly like "this registry has no channels".
+    producersDegraded = {
+      name: 'findings-producers',
+      reason: findingsError
+        ? 'findings registry unreadable — producer channels not resolved'
+        : 'findings registry module exports no PRODUCER_CHANNELS/channelOf',
+    };
+  }
 
   // Findings registry ledger
   ledgers.push({
@@ -454,25 +641,45 @@ function buildClosureReport(repoRoot) {
     denominator_note: findingsUnknown
       ? 'live registry entries — NOT COUNTED (unreadable or partially read; see degraded)'
       : 'live registry entries',
+    producers: producers,
   });
 
   // Build reseal warning if gap > 0. Suppressed when the ledger is malformed:
   // the warning quotes a disposition count, and quoting a number the row above
   // just declared NOT COUNTED is the same contradiction in a second place.
+  // The old text said re-sealing was a future milestone's responsibility and that
+  // it would "unbind all N disposition records". Both halves stopped being true
+  // once the succession path landed: there is a tool, and it carries the judgments
+  // forward instead of unbinding them. What it CANNOT carry is the part worth
+  // naming here — an item that is no longer live gets no carried line, and an item
+  // whose cross-reference no longer resolves is left unjudged on purpose.
+  //
+  // This names the path and stops there. `closure report` is an instrument, not a
+  // gate: it still exits 0 no matter how large the gap is, and it does not tell
+  // anyone to run anything automatically.
   let resealWarning = null;
-  if (gapCount > 0 && !disposalDegraded && !sealDigestMismatch) {
+  if (gapCount > 0 && !disposalBlocked) {
     resealWarning = (
-      'Re-sealing is M2 responsibility. Calling re-seal now will unbind all ' +
-      disposedCount + ' disposition records from the old inventory ' +
-      '(they are all bound to inventory_sha256=' + inventorySha + ').'
+      gapCount + ' live item(s) are outside the sealed denominator. ' +
+      'Succession is available: `node plugins/mccp/scripts/lib/msw-metrics/reseal.js` ' +
+      'plans it and writes nothing. It carries the ' + disposedCount + ' existing ' +
+      'disposition(s) forward rather than unbinding them, but items that are no ' +
+      'longer live, and items whose duplicate_of no longer resolves, are reported ' +
+      'as dropped or blocked instead of carried.' +
+      (sealedNotLiveDisposed > 0
+        ? ' ' + sealedNotLiveDisposed + ' sealed item(s) that are no longer live still ' +
+          'carry a disposition; the next re-seal reports them as dropped.'
+        : '')
     );
   }
 
   // Collect all degraded errors (print first for visibility per C6)
   const allDegraded = [];
   if (findingsError) allDegraded.push(findingsError);
+  if (producersDegraded) allDegraded.push(producersDegraded);
   for (const d of findingsDegraded) allDegraded.push(d);
   if (disposalDegraded) allDegraded.push(disposalDegraded);
+  if (dispositionValidity) allDegraded.push(dispositionValidity);
   if (sealDigestMismatch) allDegraded.push(sealDigestMismatch);
   if (liveInventoryDegraded) allDegraded.push(liveInventoryDegraded);
   // PR-Codex R1 F1 — an unidentifiable item makes the sealed/live set difference
@@ -494,6 +701,7 @@ function buildClosureReport(repoRoot) {
       pct: gapPct,
       net_change: netChange,
       sealed_not_live: sealedNotLive,
+      sealed_not_live_disposed: sealedNotLiveDisposed,
     };
 
   const suppressingDispositions = debtInv.SUPPRESSING_DISPOSITIONS;
@@ -506,13 +714,17 @@ function buildClosureReport(repoRoot) {
       items: sealItems,
       by_source: sealBySource,
       age_days: ageDays,
+      // How many generations this denominator descends from. `null` when the
+      // chain cannot be judged — the same "unreadable is not zero" rule the rest
+      // of this report follows.
+      ancestry_depth: sealAncestryDepth,
     },
     live: allDegraded.length > 0 && liveInventoryDegraded ? null : {
       items: liveItems,
       by_source: liveBySource,
     },
     denominator_gap: finalDenominatorGap,
-    dispositions: (disposalDegraded || sealDigestMismatch) ? null : {
+    dispositions: disposalBlocked ? null : {
       total: sealItems,
       by_disposition: dispositionsByType,
       disposed: disposedCount,

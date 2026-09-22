@@ -74,9 +74,21 @@ function resolveRoot() {
   return null;
 }
 
-function passthroughStdinAndExit() {
+// `silent`는 **Codex 하네스 전용**이다. Claude 쪽 ALLOW 관용구는 stdin을 stdout으로
+// 되돌리는 것이고 이 저장소의 hook 24곳이 그 형태를 공유한다. 그러나 Codex는 hook
+// stdout을 그 이벤트의 **출력 계약**(`continue`/`stopReason`/`decision` …)으로 파싱하므로,
+// 입력 이벤트를 되돌리면 `hook returned invalid stop hook JSON output`으로 거부한다
+// (2026-09-10 음성 대조 실측: 같은 명령에서 echo면 Stop 3건 전부 Failed, 침묵이면 전부
+// Completed). 빈 stdout은 양 하네스 모두에서 "할 말 없음"이므로 그것이 통과 신호다.
+//
+// 호출 3곳 중 이 인자를 쓰는 것은 하네스 가드 하나뿐이다 — 나머지 둘은 plugin이 실제로
+// 깨진 경로라 Codex가 Failed로 보고하는 것이 옳고, 그 지점에서는 오라클을 로드할 수
+// 없어 하네스를 알 방법도 없다. `MCCP_HARNESS`의 read site를 늘리지 않는 것이 조건이다
+// (registry 선언 evidence는 `harness-ingress.js:101` 하나다).
+function passthroughStdinAndExit(silent) {
   try {
-    process.stdout.write(fs.readFileSync(0, 'utf8'));
+    const raw = fs.readFileSync(0, 'utf8');
+    if (!silent) process.stdout.write(raw);
   } catch (_err) {
     // stdin already drained or closed; nothing to forward.
   }
@@ -109,7 +121,7 @@ function main() {
     const ingress = require(path.join(root, 'scripts', 'lib', 'harness-ingress.js'));
     if (!ingress.shouldRunClaudeHook(process.env)) {
       process.stderr.write('[mccp] bootstrap: skipping Claude-only hook on harness=codex\n');
-      return passthroughStdinAndExit();
+      return passthroughStdinAndExit(true);
     }
   } catch (_err) {
     // 오라클을 못 읽으면 기존 동작을 유지한다 — 가드의 부재가 게이트의 부재보다 낫다.

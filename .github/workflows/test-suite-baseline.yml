@@ -68,9 +68,13 @@ jobs:
       # 같은 test가 로컬에서는 항상 green이었다.
       #
       # `persist-credentials: false` — 기본값(true)은 GITHUB_TOKEN을 `.git/config`의
-      # `http.https://github.com/.extraheader`에 **평문 base64**로 기록한다. 이 workflow는
-      # `pull_request`로 발화하고 전수 스위트는 `paths` 필터와 무관하게 저장소 전체의
-      # tracked `*.test.js`를 돌리므로, PR이 추가한 test가 그 파일을 읽어 실패
+      # `http.https://github.com/.extraheader`에 **평문 base64**로 기록한다. 이 workflow의
+      # 트리거는 `workflow_dispatch` 단독이지만(위 `on:`) 전수 스위트는 저장소 전체의
+      # tracked `*.test.js`를 돌리므로, 임의 브랜치를 ref 로 지정해 dispatch 하면 그
+      # 브랜치가 추가한 test 가 그 파일을 읽어 실패
+      # 메시지에 실을 수 있다 — 위협은 트리거가 아니라 **ref 가 임의라는 것**에서 온다.
+      # (2026-09-08 M4 정정: 이 주석은 트리거를 `pull_request`라 적었으나 실제로는
+      # `workflow_dispatch` 단독이다. 결론은 그대로이고 근거만 정확해졌다.)
       # 메시지에 실을 수 있다. `redact.js`의 `RESIDUAL_PATTERNS`는 경로 패턴 4종뿐이라
       # credential 클래스 커버리지가 0건이고, 그 메시지는 `if: always()`로 조건 없이
       # 올라가는 artifact에 그대로 실린다 (security-reviewer S2, HIGH).

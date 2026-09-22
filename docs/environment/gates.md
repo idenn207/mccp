@@ -413,7 +413,7 @@ node plugins/mccp/scripts/lib/codex-policy.js clear
 
 **한 줄** Codex design-scope preamble.
 
-**소비처** `plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js:275`
+**소비처** `plugins/mccp/scripts/lib/pr-phase-helpers/codex-runner.js:297`
 
 **극성** 미설정이면 **켜져 있다**. 극성은 레지스트리가 선언하고 파서는 읽기만 한다.
 
